@@ -1,0 +1,28 @@
+name: driver_alerts
+severity:
+  levels:
+    - { name: low,      rank: 1, color: "#9cf" }
+    - { name: medium,   rank: 2, color: "#fc6" }
+    - { name: high,     rank: 3, color: "#f63" }
+    - { name: critical, rank: 4, color: "#f00" }
+  default: low
+  mapping:
+    phone_use: medium
+    no_seatbelt: medium
+    smoking: medium
+    eating: low
+    distraction: low
+    drowsiness: high
+    hands_off_wheel: medium
+    STATE_CRITICAL: critical
+dedupe:
+  strategy: by_key_template
+  key_template: "{type}:{entity_id}"
+  window_ms: 60000
+cooldown:
+  per_dedupe_key_ms: 30000
+sinks:
+  - { name: ws,     kind: ws,     params: { channel: "alerts.{entity_id}" } }
+  - { name: pg,     kind: postgres, params: {} }
+  - { name: stdout, kind: stdout,  params: {} }
+persistence_enabled: true

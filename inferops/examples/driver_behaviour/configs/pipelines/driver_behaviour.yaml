@@ -1,0 +1,30 @@
+name: driver_behaviour
+version: 1
+
+source:
+  name: src
+  stage: source_rest
+
+stages:
+  - name: decode
+    stage: decode_any
+    params: { every_n: 1 }
+
+  - name: detect
+    stage: infer
+    params: { model: rfdetr_driver_onnx, fallback_model: rfdetr_driver_synth }
+
+  - name: fuse
+    stage: fuse
+    params: { fusion: driver_fusion }
+
+  - name: alert
+    stage: alert
+    params: { alerts: driver_alerts }
+
+sinks:
+  - name: evidence
+    stage: sink_s3
+    params: { evidence_mode: both }
+
+limits: { max_concurrency: 2, queue_size: 64 }

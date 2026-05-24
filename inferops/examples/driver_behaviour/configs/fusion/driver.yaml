@@ -1,0 +1,84 @@
+name: driver_fusion
+entity_key: stream_id
+signals: [phone_score, seatbelt_score, smoking_score, eating_score, drowsy_ear, drowsy_eye, distracted_score, hand_on_wheel]
+extract:
+  phone_score:    "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('phone',     []))), default=0.0)"
+  seatbelt_score: "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('seatbelt',  []))), default=1.0)"
+  smoking_score:  "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('cigarette', []))), default=0.0)"
+  eating_score:   "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('foodItem',  []))), default=0.0)"
+  drowsy_ear:     "payload.get('drowsy_ear', payload.get('drowsy_score', 0.0)) or 0.0"
+  drowsy_eye:     "payload.get('drowsy_eye', 0.0) or 0.0"
+  distracted_score: "payload.get('distracted_score', payload.get('distracted', 0.0)) or 0.0"
+  hand_on_wheel:  "payload.get('hand_on_wheel', 1.0)"
+derived:
+  phone: "phone_score.fraction_above(0.5)"
+  seatbelt: "seatbelt_score.latest()"
+  smoking: "smoking_score.fraction_above(0.2)"
+  eating: "eating_score.fraction_above(0.5)"
+  drowsy_score: "max(drowsy_ear.latest() or 0.0, drowsy_eye.latest() or 0.0)"
+  distracted: "distracted_score.latest() or 0.0"
+  hand_off_wheel: "1.0 - hand_on_wheel.fraction_above(0.5)"
+windows:
+  phone_score:    { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  seatbelt_score: { kind: rolling_time, duration_ms: 5000, reducers: [latest] }
+  smoking_score:  { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  eating_score:   { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  drowsy_ear:     { kind: ewma, alpha: 0.3, reducers: [latest, mean] }
+  drowsy_eye:     { kind: ewma, alpha: 0.3, reducers: [latest, mean] }
+  distracted_score: { kind: ewma, alpha: 0.3, reducers: [latest, mean] }
+  hand_on_wheel:  { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+rules:
+  - name: phone_use
+    when: "phone >= 0.4"
+    severity: medium
+    cooldown_ms: 30000
+    emit: { type: phone_use }
+  - name: no_seatbelt
+    when: "seatbelt < 0.4"
+    severity: medium
+    cooldown_ms: 60000
+    emit: { type: no_seatbelt }
+  - name: smoking
+    when: "smoking >= 0.2"
+    severity: medium
+    cooldown_ms: 60000
+    emit: { type: smoking }
+  - name: eating
+    when: "eating >= 0.5"
+    severity: low
+    cooldown_ms: 30000
+    emit: { type: eating }
+  - name: distraction
+    when: "distracted >= 0.5"
+    severity: low
+    cooldown_ms: 30000
+    emit: { type: distraction }
+  - name: drowsiness
+    when: "drowsy_score >= 0.5"
+    severity: high
+    cooldown_ms: 30000
+    emit: { type: drowsiness }
+  - name: hands_off_wheel
+    when: "hand_off_wheel >= 0.6"
+    severity: medium
+    cooldown_ms: 30000
+    emit: { type: hands_off_wheel }
+state_machine:
+  initial: NORMAL
+  states: [NORMAL, DISTRACTED, DROWSY, UNSAFE, CRITICAL, RECOVERED]
+  transitions:
+    - { from_state: UNSAFE,     to_state: CRITICAL,   when: "dwell_ms >= 8000", min_dwell_ms: 8000 }
+    - { from_state: NORMAL,     to_state: DROWSY,     when: "drowsy_score >= 0.5", min_dwell_ms: 0 }
+    - { from_state: NORMAL,     to_state: UNSAFE,     when: "phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6", min_dwell_ms: 0 }
+    - { from_state: NORMAL,     to_state: DISTRACTED, when: "distracted >= 0.5 or eating >= 0.5", min_dwell_ms: 0 }
+    - { from_state: DISTRACTED, to_state: DROWSY,     when: "drowsy_score >= 0.5", min_dwell_ms: 0 }
+    - { from_state: DISTRACTED, to_state: UNSAFE,     when: "phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6", min_dwell_ms: 0 }
+    - { from_state: DROWSY,     to_state: UNSAFE,     when: "drowsy_score < 0.25 and (phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6)", min_dwell_ms: 0 }
+    - { from_state: UNSAFE,     to_state: DROWSY,     when: "drowsy_score >= 0.5 and phone < 0.2 and smoking < 0.2 and seatbelt >= 0.4 and hand_off_wheel < 0.3", min_dwell_ms: 1500 }
+    - { from_state: DISTRACTED, to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: DROWSY,     to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: UNSAFE,     to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: CRITICAL,   to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: RECOVERED,  to_state: NORMAL,     when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 4000 }
+outputs:
+  events_topic: inferops.events.driver
