@@ -1,0 +1,473 @@
+@startuml InferOps_Full_Sequence
+
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam sequenceMessageAlign left
+skinparam maxMessageSize 220
+skinparam wrapWidth 240
+skinparam sequence {
+  ArrowColor #333444
+  BoxLineColor #7777AA
+  ParticipantBorderColor #556688
+  ParticipantBackgroundColor #E8EEF8
+  GroupBorderColor #888899
+  GroupHeaderFontStyle bold
+  LifeLineBorderColor #AABBCC
+  LifeLineBackgroundColor #F0F4FF
+  DividerBackgroundColor #DDEEFF
+  DividerFontColor #223366
+}
+
+title InferOps — Full Platform Sequence Diagram\n(Main Pipeline highlighted · Alternatives shown per group)
+
+' ══════════════════════════════
+' PARTICIPANTS
+' ══════════════════════════════
+
+actor       "Client\n(browser / curl / SDK / script)" as Client
+participant "FastAPI\n:8080" as API
+participant "PipelineStore\n/ ModelRegistry\n/ FusionStore\n/ AlertStore" as Store
+participant "PipelineRunner\n(DAG executor)" as Runner
+
+' Sources
+participant "SourceREST\n(passthrough)" as SrcREST #FFFBE8
+participant "SourceRTSP\n(OpenCV + reconnect)" as SrcRTSP #FFF0D8
+participant "SourceMJPEG\n(HTTP multipart)" as SrcMJPEG #FFF0D8
+participant "SourceKafka\n(consumer)" as SrcKafka #FFE8D0
+participant "SourceFolder\n(glob scan)" as SrcFolder #FFE8D0
+
+' Core stages
+participant "DecodeAny\n(image / video / np)" as Decode
+participant "PreprocessGeneric\n(resize · normalize · layout)" as Preproc
+participant "Infer\n(model + fallback)" as Infer
+participant "RouteBy\n(conditional filter)" as Route
+participant "AggregateWindow\n(rolling buffer)" as AggWin
+
+' Inference backends
+participant "Triton Server\n:8001 gRPC\n(GPU / dynamic-batch)" as Triton #E8FFE8
+participant "OnnxRuntime\n(CPU / CUDA)" as ONNX #FFFBD0
+participant "SyntheticBackend\n(demo / CI)" as Synth #FFE8FF
+
+' Fusion + Alert engines
+participant "Fuse Stage\n→ FusionEngine\n(driver_fusion)" as Fuse
+participant "Alert Stage\n→ AlertEngine\n(driver_alerts)" as AlertStage
+
+' Sinks
+participant "SinkS3\n(evidence JSON+JPEG+MP4)" as SinkS3 #D8F0FF
+participant "SinkWS\n(WebSocket hub)" as SinkWS #D8FFD8
+participant "SinkKafka\n(producer)" as SinkKafkaOut #FFE8CC
+participant "SinkPostgres\n(events table)" as SinkPG
+participant "SinkWebhook\n(HTTP POST)" as SinkWebhook
+participant "SinkFile / SinkStdout" as SinkFile
+
+' Infrastructure
+database    "MinIO\n:9000 / :9001\n(S3-compatible)" as MinIO
+database    "Redpanda\n:19092 / :19644\n(Kafka-protocol)" as Redpanda
+database    "PostgreSQL\n(events · jobs · alerts)" as PG
+
+actor       "Dashboard\n:8090" as Dashboard
+actor       "Prometheus\n+ Grafana" as Prom
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  1. SYSTEM STARTUP & AUTOLOAD                                            ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 1 · System Startup — autoload on lifespan() ==
+
+API -> Store : autoload_models()\n↳ scan configs/models/*.yaml\n  + examples/*/configs/models/*.yaml
+Store --> Store : validate ModelSpec YAMLs\n(rfdetr_driver_triton, rfdetr_driver_synth)\ninstantiate backends lazily
+
+API -> Store : autoload_pipelines()\n↳ scan configs/pipelines/*.yaml\n  + examples/*/configs/pipelines/*.yaml
+Store --> Store : validate PipelineSpec YAMLs\n(driver_behaviour, driver_video)
+
+API -> Store : autoload_fusion()\n↳ scan configs/fusion/*.yaml\n  + examples/*/configs/fusion/*.yaml
+Store --> Store : validate FusionSpec YAMLs\n(driver_fusion: signals · windows · rules · FSM)
+
+API -> Store : autoload_alerts()\n↳ scan configs/alerts/*.yaml\n  + examples/*/configs/alerts/*.yaml
+Store --> Store : validate AlertSpec YAMLs\n(driver_alerts: severity · dedupe · sinks)
+
+API -> PG : init_schema()\n↳ CREATE IF NOT EXISTS:\n  events, jobs, alerts, models tables
+note right of API : CORS middleware applied\nRoutes registered:\n  GET  /health\n  GET/POST /v1/models\n  GET  /v1/pipelines\n  POST /v1/infer/{pipeline}\n  POST /v1/run/{pipeline}  (async job)\n  POST /v1/streams          (live)\n  GET  /v1/events · /v1/alerts\n  GET  /v1/evidence\n  GET  /v1/configs\n  GET  /v1/system/status\n  WS   /v1/ws/{channel}
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  2. MAIN PIPELINE — driver_behaviour (sync REST image upload)            ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 2 · MAIN PIPELINE — driver_behaviour · POST /v1/infer/driver_behaviour ==
+
+group #E8F4FF Main: driver_behaviour — REST image → S3 evidence (evidence_mode=both)
+
+  Client -> API : POST /v1/infer/driver_behaviour\nContent-Type: multipart/form-data\nbody: image file (JPEG/PNG)\n      stream_id (form field)
+
+  API -> Store : get_runner("driver_behaviour")
+  Store -> Runner : PipelineRunner(\n  spec, registry=ModelRegistry,\n  transport=get_transport())
+
+  Runner -> Runner : setup()\n↳ linear_order: src → decode → detect → fuse → alert → evidence
+  Runner -> SrcREST  : setup(ctx)  — passthrough source
+  Runner -> Decode   : setup(ctx)
+  Runner -> Infer    : setup(ctx)\n   ↳ load rfdetr_driver_triton spec\n   ↳ load rfdetr_driver_synth  spec (fallback)
+  Runner -> Fuse     : setup(ctx)  → FusionEngine("driver_fusion")
+  Runner -> AlertStage : setup(ctx) → AlertEngine("driver_alerts")\n   ↳ build sinks: WSSink · PostgresSink · StdoutSink
+  Runner -> SinkS3   : setup(ctx)  → MinIO client\n   evidence_mode=both, prefix="evidence/"\n   bucket="inferops", clips_bucket="inferops-clips"
+
+  API -> Runner : run_one(StageItem{\n  stream_id, ts_ms,\n  payload: {image_bytes, stream_id}})
+
+  ' ── Stage 1: DecodeAny ─────────────────────────────────────────────────
+  group #FFFFF0 Stage 1 — DecodeAny
+    Runner -> Decode : process(item)
+    Decode -> Decode : detect key in payload:\n  image_np? → pass-through\n  image_bytes? → cv2.imdecode → image_np\n  video_path? → fan-out N StageItems (one/frame)
+    Decode --> Runner : StageItem{\n  payload: {image_np[H×W×3], width, height}}
+  end
+
+  ' ── Stage 2: Infer ─────────────────────────────────────────────────────
+  group #F0FFF0 Stage 2 — Infer (rfdetr_driver_triton, fallback rfdetr_driver_synth)
+    Runner -> Infer : process(item)
+    Infer -> Infer  : build Frame{stream_id, ts_ms, seq, image_np}
+
+    alt #E0FFE0 [PRIMARY] Triton GPU backend available
+      Infer -> Infer  : preprocess plugin (RFDetrPostprocess.preprocess)\n  ↳ resize → letterbox → NCHW float32 tensor
+      Infer -> Triton : gRPC InferRequest\n  model=rfdetr_driver_behaviour_onnx\n  input: image[1,3,H,W] float32
+      note right of Triton : Triton 23.x\nKIND_GPU · ONNX backend\ndynamic-batch enabled\nVerify: curl :8002/metrics | grep nv_inference_count
+      Triton --> Infer : {logits:[1,Q,C], boxes:[1,Q,4]} (cxcywh normalised)
+      Infer -> Infer  : RFDetrPostprocess.postprocess(raw, frame, spec)\n  ↳ sigmoid(logits) > threshold\n  ↳ cxcywh → xyxy normalised + pixel coords\n  ↳ Detection[]{label, score, box, xyxy_pixels}
+
+    else #FFFFF0 [FALLBACK A] ONNX Runtime (CPU / CUDA)
+      Infer -> Infer  : BackendError from Triton → try fallback_model
+      Infer -> ONNX   : ort.InferenceSession.run(feeds)\n  (async thread-offloaded)
+      ONNX --> Infer  : {logits, boxes}
+      Infer -> Infer  : RFDetrPostprocess → Detection[]
+      note right of ONNX : rfdetr_driver_synth\nbackend: onnxruntime\ndevice.preferred: cpu
+
+    else #FFE8FF [FALLBACK B] Synthetic backend (no weights)
+      Infer -> Synth  : SyntheticDetectorBackend.infer()\n  phone every 3rd call,\n  cigarette every 17th call
+      Synth --> Infer : {logits:[1,20,6], boxes:[1,20,4]}
+      Infer -> Infer  : RFDetrPostprocess → Detection[]
+      note right of Synth : Used in CI / demo mode\nno GPU or ONNX weights needed
+    end
+
+    Infer --> Runner : StageItem{\n  results: [Result{detections[], latency_ms}],\n  payload: {model_selection:{requested, used}}}
+  end
+
+  ' ── Stage 3: Fuse ──────────────────────────────────────────────────────
+  group #FFF8E8 Stage 3 — Fuse (driver_fusion)
+    Runner -> Fuse : process(item)
+    Fuse -> Fuse   : ingest_item(item)\n  entity = item.stream_id
+
+    Fuse -> Fuse   : ── SIGNAL EXTRACTION (extract block) ──\n  phone_score    = max score of class "phone"\n  seatbelt_score = max score of class "seatbelt"  (default 1.0)\n  smoking_score  = max score of class "cigarette"\n  eating_score   = max score of class "foodItem"\n  drowsy_ear     = payload.drowsy_ear\n  drowsy_eye     = payload.drowsy_eye\n  distracted_score = payload.distracted_score\n  hand_on_wheel  = payload.hand_on_wheel   (default 1.0)
+
+    Fuse -> Fuse   : ── WINDOWS (per entity=stream_id) ──\n  phone_score    → rolling_time 5 000 ms  [latest · fraction_above]\n  seatbelt_score → rolling_time 5 000 ms  [latest]\n  smoking_score  → rolling_time 5 000 ms  [latest · fraction_above]\n  eating_score   → rolling_time 5 000 ms  [latest · fraction_above]\n  drowsy_ear     → EWMA α=0.3             [latest · mean]\n  drowsy_eye     → EWMA α=0.3             [latest · mean]\n  distracted_score → EWMA α=0.3          [latest · mean]\n  hand_on_wheel  → rolling_time 5 000 ms  [latest · fraction_above]
+
+    Fuse -> Fuse   : ── DERIVED SIGNALS ──\n  phone         = phone_score.fraction_above(0.5)\n  seatbelt      = seatbelt_score.latest()\n  smoking       = smoking_score.fraction_above(0.2)\n  eating        = eating_score.fraction_above(0.5)\n  drowsy_score  = max(drowsy_ear.latest(), drowsy_eye.latest())\n  distracted    = distracted_score.latest()\n  hand_off_wheel = 1.0 − hand_on_wheel.fraction_above(0.5)
+
+    Fuse -> Fuse   : ── RULE EVALUATION ──\n  phone ≥ 0.4         → emit phone_use      [medium · cd 30 s]\n  seatbelt < 0.4      → emit no_seatbelt   [medium · cd 60 s]\n  smoking ≥ 0.2       → emit smoking        [medium · cd 60 s]\n  eating ≥ 0.5        → emit eating         [low    · cd 30 s]\n  distracted ≥ 0.5    → emit distraction    [low    · cd 30 s]\n  drowsy_score ≥ 0.5  → emit drowsiness     [high   · cd 30 s]\n  hand_off_wheel ≥ 0.6 → emit hands_off_wheel [medium · cd 30 s]
+
+    Fuse -> Fuse   : ── STATE MACHINE ──\n  NORMAL → DISTRACTED  (distracted≥0.5 ∨ eating≥0.5)\n  NORMAL → DROWSY      (drowsy_score≥0.5)\n  NORMAL → UNSAFE      (phone≥0.4 ∨ smoking≥0.2 ∨ seatbelt<0.4 ∨ hand_off_wheel≥0.6)\n  UNSAFE → CRITICAL    (dwell ≥ 8 000 ms)\n  any    → RECOVERED   (all clear, dwell ≥ 1 500 ms)\n  RECOVERED → NORMAL   (all clear, dwell ≥ 4 000 ms)
+
+    Fuse -> Redpanda : aiokafka producer.send_and_wait()\n  topic: inferops.events.driver\n  value: FusionEvent JSON (entity_id, rule, signals, ts_ms, fsm_state)
+    note right of Redpanda : External consumers\n(dashboards, analytics, downstream pipelines)\ncan subscribe to inferops.events.driver
+
+    Fuse --> Runner  : StageItem{\n  payload: {fusion_events:[FusionEvent, ...]}}
+  end
+
+  ' ── Stage 4: Alert ─────────────────────────────────────────────────────
+  group #FFF0F0 Stage 4 — Alert (driver_alerts)
+    Runner -> AlertStage : process(item)
+    AlertStage -> AlertStage : ingest_item(item)\n  reads item.payload.fusion_events
+
+    AlertStage -> AlertStage : _resolve_severity(candidate)\n  mapping: phone_use→medium, no_seatbelt→medium,\n           smoking→medium, eating→low,\n           distraction→low, drowsiness→high,\n           hands_off_wheel→medium, STATE_CRITICAL→critical
+
+    AlertStage -> AlertStage : _allowed()?\n  strategy: by_key_template "{type}:{entity_id}"\n  dedupe window: 60 000 ms\n  cooldown per-key: 30 000 ms
+
+    alt #FFE8E8 Alert passes dedupe + cooldown
+      AlertStage -> AlertStage : Alert{id=UUID, type, entity_id,\n  ts_ms, severity, dedupe_key, payload}
+
+      AlertStage -> SinkWS   : WSSink.emit(alert)\n  channel: "alerts.{entity_id}"
+      SinkWS    -> Dashboard : WS broadcast → alert JSON
+
+      AlertStage -> PG       : INSERT INTO alerts(...)\n  (PostgresSink)
+
+      AlertStage -> AlertStage : StdoutSink → log JSON
+      note right of AlertStage : Optional sinks (configurable in YAML):\n  • WebhookSink → HTTP POST\n  • KafkaSink   → inferops.alerts topic\n  • SlackSink   → Slack webhook (stub)\n  • PluginSink  → custom Python class
+
+    else #F0F0F0 Suppressed (dedupe / cooldown active)
+      AlertStage -> AlertStage : return None — alert dropped
+    end
+
+    AlertStage --> Runner : StageItem{\n  payload: {alerts:[Alert, ...]}}
+  end
+
+  ' ── Sink: SinkS3 ───────────────────────────────────────────────────────
+  group #E8F8FF Sink — SinkS3 (evidence_mode=both)
+    Runner -> SinkS3 : process(item) per emitted frame
+    SinkS3 -> SinkS3 : buffer frame + detections\n  (pre_frames + post_frames for clip)
+
+    SinkS3 -> MinIO  : PUT inferops / evidence/{stream_id}/{ts_ms}.json\n  (detection metadata + alert flags + model_selection)
+
+    SinkS3 -> SinkS3 : _draw_annotations(frame)\n  ↳ colour-coded boxes (seatbelt=green, phone=red,\n    cigarette=orange, foodItem=yellow, person=blue)
+
+    SinkS3 -> MinIO  : PUT inferops-clips / {stream_id}/{ts_ms}.jpg\n  (annotated JPEG frame)
+
+    SinkS3 -> SinkS3 : finalize() — encode MP4 clip\n  (cv2.VideoWriter, pre+post frames around alert)
+    SinkS3 -> MinIO  : PUT inferops-clips / {stream_id}/{clip_ts}.mp4
+
+    SinkS3 --> Runner : StageItem{\n  payload: {evidence_uris:[json_uri, jpg_uri, mp4_uri]}}
+  end
+
+  Runner --> API : outs: [StageItem{results, fusion_events, alerts, evidence_uris}]
+  API    -> API  : _summarize_run()\n  {pipeline_shape, frames, detections_by_class,\n   fusion_events, alerts, evidence_uris}
+  API --> Client : 200 JSON\n  {pipeline, pipeline_shape, frames,\n   detections_by_class, fusion_events,\n   alerts, evidence_uris}
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  3. ALTERNATIVE A — Async Video Job (/v1/run/{pipeline})                 ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 3 · Alternative A — Async video job · POST /v1/run/driver_behaviour ==
+
+group #FFF8E0 Alt A: async video upload (fan-out per frame, background task)
+
+  Client -> API : POST /v1/run/driver_behaviour\n  multipart: video.mp4  (large file)
+  API    -> PG  : create_job(id, status="pending", pipeline, payload)
+  API --> Client : 202 Accepted {job_id}
+
+  API    -> Runner : asyncio.create_task(_run_job(job_id)) [background]
+  Runner -> PG    : update_job(status="running")
+
+  Runner -> Decode : process(item{video_path})\n  cv2.VideoCapture(path)\n  every_n=1 → returns list[StageItem] — one per sampled frame
+
+  note right of Decode : Fan-out: N frames\nRunner calls _through_stages(item)\nfor each frame independently\n→ Infer → Fuse → Alert → SinkS3
+
+  Runner -> Runner : _fan_sinks(all_frame_outs)\n  → SinkS3 processes all frames\n  → finalize() encodes single MP4 clip
+
+  Runner -> PG    : update_job(status="succeeded",\n  result={frames, detections_by_class, alerts, evidence_uris})
+
+  Client -> API   : GET /v1/jobs/{job_id}
+  API    -> PG    : get_job(job_id)
+  API --> Client  : {status:"succeeded", result:{...}}
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  4. ALTERNATIVE B — driver_video pipeline (WebSocket sink)               ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 4 · Alternative B — driver_video pipeline · sink_ws instead of sink_s3 ==
+
+group #E8FFE8 Alt B: driver_video — real-time WS delivery (no S3 write)
+
+  note over Runner : driver_video pipeline shape:\n  src(source_rest)\n  → decode(decode_any)\n  → detect(infer: rfdetr_driver_triton/synth)\n  → fuse(driver_fusion)\n  → alert(driver_alerts)\n  → ws(sink_ws channel="live.{stream_id}")
+
+  Client -> API    : POST /v1/infer/driver_video\n  (image upload, same as main pipeline)
+  Runner -> SinkWS : process(item)\n  → HUB.broadcast("live.{stream_id}",\n    item.model_dump_json())
+  SinkWS -> Dashboard : WS push — full inference result JSON\n  (detections, fusion_events, alerts)
+  API --> Client   : 200 summary (no evidence_uris — no S3 write)
+
+  note right of SinkWS : Dashboard subscribes WS /v1/ws/live.cam1\nfor real-time frame results\nwithout waiting for S3 upload
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  5. ALTERNATIVE C — Live Stream RTSP / MJPEG                             ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 5 · Alternative C — Live stream · POST /v1/streams ==
+
+group #FFF0E0 Alt C: live RTSP / MJPEG stream (long-running async task)
+
+  Client -> API : POST /v1/streams\n  ?pipeline=driver_behaviour\n  &rtsp_url=rtsp://cam1/stream\n  &fps=5\n  &stream_id=cam1
+
+  API -> Runner : _build_live_runner(\n  base_spec,\n  source_stage="source_rtsp",\n  params={url, stream_id="cam1", fps=5.0})
+  note right of Runner : Source replaced with SourceRTSP\n(or SourceMJPEG if mjpeg_url given)\nAll downstream stages unchanged
+
+  API -> API    : asyncio.create_task(runner.start())\n  → stored in _RUNNING[stream_id]
+  API --> Client : 202 {stream_id:"cam1", status:"running"}
+
+  loop every 1/fps=0.2 s
+    SrcRTSP -> SrcRTSP : cv2.VideoCapture.read()\n  (asyncio.to_thread — non-blocking)
+    SrcRTSP -> Runner  : yield StageItem{image_np, stream_id="cam1", ts_ms, seq}
+
+    Runner -> Decode   : process → pass-through\n  (image_np already in payload)
+    Runner -> Infer    : process → Triton / ONNX / Synth
+    Runner -> Fuse     : process → windows · rules · FSM · Redpanda publish
+    Runner -> AlertStage : process → dedupe · severity · fan-out sinks
+    Runner -> SinkS3   : process → evidence JSON + JPEG + MP4 clip
+    AlertStage -> SinkWS : emit(alert)\n  → HUB.broadcast("alerts.cam1")
+    SinkWS -> Dashboard : WS push — alert JSON
+
+    alt RTSP reconnect (camera dropped)
+      SrcRTSP -> SrcRTSP : cap.release() → sleep(reconnect_s=2)\n  → cv2.VideoCapture(url) retry
+    end
+  end
+
+  Client -> API  : DELETE /v1/streams/cam1
+  API    -> Runner : _RUNNING["cam1"].cancel()
+  Runner -> Runner : teardown()\n  ↳ SrcRTSP.cap.release()\n  ↳ SinkS3.finalize() → flush pending clip
+
+  alt MJPEG source alternative
+    note over SrcMJPEG : POST /v1/streams?mjpeg_url=http://cam/mjpeg\nSourceMJPEG reads multipart/x-mixed-replace stream\nIdentical downstream pipeline
+  end
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  6. ALTERNATIVE D — Kafka-sourced Pipeline                               ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 6 · Alternative D — Kafka / Redpanda source pipeline ==
+
+group #FFE8D0 Alt D: Redpanda consumer → pipeline (event-driven ingestion)
+
+  note over SrcKafka : Pipeline YAML configured with:\n  source:\n    stage: source_kafka\n    params: {topic: "ingest.frames", group: "inferops"}
+
+  SrcKafka -> Redpanda : AIOKafkaConsumer.subscribe(\n  topics=["ingest.frames"],\n  group_id="inferops",\n  auto_offset_reset="earliest")
+
+  loop messages available
+    Redpanda -> SrcKafka : Message{topic, value: StageItem JSON,\n  key: stream_id, headers: traceparent}
+    SrcKafka -> SrcKafka : orjson.loads(msg.value) → StageItem
+    SrcKafka -> Runner   : yield StageItem
+
+    Runner -> Decode     : process → image_np / video_path
+    Runner -> Infer      : process → Triton / ONNX
+    Runner -> Fuse       : process → FusionEngine
+    Runner -> AlertStage : process → AlertEngine
+    Runner -> SinkKafkaOut : process → publish result\n  topic: "inferops.events.driver"\n  key: stream_id
+    SinkKafkaOut -> Redpanda : producer.send_and_wait(\n  topic, value=StageItem JSON)
+    SrcKafka -> Redpanda : consumer.commit(msg)
+  end
+
+  note right of SrcKafka : Also available:\n  SourceFolder — glob scan a local dir\n  (stage: source_folder, params: {glob: "data/*.jpg"})
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  7. ALTERNATIVE E — Transport Backend (Redpanda vs InProc)               ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 7 · Alternative E — Transport layer selection ==
+
+group #F0E8FF Alt E: Redpanda (production) vs InProc (dev / test)
+
+  alt INFEROPS_TRANSPORT_KIND=redpanda  [production / staging]
+    Fuse        -> Redpanda : AIOKafkaProducer.send_and_wait()\n  topic: inferops.events.driver\n  max_value_bytes: 64 KiB  (rejects oversized payloads)
+    SinkKafkaOut -> Redpanda : same producer path
+    SrcKafka    -> Redpanda : AIOKafkaConsumer.start()
+    note right of Redpanda : Redpanda 26.1.9\n--smp 1 --mode dev-container --check=false\nKafka-compatible wire protocol\ntopics auto-created via admin API\nRetention: configurable per topic
+
+  else INFEROPS_TRANSPORT_KIND=inproc  [dev / unit tests / make serve-mock]
+    Fuse -> Fuse : InProcTransport._deliver(Message)\n  ↳ asyncio.Queue (maxsize=10 000)\n  ↳ no external broker, no network I/O
+    note right of Fuse : Zero-config dev mode:\nmake serve-mock\nFull pipeline runs in single process\nSame Transport ABC — code is identical
+  end
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  8. ALTERNATIVE F — Inference Backend Fallback Chain                     ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 8 · Alternative F — Model backend fallback chain ==
+
+group #E8FFE8 Alt F: Triton (GPU) → ONNX Runtime (CPU) → Synthetic (demo)
+
+  note over Infer : stage params:\n  model: rfdetr_driver_triton\n  fallback_model: rfdetr_driver_synth
+
+  Infer -> Triton : [Step 1] load_model(rfdetr_driver_behaviour_onnx)\n  gRPC get_model_metadata → validate shapes
+  alt Triton healthy + model loaded  → use Triton
+    Infer -> Triton : InferRequest{inputs, outputs}
+    Triton --> Infer : raw tensor output {logits, boxes}
+    note right of Triton : GPU metrics:\ncurl :8002/metrics | grep nv_inference_count\ncurl :8002/metrics | grep nv_gpu_memory_used_bytes
+
+  else BackendError (Triton down / model missing)  → try fallback
+    Infer -> Infer : last_error captured; retry with fallback_model
+
+    alt rfdetr_driver_synth backend = onnxruntime
+      Infer -> ONNX : InferenceSession(path, providers=["CUDAExecutionProvider","CPUExecutionProvider"])
+      ONNX  --> Infer : {logits, boxes}
+      note right of ONNX : Searches for .onnx file:\n  settings.domain_root / artifact.path\n  settings.model_repository / artifact.path\n  cwd / artifact.path
+
+    else rfdetr_driver_synth backend = synthetic
+      Infer -> Synth : SyntheticDetectorBackend.infer()\n  frame counter drives detections:\n  phone class every 3rd call\n  cigarette class every 17th call
+      Synth --> Infer : {logits:[1,20,6], boxes:[1,20,4]}
+    end
+  end
+
+  Infer -> Infer : RFDetrPostprocess.postprocess(raw, frame, spec)\n  sigmoid(logits) → scores by class\n  filter score > threshold\n  cxcywh → xyxy normalised → xyxy_pixels\n  → Detection[]{label, score, box, xyxy_pixels, attrs}
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  9. ALERT ENGINE — Fan-out & All Sink Kinds                              ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 9 · Alert Engine — full sink fan-out ==
+
+group #FFF0F0 Alert fan-out — driver_alerts sinks + optional kinds
+
+  AlertStage -> AlertStage : submit(AlertCandidate)\n  _resolve_severity → severity level\n  _dedupe_key → "{type}:{entity_id}"\n  _allowed? (dedupe window 60s · cooldown 30s)
+
+  AlertStage -> AlertStage : Alert{id=UUID, type, entity_id,\n  severity, ts_ms, dedupe_key, payload}
+
+  group Active sinks (driver_alerts.yaml)
+    AlertStage -> SinkWS      : WSSink → HUB.broadcast("alerts.{entity_id}")\n  channel format: channel.format(entity_id=..., type=..., severity=...)
+    AlertStage -> PG          : PostgresSink → INSERT INTO alerts
+    AlertStage -> SinkFile    : StdoutSink → print JSON to stdout/logs
+  end
+
+  group Additional sink kinds (configurable in AlertSpec.sinks)
+    AlertStage -> SinkWebhook : WebhookSink → httpx.AsyncClient.post(url, json=alert)
+    AlertStage -> SinkKafkaOut : KafkaSink → topic: "inferops.alerts"\n  key: entity_id.encode()
+    note over AlertStage : SlackSink → Slack webhook (stub, pluggable)\nPluginSink → custom Python class via\n  "module:Class" import path
+  end
+
+  AlertStage -> Prom : ALERTS_EMITTED{type, severity}.inc()
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  10. WEBSOCKET LIVE FEED                                                  ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 10 · WebSocket live feed — /v1/ws/{channel} ==
+
+group #E8FFE8 WS live: alerts channel + inference result channel
+
+  Dashboard -> API : WS CONNECT /v1/ws/alerts.cam1
+  API       -> SinkWS : HUB.subscribe("alerts.cam1", websocket)
+
+  loop stream running
+    AlertStage -> SinkWS : HUB.broadcast("alerts.cam1", alert_json)
+    SinkWS     -> Dashboard : WS push → alert JSON
+  end
+
+  Dashboard -> API : WS DISCONNECT
+  API       -> SinkWS : HUB.unsubscribe("alerts.cam1", websocket)
+
+  note over Dashboard : driver_video pipeline also pushes\nfull inference results per-frame:\n  WS /v1/ws/live.cam1\n  → SinkWS channel="live.{stream_id}"
+
+end
+
+
+' ╔═══════════════════════════════════════════════════════════════════════════╗
+' ║  11. OBSERVABILITY                                                        ║
+' ╚═══════════════════════════════════════════════════════════════════════════╝
+== 11 · Observability — metrics, tracing, structured logs ==
+
+group #F5F5FF Observability
+
+  Runner    -> Prom : PIPELINE_RUNS{pipeline, result="ok|error"}.inc()
+  Runner    -> Prom : STAGE_LATENCY{pipeline, stage}.observe(seconds)
+  Infer     -> Prom : INFER_LATENCY{model}.observe(seconds)\n  INFER_BATCH{model}.observe(batch_size)
+  Fuse      -> Prom : FUSION_EVENTS{fusion, rule}.inc()
+  AlertStage -> Prom : ALERTS_EMITTED{type, severity}.inc()
+  SinkKafkaOut -> Prom : TRANSPORT_PRODUCE{topic, result="ok|error|too_large"}.inc()
+  SrcKafka  -> Prom : TRANSPORT_CONSUME{topic, group}.inc()
+
+  Prom -> Prom  : Prometheus scrape :8080/metrics  (30 s)
+  Prom -> Dashboard : Grafana dashboards\n  (pipeline runs · model latency · alert rates · transport lag)
+
+  API -> API    : structlog JSON logs (INFEROPS_LOG_JSON=true)\n  init_tracing() → OpenTelemetry → OTel Collector
+  note right of API : GET /v1/system/status probes:\n  MinIO :9000/minio/health/live\n  Redpanda admin :19644\n  Triton :8000 HTTP ready\n  PostgreSQL connection
+
+end
+
+@enduml

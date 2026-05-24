@@ -1,0 +1,86 @@
+name: inferops
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v23.3.13
+    command:
+      - redpanda
+      - start
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,EXTERNAL://localhost:19092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --check=false
+      - --smp=1
+      - --memory=512M
+      - --reserve-memory=0M
+      - --overprovisioned
+    ports: ["19092:19092"]
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: inferops
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-04-18T19-09-19Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports: ["9000:9000", "9001:9001"]
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    environment:
+      INFEROPS_TRANSPORT_KIND: redpanda
+      INFEROPS_TRANSPORT_BOOTSTRAP: redpanda:9092
+      INFEROPS_REDIS_URL: redis://redis:6379/0
+      INFEROPS_PG_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/inferops
+      INFEROPS_S3_ENDPOINT: http://minio:9000
+      INFEROPS_OBS_LOG_JSON: "false"
+    volumes:
+      - ./configs:/app/configs
+      - ./model_repository:/app/model_repository
+    ports: ["8080:8080"]
+    depends_on:
+      redpanda: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      postgres: { condition: service_healthy }

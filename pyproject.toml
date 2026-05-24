@@ -1,0 +1,9 @@
+[tool.ruff]
+extend = "inferops/pyproject.toml"
+line-length = 110
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["inferops/tests"]
+addopts = "-ra -q"

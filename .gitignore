@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+
+# Models / artifacts
+*.plan
+*.engine
+triton/model_repository/*/[0-9]*/model.plan
+output_onnx/
+
+# Runtime directories (inside project)
+models/
+logs/
+data/
+.demo.db*
+screenshots/
+
+# IDE
+.vscode/
+.idea/
+
+# Tests
+.coverage
+.pytest_cache/
+htmlcov/
+
+# OS
+.DS_Store
+
+# Downloaded tools/binaries
+.tools/
+
+# Models
+*.pth
+*.onnx
+
+*.meta
+*.ckpt
+*bkp
+
+.data/
+.run/
+.cache/
+*.db*
