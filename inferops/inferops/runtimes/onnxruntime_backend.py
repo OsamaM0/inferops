@@ -6,9 +6,11 @@ import time
 from pathlib import Path
 
 from inferops.core.errors import BackendError
-from inferops.obs import INFER_BATCH, INFER_LATENCY
+from inferops.obs import INFER_BATCH, INFER_LATENCY, get_logger
 from inferops.registry.model_spec import ModelSpec
 from inferops.runtimes.base import InferenceBackend
+
+log = get_logger(__name__)
 
 
 class OnnxRuntimeBackend(InferenceBackend):
@@ -54,9 +56,23 @@ class OnnxRuntimeBackend(InferenceBackend):
         providers = ["CPUExecutionProvider"]
         if spec.device.preferred == "gpu":
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        self._sess = ort.InferenceSession(str(p), providers=providers)
+
+        def _create_session(path: str) -> ort.InferenceSession:
+            opts = ort.SessionOptions()
+            # Enable all graph optimisations (constant folding, node fusion, …)
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            # Allow ORT to run independent nodes in parallel threads
+            opts.execution_mode = ort.ExecutionMode.ORT_PARALLEL
+            return ort.InferenceSession(path, providers=providers, sess_options=opts)
+
+        # Run the blocking session-creation in a thread so the event loop stays live
+        self._sess = await asyncio.to_thread(_create_session, str(p))
         self._input_names = [i.name for i in self._sess.get_inputs()]
         self._output_names = [o.name for o in self._sess.get_outputs()]
+        active = self._sess.get_providers()
+        log.info("onnx_session_loaded", model=spec.name,
+                 requested_providers=providers, active_providers=active,
+                 gpu_active=any("CUDA" in ep for ep in active))
 
     async def infer(self, inputs):
         if self._sess is None:

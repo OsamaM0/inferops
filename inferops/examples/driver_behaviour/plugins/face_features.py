@@ -6,8 +6,6 @@ values in ``item.payload['face']`` or provide face-mesh landmarks in
 ``item.payload['face_landmarks']``.
 """
 from __future__ import annotations
-
-import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -25,8 +23,8 @@ LEFT_MOUTH = 61
 RIGHT_MOUTH = 291
 
 EAR_DROWSY_THRESHOLD = 0.21
-DISTRACT_YAW_DEG = 30.0
-DISTRACT_PITCH_DEG = 20.0
+DISTRACT_YAW_DEG = 28.0
+DISTRACT_PITCH_DEG = 28.0
 
 
 def eye_aspect_ratio(points: np.ndarray, indices: Sequence[int]) -> float:
@@ -39,31 +37,35 @@ def eye_aspect_ratio(points: np.ndarray, indices: Sequence[int]) -> float:
 
 
 def head_pose(points: np.ndarray, width: int, height: int) -> dict[str, float]:
-    """Return yaw/pitch/roll in degrees using the legacy tiny PnP model."""
-    import cv2
+    """Return coarse yaw/pitch/roll in degrees from stable landmark geometry."""
+    left_eye = points[LEFT_EYE_OUTER]
+    right_eye = points[RIGHT_EYE_OUTER]
+    nose = points[NOSE_TIP]
+    mouth_mid = (points[LEFT_MOUTH] + points[RIGHT_MOUTH]) / 2.0
+    eye_mid = (left_eye + right_eye) / 2.0
 
-    image_points = np.array([
-        points[NOSE_TIP], points[CHIN], points[LEFT_EYE_OUTER],
-        points[RIGHT_EYE_OUTER], points[LEFT_MOUTH], points[RIGHT_MOUTH],
-    ], dtype=np.float64)
-    model_points = np.array([
-        (0.0, 0.0, 0.0),
-        (0.0, -63.6, -12.5),
-        (-43.3, 32.7, -26.0),
-        (43.3, 32.7, -26.0),
-        (-28.9, -28.9, -24.1),
-        (28.9, -28.9, -24.1),
-    ], dtype=np.float64)
-    focal = float(width)
-    camera = np.array([[focal, 0, width / 2], [0, focal, height / 2], [0, 0, 1]], dtype=np.float64)
-    ok, rvec, _ = cv2.solvePnP(model_points, image_points, camera, np.zeros((4, 1)))
-    if not ok:
-        return {"yaw": 0.0, "pitch": 0.0, "roll": 0.0}
-    rmat, _ = cv2.Rodrigues(rvec)
-    sy = math.sqrt(rmat[0, 0] ** 2 + rmat[1, 0] ** 2)
-    pitch = math.degrees(math.atan2(-rmat[2, 0], sy))
-    yaw = math.degrees(math.atan2(rmat[1, 0], rmat[0, 0]))
-    roll = math.degrees(math.atan2(rmat[2, 1], rmat[2, 2]))
+    left_dist = np.linalg.norm(nose - left_eye)
+    right_dist = np.linalg.norm(nose - right_eye)
+    yaw = float(np.clip(
+        ((left_dist - right_dist) / (left_dist + right_dist + 1e-6)) * 90.0,
+        -45.0,
+        45.0,
+    ))
+
+    face_height = max(np.linalg.norm(mouth_mid - eye_mid), 1.0)
+    eye_to_nose = float(nose[1] - eye_mid[1])
+    nose_to_mouth = float(mouth_mid[1] - nose[1])
+    pitch = float(np.clip(
+        ((eye_to_nose - nose_to_mouth) / (face_height + 1e-6)) * 70.0,
+        -35.0,
+        35.0,
+    ))
+
+    roll = float(np.degrees(np.arctan2(
+        right_eye[1] - left_eye[1],
+        right_eye[0] - left_eye[0],
+    )))
+
     return {"yaw": yaw, "pitch": pitch, "roll": roll}
 
 

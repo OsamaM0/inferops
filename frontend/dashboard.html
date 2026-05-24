@@ -566,6 +566,40 @@
       box-shadow: 0 10px 18px rgba(0, 0, 0, 0.2);
     }
 
+    .preview-box.is-face {
+      border-width: 3px;
+    }
+
+    .preview-box.is-face.is-warn {
+      border-color: var(--warn);
+      background: linear-gradient(180deg, rgba(163, 109, 25, 0.2), rgba(163, 109, 25, 0.04));
+    }
+
+    .preview-box.is-face.is-danger {
+      border-color: var(--err);
+      background: linear-gradient(180deg, rgba(187, 61, 55, 0.22), rgba(187, 61, 55, 0.04));
+    }
+
+    .preview-box-label.is-warn {
+      background: rgba(163, 109, 25, 0.95);
+      color: #fff7eb;
+    }
+
+    .preview-box-label.is-danger {
+      background: rgba(187, 61, 55, 0.95);
+      color: #fff3f2;
+    }
+
+    .chip-warn {
+      background: var(--warn-soft);
+      color: var(--warn);
+    }
+
+    .chip-danger {
+      background: var(--err-soft);
+      color: var(--err);
+    }
+
     .preview-placeholder {
       text-align: center;
       color: rgba(255, 247, 238, 0.82);
@@ -1126,6 +1160,13 @@
           </section>
         </div>
 
+        <section class="stack-card" id="faceMeshSection" style="display:none">
+          <h4>Face Status</h4>
+          <div class="pill-list" id="resultFaceMeshList">
+            <div class="empty-state">No face mesh data in last run.</div>
+          </div>
+        </section>
+
         <pre id="resultJson">Waiting for the first pipeline result.</pre>
       </aside>
     </section>
@@ -1446,11 +1487,122 @@
       return null;
     }
 
+    function clampUnit(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) {
+        return 0;
+      }
+      return Math.max(0, Math.min(1, number));
+    }
+
+    function getFacePoseDegrees(faceMesh) {
+      const pose = faceMesh && faceMesh.face_pose ? faceMesh.face_pose : {};
+      const yawRaw = pose.yaw_deg !== undefined ? pose.yaw_deg : pose.yaw;
+      const pitchRaw = pose.pitch_deg !== undefined ? pose.pitch_deg : pose.pitch;
+      const yaw = Number.isFinite(Number(yawRaw)) ? Number(yawRaw) : null;
+      const pitch = Number.isFinite(Number(pitchRaw)) ? Number(pitchRaw) : null;
+      return { yaw, pitch };
+    }
+
+    function normalizeFaceBox(box) {
+      if (!Array.isArray(box) || box.length !== 4) {
+        return null;
+      }
+      return box.map((value) => clampUnit(value));
+    }
+
+    function buildFaceBoxFromLandmarks(landmarks) {
+      if (!Array.isArray(landmarks) || !landmarks.length) {
+        return null;
+      }
+
+      let minX = 1;
+      let minY = 1;
+      let maxX = 0;
+      let maxY = 0;
+      let validCount = 0;
+
+      for (const landmark of landmarks) {
+        const x = Array.isArray(landmark) ? landmark[0] : landmark && landmark.x;
+        const y = Array.isArray(landmark) ? landmark[1] : landmark && landmark.y;
+        if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) {
+          continue;
+        }
+        const nx = clampUnit(x);
+        const ny = clampUnit(y);
+        minX = Math.min(minX, nx);
+        minY = Math.min(minY, ny);
+        maxX = Math.max(maxX, nx);
+        maxY = Math.max(maxY, ny);
+        validCount += 1;
+      }
+
+      if (!validCount) {
+        return null;
+      }
+
+      const padX = Math.max(0.02, (maxX - minX) * 0.08);
+      const padY = Math.max(0.02, (maxY - minY) * 0.12);
+      return [
+        clampUnit(minX - padX),
+        clampUnit(minY - padY),
+        clampUnit(maxX + padX),
+        clampUnit(maxY + padY),
+      ];
+    }
+
+    function describeFaceStatus(faceMesh) {
+      const labels = [];
+      let tone = "";
+      const drowsyScore = Number(faceMesh && faceMesh.drowsy_ear);
+      const pose = getFacePoseDegrees(faceMesh);
+      const explicitLabel = faceMesh && faceMesh.face_status_label ? String(faceMesh.face_status_label) : "";
+
+      if (explicitLabel) {
+        if (/drowsy/i.test(explicitLabel)) {
+          tone = "is-danger";
+        } else if (/looking/i.test(explicitLabel)) {
+          tone = "is-warn";
+        }
+        return { label: explicitLabel, tone, yaw: pose.yaw, pitch: pose.pitch };
+      }
+
+      if (Number.isFinite(drowsyScore) && drowsyScore >= 0.5) {
+        labels.push("Drowsy");
+        tone = "is-danger";
+      }
+
+      if (pose.yaw !== null && Math.abs(pose.yaw) >= 30) {
+        labels.push(pose.yaw > 0 ? "Looking Left" : "Looking Right");
+        if (!tone) {
+          tone = "is-warn";
+        }
+      } else if (pose.pitch !== null && Math.abs(pose.pitch) >= 20) {
+        labels.push(pose.pitch > 0 ? "Looking Down" : "Looking Up");
+        if (!tone) {
+          tone = "is-warn";
+        }
+      }
+
+      return {
+        label: labels.join(" | ") || "Driver Face",
+        tone,
+        yaw: pose.yaw,
+        pitch: pose.pitch,
+      };
+    }
+
     function renderPreviewAnnotations() {
       const overlay = $("previewOverlay");
       const targetKind = state.previewAnnotationTarget;
       const media = getPreviewMediaElement(targetKind);
-      if (!media || media.classList.contains("hidden") || !state.previewAnnotations.length) {
+      const faceMesh = state.lastResult ? state.lastResult.faceMeshSignals : null;
+      const faceBox = buildFaceBoxFromLandmarks(faceMesh && faceMesh.landmarks)
+        || normalizeFaceBox(faceMesh && faceMesh.face_box);
+      const hasBoxes = state.previewAnnotations.length > 0;
+      const hasFaceBox = Boolean(faceBox);
+
+      if (!media || media.classList.contains("hidden") || (!hasBoxes && !hasFaceBox)) {
         clearPreviewAnnotations({ preserveState: true });
         return;
       }
@@ -1484,7 +1636,7 @@
         offsetX = (containerWidth - renderWidth) / 2;
       }
 
-      overlay.innerHTML = state.previewAnnotations.map((detection) => {
+      const boxHtml = state.previewAnnotations.map((detection) => {
         const [x1, y1, x2, y2] = detection.box;
         const left = offsetX + (x1 * renderWidth);
         const top = offsetY + (y1 * renderHeight);
@@ -1497,6 +1649,24 @@
           </div>
         `;
       }).join("");
+
+      let faceBoxHtml = "";
+      if (faceBox) {
+        const [x1, y1, x2, y2] = faceBox;
+        const faceState = describeFaceStatus(faceMesh);
+        const left = offsetX + (x1 * renderWidth);
+        const top = offsetY + (y1 * renderHeight);
+        const width = Math.max(2, (x2 - x1) * renderWidth);
+        const height = Math.max(2, (y2 - y1) * renderHeight);
+        const labelClass = faceState.tone ? ` ${faceState.tone}` : "";
+        faceBoxHtml = `
+          <div class="preview-box is-face${labelClass}" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;">
+            <span class="preview-box-label${labelClass}">${escapeHtml(faceState.label)}</span>
+          </div>
+        `;
+      }
+
+      overlay.innerHTML = boxHtml + faceBoxHtml;
     }
 
     function extractPreviewDetections(outputs) {
@@ -1597,6 +1767,26 @@
         }
       }
 
+      // Extract face mesh signals from the first item that has them.
+      let faceMeshSignals = null;
+      for (const item of outputs || []) {
+        if (item.payload && item.payload.face_mesh_confidence !== undefined) {
+          faceMeshSignals = {
+            confidence: item.payload.face_mesh_confidence,
+            drowsy_ear: item.payload.drowsy_ear,
+            distracted_score: item.payload.distracted_score,
+            face_pose: item.payload.face_pose || null,
+            face_box: Array.isArray(item.payload.face_box) ? item.payload.face_box : null,
+            face_status_label: item.payload.face_status_label || "",
+            face_source: item.payload.face_source || "",
+            smoking_face_score: item.payload.smoking_face_score,
+            eating_face_score: item.payload.eating_face_score,
+            landmarks: Array.isArray(item.payload.face_landmarks) ? item.payload.face_landmarks : [],
+          };
+          break;
+        }
+      }
+
       return {
         pipeline: selectedDomain() ? selectedDomain().pipeline : "-",
         frames: Array.isArray(outputs) ? outputs.length : 0,
@@ -1605,6 +1795,7 @@
         fusionEvents,
         previewDetections: preview.detections,
         modelsUsed: preview.modelsUsed,
+        faceMeshSignals,
         raw: outputs,
       };
     }
@@ -1622,6 +1813,7 @@
         fusionEvents: Array.isArray(payload && payload.fusion_events) ? payload.fusion_events : [],
         previewDetections: [],
         modelsUsed: Array.isArray(payload && payload.models_used) ? payload.models_used : [],
+        faceMeshSignals: null,
         raw: payload,
       };
     }
@@ -1847,6 +2039,7 @@
         $("resultDetections").textContent = "-";
         $("resultAlertList").innerHTML = '<div class="empty-state">Run the pipeline to populate alert output.</div>';
         $("resultDetectionList").innerHTML = '<div class="empty-state">Detection counts appear here after inference.</div>';
+        $("faceMeshSection").style.display = "none";
         $("resultJson").textContent = "Waiting for the first pipeline result.";
         setPill("resultBadge", "status-info", "No run yet");
         clearPreviewAnnotations();
@@ -1869,6 +2062,51 @@
       $("resultDetectionList").innerHTML = detections.length
         ? detections.map(([label, count]) => `<span class="chip">${escapeHtml(label)} <span class="mono">${escapeHtml(String(count))}</span></span>`).join("")
         : '<div class="empty-state">No detections were reported in the last run.</div>';
+
+      // Face mesh signals panel.
+      const faceMesh = result.faceMeshSignals;
+      const faceMeshSection = $("faceMeshSection");
+      if (faceMesh) {
+        faceMeshSection.style.display = "";
+        const chips = [];
+        const faceState = describeFaceStatus(faceMesh);
+        const pose = getFacePoseDegrees(faceMesh);
+        if (faceMesh.face_source) {
+          chips.push(`<span class="chip">Face source <span class="mono">${escapeHtml(faceMesh.face_source)}</span></span>`);
+        }
+        if (typeof faceMesh.confidence === "number") {
+          chips.push(`<span class="chip">Face conf <span class="mono">${(faceMesh.confidence * 100).toFixed(0)}%</span></span>`);
+        }
+        if (faceState.label !== "Driver Face") {
+          const stateTone = faceState.tone === "is-danger" ? " chip-danger" : faceState.tone === "is-warn" ? " chip-warn" : "";
+          chips.push(`<span class="chip${stateTone}">${escapeHtml(faceState.label)}</span>`);
+        }
+        if (typeof faceMesh.drowsy_ear === "number") {
+          const drowsyTone = faceMesh.drowsy_ear >= 0.5 ? " chip-danger" : "";
+          chips.push(`<span class="chip${drowsyTone}">Drowsy score <span class="mono">${faceMesh.drowsy_ear.toFixed(2)}</span></span>`);
+        }
+        if (typeof faceMesh.distracted_score === "number") {
+          const disTone = faceMesh.distracted_score >= 0.5 ? " chip-warn" : "";
+          chips.push(`<span class="chip${disTone}">Distraction score <span class="mono">${faceMesh.distracted_score.toFixed(2)}</span></span>`);
+        }
+        if (pose.yaw !== null) {
+          chips.push(`<span class="chip">Yaw <span class="mono">${pose.yaw.toFixed(1)}&deg;</span></span>`);
+        }
+        if (pose.pitch !== null) {
+          chips.push(`<span class="chip">Pitch <span class="mono">${pose.pitch.toFixed(1)}&deg;</span></span>`);
+        }
+        if (typeof faceMesh.smoking_face_score === "number" && faceMesh.smoking_face_score > 0) {
+          chips.push(`<span class="chip chip-danger">Smoking <span class="mono">${(faceMesh.smoking_face_score * 100).toFixed(0)}%</span></span>`);
+        }
+        if (typeof faceMesh.eating_face_score === "number" && faceMesh.eating_face_score > 0) {
+          chips.push(`<span class="chip chip-warn">Eating <span class="mono">${(faceMesh.eating_face_score * 100).toFixed(0)}%</span></span>`);
+        }
+        $("resultFaceMeshList").innerHTML = chips.length
+          ? chips.join("")
+          : '<div class="empty-state">Face mesh ran but returned no signals.</div>';
+      } else {
+        faceMeshSection.style.display = "none";
+      }
 
       $("resultJson").textContent = JSON.stringify(result.raw, null, 2);
       setPill("resultBadge", alerts.length || fusionEvents.length || detections.length ? "status-ok" : "status-warn", result.pipeline || "Pipeline result");

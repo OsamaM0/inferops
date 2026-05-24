@@ -4,11 +4,23 @@ signals: [phone_score, seatbelt_score, smoking_score, eating_score, drowsy_ear, 
 extract:
   phone_score:    "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('phone',     []))), default=0.0)"
   seatbelt_score: "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('seatbelt',  []))), default=1.0)"
-  smoking_score:  "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('cigarette', []))), default=0.0)"
-  eating_score:   "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('foodItem',  []))), default=0.0)"
+
+  # Face-mesh–verified smoking: cigarette bbox must intersect the mouth region.
+  # payload.get('smoking_face_score', 0.0) is non-zero only when face mesh ran
+  # and found a cigarette overlapping the mouth; otherwise falls back to the
+  # raw object-detection score via `or`.
+  smoking_score:  "payload.get('smoking_face_score', 0.0) or max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('cigarette', []))), default=0.0)"
+
+  # Face-mesh–verified eating: food bbox must intersect the face/mouth region.
+  eating_score:   "payload.get('eating_face_score', 0.0) or max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('foodItem',  []))), default=0.0)"
+
+  # Eye-aspect-ratio drowsiness from face mesh (overrides legacy drowsy_score).
   drowsy_ear:     "payload.get('drowsy_ear', payload.get('drowsy_score', 0.0)) or 0.0"
   drowsy_eye:     "payload.get('drowsy_eye', 0.0) or 0.0"
+
+  # Head-pose distraction from face mesh (overrides legacy distracted signal).
   distracted_score: "payload.get('distracted_score', payload.get('distracted', 0.0)) or 0.0"
+
   hand_on_wheel:  "payload.get('hand_on_wheel', 1.0)"
 derived:
   phone: "phone_score.fraction_above(0.5)"
@@ -29,7 +41,7 @@ windows:
   hand_on_wheel:  { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
 rules:
   - name: phone_use
-    when: "phone >= 0.4"
+    when: "phone >= 0.4 or phone_score.max() >= 0.5"
     severity: medium
     cooldown_ms: 30000
     emit: { type: phone_use }

@@ -130,7 +130,8 @@ class PipelineRunner:
             raise PipelineError("pipeline has no source; cannot start()")
         if not self._setup_done:
             await self.setup()
-        sem = asyncio.Semaphore(max_concurrency or self.spec.limits.max_concurrency)
+        max_c = max_concurrency or self.spec.limits.max_concurrency
+        sem = asyncio.Semaphore(max_c)
 
         async def _one(it: StageItem) -> None:
             async with sem:
@@ -143,6 +144,13 @@ class PipelineRunner:
 
         tasks: set[asyncio.Task] = set()
         async for item in self._source.run():
+            # Drop incoming frames when all worker slots are occupied.
+            # This keeps end-to-end latency bounded for real-time sources
+            # (RTSP, MJPEG) instead of building an unbounded in-memory queue.
+            if len(tasks) >= max_c:
+                log.debug("frame_dropped", stream_id=item.stream_id,
+                          seq=item.seq, active_tasks=len(tasks))
+                continue
             t = asyncio.create_task(_one(item))
             tasks.add(t)
             t.add_done_callback(tasks.discard)

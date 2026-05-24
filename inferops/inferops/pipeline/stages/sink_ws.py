@@ -1,7 +1,14 @@
 """WebSocket fan-out sink."""
 from __future__ import annotations
 
+import numpy as np
+
 from inferops.pipeline.stage import SinkStage
+
+# Types that cannot be JSON-serialised and must be stripped from the payload
+# before sending over WebSocket (numpy arrays serialised to lists can be
+# hundreds of MB for a single HD frame).
+_STRIP_TYPES = (np.ndarray, bytes, bytearray)
 
 
 class _Hub:
@@ -36,5 +43,10 @@ class SinkWS(SinkStage):
 
     async def process(self, item):
         ch = self.channel.format(stream_id=item.stream_id) if "{" in self.channel else self.channel
-        await HUB.publish(ch, item.model_dump(mode="json"))
+        # Serialise everything except raw image arrays / bytes so the JSON
+        # payload stays small (results, metadata, stream_id, ts_ms, …).
+        data = item.model_dump(mode="json", exclude={"payload"})
+        data["payload"] = {k: v for k, v in item.payload.items()
+                           if not isinstance(v, _STRIP_TYPES)}
+        await HUB.publish(ch, data)
         return None

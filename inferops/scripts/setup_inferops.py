@@ -70,8 +70,14 @@ def _setup_driver_models(repo: Path, *, force: bool) -> None:
     target = repo / "model_repository" / "rfdetr_driver_behaviour_onnx" / "1" / "model.onnx"
     if target.exists() and not force:
         print(f"driver model already exists: {target}")
-        return
-    _run([sys.executable, "scripts/download_rfdetr_driver_model.py"], cwd=repo)
+    else:
+        _run([sys.executable, "scripts/download_rfdetr_driver_model.py"], cwd=repo)
+
+    face_mesh_target = repo / "model_repository" / "face_mesh_onnx" / "1" / "model.onnx"
+    if face_mesh_target.exists() and not force:
+        print(f"face-mesh model already exists: {face_mesh_target}")
+    else:
+        _run([sys.executable, "scripts/download_face_mesh_model.py"], cwd=repo)
 
 
 def _setup_domain_assets(repo: Path, *, domain: str | None, force: bool) -> None:

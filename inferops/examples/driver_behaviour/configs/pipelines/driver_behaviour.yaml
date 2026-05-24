@@ -14,6 +14,14 @@ stages:
     stage: infer
     params: { model: rfdetr_driver_onnx, fallback_model: rfdetr_driver_synth }
 
+  - name: face_mesh
+    stage: examples.driver_behaviour.plugins.face_mesh_stage:FaceMeshStage
+    params:
+      model: face_mesh_onnx
+      fallback_model: face_mesh_synth
+      crop_padding: 0.25
+      face_confidence_threshold: 0.5
+
   - name: fuse
     stage: fuse
     params: { fusion: driver_fusion }
@@ -25,6 +33,8 @@ stages:
 sinks:
   - name: evidence
     stage: sink_s3
-    params: { evidence_mode: both }
+    params:
+      evidence_mode: both
+      annotator: examples.driver_behaviour.plugins.frame_annotator:DriverAnnotator
 
 limits: { max_concurrency: 2, queue_size: 64 }

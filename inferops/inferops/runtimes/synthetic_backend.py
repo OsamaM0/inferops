@@ -28,6 +28,7 @@ class SyntheticDetectorBackend(InferenceBackend):
         tags = spec.tags or {}
         self._phone_every = int(tags.get("phone_every", "3"))
         self._cig_every = int(tags.get("cig_every", "17"))
+        self._driver_every = int(tags.get("driver_every", "0"))
         self._classes = int(tags.get("classes", "6"))
         self._queries = int(tags.get("queries", "20"))
         self._rng = np.random.default_rng(int(tags.get("seed", "0")))
@@ -47,6 +48,10 @@ class SyntheticDetectorBackend(InferenceBackend):
         if self._n % self._cig_every == 0:
             logits[0, 1, 1] = 3.0
             boxes[0, 1] = [0.30, 0.60, 0.06, 0.06]
+        # DriverBehaviour (index 0) – enables face mesh when driver_every > 0
+        if self._driver_every > 0 and self._n % self._driver_every == 0:
+            logits[0, 2, 0] = 4.0         # strong DriverBehaviour signal
+            boxes[0, 2] = [0.50, 0.35, 0.40, 0.50]  # centred face/torso box
 
         return {"logits": logits, "boxes": boxes}
 

@@ -116,6 +116,7 @@ async def get_job_status(job_id: str):
 async def infer(pipeline: str,
                 image: UploadFile | None = OptionalImageFile,
                 stream_id: str = ApiStreamId,
+                model_override: str | None = Form(None),
                 store = PipelinesDep):
     try:
         runner = await store.get_runner(pipeline)
@@ -124,6 +125,8 @@ async def infer(pipeline: str,
     item = StageItem(stream_id=stream_id, ts_ms=now_ms())
     if image is not None:
         item.payload["image_bytes"] = await image.read()
+    if model_override:
+        item.payload["model_override"] = model_override
     outs = await runner.run_one(item)
     # Drop binary payload fields so JSON serialisation works.
     def _slim(o):

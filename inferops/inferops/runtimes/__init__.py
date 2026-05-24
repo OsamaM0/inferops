@@ -18,6 +18,9 @@ def build_backend(spec: ModelSpec, base_dir: Path | None = None) -> InferenceBac
     if spec.backend == "synthetic":
         from inferops.runtimes.synthetic_backend import SyntheticDetectorBackend
         return SyntheticDetectorBackend(base_dir=base_dir)
+    if spec.backend == "synthetic_face_mesh":
+        from inferops.runtimes.synthetic_face_mesh_backend import SyntheticFaceMeshBackend
+        return SyntheticFaceMeshBackend(base_dir=base_dir)
     raise BackendError(f"unknown backend: {spec.backend}")
 
 

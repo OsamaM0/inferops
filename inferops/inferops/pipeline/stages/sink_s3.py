@@ -19,26 +19,23 @@ import numpy as np
 import orjson
 
 from inferops.adapters.s3_client import put_bytes
+from inferops.core.plugins import instantiate
 from inferops.pipeline.stage import Stage
 
-# ── Annotation colours (BGR) ───────────────────────────────────────────────
-_CLASS_COLORS: dict[str, tuple[int, int, int]] = {
-    "seatbelt":  (50, 200,  50),   # green
-    "phone":     (40,  40, 220),   # red
-    "cigarette": ( 0, 130, 255),   # orange
-    "foodItem":  ( 0, 210, 210),   # yellow
-    "person":    (220, 150,  40),  # blue
-}
 _DEFAULT_COLOR: tuple[int, int, int] = (200, 80, 200)   # purple
 
 
-def _draw_annotations(frame: np.ndarray, item) -> np.ndarray:
-    """Return a copy of *frame* with detection boxes + labels drawn."""
+def _draw_annotations(frame: np.ndarray, item, annotator=None) -> np.ndarray:
+    """Return a copy of *frame* with detection boxes + labels drawn.
+
+    Generic detection boxes are always drawn.  An optional *annotator*
+    (a ``FrameAnnotator`` instance supplied by the domain) is called
+    afterwards to add any domain-specific overlays.
+    """
     out = frame.copy()
     h, w = out.shape[:2]
     for result in (item.results or []):
         for det in (result.detections or []):
-            color = _CLASS_COLORS.get(det.label, _DEFAULT_COLOR)
             # Prefer pre-computed pixel coords, else de-normalise
             px = (det.attrs or {}).get("xyxy_pixels")
             if px and len(px) == 4:
@@ -48,13 +45,16 @@ def _draw_annotations(frame: np.ndarray, item) -> np.ndarray:
                 y1 = int(det.box[1] * h)
                 x2 = int(det.box[2] * w)
                 y2 = int(det.box[3] * h)
-            cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(out, (x1, y1), (x2, y2), _DEFAULT_COLOR, 2)
             label = f"{det.label} {det.score:.2f}"
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
             by = max(y1 - 4, th + 6)
-            cv2.rectangle(out, (x1, by - th - 4), (x1 + tw + 4, by), color, cv2.FILLED)
+            cv2.rectangle(out, (x1, by - th - 4), (x1 + tw + 4, by), _DEFAULT_COLOR, cv2.FILLED)
             cv2.putText(out, label, (x1 + 2, by - 2),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
+
+    if annotator is not None:
+        out = annotator(out, item)
     return out
 
 
@@ -81,6 +81,8 @@ class SinkS3(Stage):
         pre_frames: int = 30,
         post_frames: int = 30,
         fps: float = 25.0,
+        annotator: str | None = None,
+        annotator_params: dict | None = None,
         # legacy compat aliases
         upload_image: bool = False,
         clips_on_alert: bool = True,
@@ -93,7 +95,8 @@ class SinkS3(Stage):
 
         super().__init__(prefix=prefix, bucket=bucket, evidence_mode=evidence_mode,
                          clips_bucket=clips_bucket, pre_frames=pre_frames,
-                         post_frames=post_frames, fps=fps)
+                         post_frames=post_frames, fps=fps,
+                         annotator=annotator, annotator_params=annotator_params)
         self.prefix = prefix
         self.bucket = bucket
         self.evidence_mode = evidence_mode.lower()
@@ -101,6 +104,7 @@ class SinkS3(Stage):
         self.pre_frames = pre_frames
         self.post_frames = post_frames
         self.fps = fps
+        self._annotator = instantiate(annotator, annotator_params or {}) if annotator else None
 
         # per-stream buffers: list of (ts_ms, seq, image_np, alert_types_or_None, item_or_None)
         self._buffers: dict = defaultdict(list)
@@ -131,7 +135,7 @@ class SinkS3(Stage):
 
         # Per-frame JPEG for alert frames (mode: image or both)
         if self.evidence_mode in ("image", "both") and alerts and image_np is not None:
-            annotated = _draw_annotations(image_np, item)
+            annotated = _draw_annotations(image_np, item, self._annotator)
             ok, jpg = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 85])
             if ok:
                 alert_tag = "+".join(sorted({a.get("type", "ALERT") for a in alerts}))
@@ -172,7 +176,7 @@ class SinkS3(Stage):
                 len(frames),
             )
             for start, end, types_set, alert_idxs in windows:
-                clip_frames = [_draw_annotations(f[2], f[4]) for f in frames[start : end + 1]]
+                clip_frames = [_draw_annotations(f[2], f[4], self._annotator) for f in frames[start : end + 1]]
                 ts_ms = frames[start][0]
                 alert_tag = "+".join(sorted(types_set))
                 alert_items = [frames[i][4] for i in alert_idxs if frames[i][4] is not None]

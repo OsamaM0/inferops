@@ -11,6 +11,18 @@ from inferops.obs import INFER_BATCH, INFER_LATENCY
 from inferops.registry.model_spec import ModelSpec
 from inferops.runtimes.base import InferenceBackend
 
+# Keep the gRPC channel alive between requests so idle connections are not
+# dropped by intermediate proxies/firewalls (which causes the ~2 s reconnect
+# penalty observed as "huge latency" on the first inference after an idle period).
+_GRPC_CHANNEL_ARGS = [
+    ("grpc.keepalive_time_ms", 30_000),            # ping server every 30 s
+    ("grpc.keepalive_timeout_ms", 5_000),           # give server 5 s to respond
+    ("grpc.keepalive_permit_without_calls", True),  # ping even with no active RPCs
+    ("grpc.http2.max_pings_without_data", 0),       # unlimited pings
+    ("grpc.http2.min_time_between_pings_ms", 10_000),
+    ("grpc.http2.min_ping_interval_without_data_ms", 5_000),
+]
+
 
 class TritonBackend(InferenceBackend):
     def __init__(self, url: str | None = None) -> None:
@@ -30,7 +42,9 @@ class TritonBackend(InferenceBackend):
         if not spec.artifact.triton_model_name:
             raise BackendError(f"model {spec.name}: triton backend requires artifact.triton_model_name")
         self._model_name = spec.artifact.triton_model_name
-        self._client = triton_aio.InferenceServerClient(url=self._url, verbose=False)
+        self._client = triton_aio.InferenceServerClient(
+            url=self._url, verbose=False, channel_args=_GRPC_CHANNEL_ARGS,
+        )
         try:
             meta: dict[str, Any] = await self._client.get_model_metadata(model_name=self._model_name, as_json=True)
             cfg = await self._client.get_model_config(model_name=self._model_name, as_json=True)

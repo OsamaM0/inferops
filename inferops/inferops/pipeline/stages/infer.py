@@ -63,6 +63,10 @@ class Infer(Stage):
             width=item.payload.get("width", 0), height=item.payload.get("height", 0),
             meta=item.payload.setdefault("frame_meta", {}),
         )
+        # Allow per-request model override (e.g. demo / synthetic mode)
+        override = item.payload.pop("model_override", None)
+        if override and override in (self.model, self.fallback_model):
+            return await self._run_with_model(override, item, frame)
         candidates = [self._active_model]
         if self._active_model != self.model:
             return await self._run_with_model(self._active_model, item, frame)

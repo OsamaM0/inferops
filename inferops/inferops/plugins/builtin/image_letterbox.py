@@ -1,6 +1,8 @@
 """Letterbox resize keeping aspect ratio (for YOLO/DETR style models)."""
 from __future__ import annotations
 
+import asyncio
+
 import cv2
 import numpy as np
 
@@ -36,16 +38,23 @@ class Letterbox(Preprocessor):
         img = frame.image
         if img is None:
             raise ValueError("image required")
-        canvas, r, (pad_x, pad_y) = letterbox(img, self.size, self.pad_value)
         in_spec = spec.inputs[0]
-        if in_spec.color == "RGB":
-            canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-        arr = canvas.astype(np.float32) / 255.0
-        if self.normalize:
-            arr = (arr - _IMAGENET_MEAN) / _IMAGENET_STD
-        if in_spec.layout == "NCHW":
-            arr = arr.transpose(2, 0, 1)
-        arr = arr[None, ...]
+        size = self.size
+        pad_value = self.pad_value
+        normalize = self.normalize
+
+        def _process() -> tuple[np.ndarray, float, int, int]:
+            canvas, r, (pad_x, pad_y) = letterbox(img, size, pad_value)
+            if in_spec.color == "RGB":
+                canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+            arr = canvas.astype(np.float32) / 255.0
+            if normalize:
+                arr = (arr - _IMAGENET_MEAN) / _IMAGENET_STD
+            if in_spec.layout == "NCHW":
+                arr = arr.transpose(2, 0, 1)
+            return arr[None, ...].astype(np.float32), r, pad_x, pad_y
+
+        arr, r, pad_x, pad_y = await asyncio.to_thread(_process)
         frame.meta["letterbox"] = {"r": r, "pad_x": pad_x, "pad_y": pad_y, "size": self.size,
                                    "orig_w": img.shape[1], "orig_h": img.shape[0]}
-        return {in_spec.name: arr.astype(np.float32)}
+        return {in_spec.name: arr}
