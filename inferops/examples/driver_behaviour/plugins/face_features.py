@@ -46,8 +46,14 @@ def head_pose(points: np.ndarray, width: int, height: int) -> dict[str, float]:
 
     left_dist = np.linalg.norm(nose - left_eye)
     right_dist = np.linalg.norm(nose - right_eye)
+    # MediaPipe LEFT_EYE_OUTER (33) is the person's anatomical left eye, which
+    # appears on the RIGHT side of the image.  When the driver looks to their
+    # LEFT the face turns to the camera's right, the nose approaches that eye
+    # and left_dist DECREASES while right_dist INCREASES.  Negating the
+    # numerator (right_dist - left_dist) makes yaw > 0 = "driver looking left",
+    # consistent with the Haar-based yaw below.
     yaw = float(np.clip(
-        ((left_dist - right_dist) / (left_dist + right_dist + 1e-6)) * 90.0,
+        ((right_dist - left_dist) / (left_dist + right_dist + 1e-6)) * 90.0,
         -45.0,
         45.0,
     ))
@@ -55,8 +61,16 @@ def head_pose(points: np.ndarray, width: int, height: int) -> dict[str, float]:
     face_height = max(np.linalg.norm(mouth_mid - eye_mid), 1.0)
     eye_to_nose = float(nose[1] - eye_mid[1])
     nose_to_mouth = float(mouth_mid[1] - nose[1])
+    # Calibrated pitch: use the fractional position of the nose between the eye
+    # midpoint and the mouth midpoint.  In a neutral, forward-facing head the
+    # nose sits at roughly 57 % of that span; subtracting 0.57 centres pitch at
+    # zero for a neutral face regardless of camera height.
+    # Positive pitch → nose below the neutral point → driver looking DOWN.
+    # Negative pitch → nose above the neutral point → driver looking UP.
+    total_y = max(abs(eye_to_nose) + abs(nose_to_mouth), 1.0)
+    nose_ratio = eye_to_nose / total_y
     pitch = float(np.clip(
-        ((eye_to_nose - nose_to_mouth) / (face_height + 1e-6)) * 70.0,
+        (nose_ratio - 0.57) * 200.0,
         -35.0,
         35.0,
     ))

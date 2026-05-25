@@ -38,6 +38,9 @@ sinks:
     stage: sink_s3
     params:
       evidence_mode: both
+      trigger_secs: 5.0     # save evidence only after 5 s of continuous alert
+      pre_frames: 125       # ~5 s pre-trigger buffer at 25 fps
+      post_frames: 125      # ~5 s post-trigger buffer at 25 fps
       annotator: examples.driver_behaviour.plugins.frame_annotator:DriverAnnotator
 
 limits: { max_concurrency: 2, queue_size: 64 }

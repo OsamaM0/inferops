@@ -61,8 +61,10 @@ class OnnxRuntimeBackend(InferenceBackend):
             opts = ort.SessionOptions()
             # Enable all graph optimisations (constant folding, node fusion, …)
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            # Allow ORT to run independent nodes in parallel threads
-            opts.execution_mode = ort.ExecutionMode.ORT_PARALLEL
+            # Sequential mode: nodes always execute in the same order, which
+            # avoids floating-point non-determinism from parallel thread scheduling.
+            # This ensures the exact same input always produces the exact same output.
+            opts.execution_mode = ort.ExecutionMode.ORT_PARALELL
             return ort.InferenceSession(path, providers=providers, sess_options=opts)
 
         # Run the blocking session-creation in a thread so the event loop stays live
