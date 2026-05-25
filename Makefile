@@ -11,30 +11,67 @@ DASHBOARD_PORT ?= 8090
 DOMAIN ?=
 DOMAIN_ENV := $(if $(DOMAIN),INFEROPS_ACTIVE_DOMAIN=$(DOMAIN),)
 DOMAIN_ARG := $(if $(DOMAIN),--domain $(DOMAIN),)
+COMMA := ,
+PREWARM_PIPELINE_ENV := $(if $(DOMAIN),INFEROPS_PREWARM_PIPELINES=$(DOMAIN),)
+PREWARM_MODEL_ENV := $(if $(filter $(DOMAIN),driver_behaviour),INFEROPS_PREWARM_MODELS=rfdetr_driver_triton$(COMMA)face_mesh_triton$(COMMA)face_mesh_onnx,)
+TRITON_AUTO_DOMAINS := driver_behaviour
 MINIO_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 REDPANDA_PORT ?= 19092
 REDPANDA_ADMIN_PORT ?= 19644
 MINIO_ROOT_USER ?= minio
 MINIO_ROOT_PASSWORD ?= minio12345
+WITH_TRITON ?= auto
+TRITON_IMAGE ?= nvcr.io/nvidia/tritonserver:24.04-py3
+TRITON_CONTAINER ?= inferops-triton
+TRITON_BIN ?= $(shell command -v tritonserver 2>/dev/null || echo /opt/tritonserver/bin/tritonserver)
+TRITON_HTTP_PORT ?= 8000
+TRITON_GRPC_PORT ?= 8001
+TRITON_METRICS_PORT ?= 8002
+PROMETHEUS_PORT ?= 9090
+GRAFANA_PORT ?= 3000
+PROMETHEUS_BIN ?= $(shell command -v prometheus 2>/dev/null || echo $(TOOLS_BIN_DIR)/prometheus)
+GRAFANA_DIR ?= $(CURDIR)/.tools/grafana
+GRAFANA_BIN ?= $(shell test -x $(GRAFANA_DIR)/bin/grafana && echo $(GRAFANA_DIR)/bin/grafana || echo $(GRAFANA_DIR)/bin/grafana-server)
 API_PID_FILE := $(RUN_DIR)/inferops-api.pid
 DASHBOARD_PID_FILE := $(RUN_DIR)/dashboard.pid
 MINIO_PID_FILE := $(RUN_DIR)/minio.pid
 REDPANDA_PID_FILE := $(RUN_DIR)/redpanda.pid
 MOTO_PID_FILE := $(RUN_DIR)/moto.pid
+TRITON_PID_FILE := $(RUN_DIR)/triton.pid
+PROMETHEUS_PID_FILE := $(RUN_DIR)/prometheus.pid
+GRAFANA_PID_FILE := $(RUN_DIR)/grafana.pid
 API_LOG_FILE := $(LOG_DIR)/inferops-api.log
 DASHBOARD_LOG_FILE := $(LOG_DIR)/dashboard.log
 MINIO_LOG_FILE := $(LOG_DIR)/minio.log
 REDPANDA_LOG_FILE := $(LOG_DIR)/redpanda.log
 MOTO_LOG_FILE := $(LOG_DIR)/moto-s3.log
+TRITON_LOG_FILE := $(LOG_DIR)/triton.log
+PROMETHEUS_LOG_FILE := $(LOG_DIR)/prometheus.log
+GRAFANA_LOG_FILE := $(LOG_DIR)/grafana.log
 MOTO_SERVER := $(CURDIR)/$(APP_DIR)/.venv/bin/moto_server
 MINIO_BIN ?= $(shell command -v minio 2>/dev/null || echo $(TOOLS_BIN_DIR)/minio)
 MC_BIN ?= $(shell command -v mc 2>/dev/null || echo $(TOOLS_BIN_DIR)/mc)
 REDPANDA_BIN ?= $(shell command -v redpanda 2>/dev/null)
 RPK_BIN ?= $(shell command -v rpk 2>/dev/null)
+TRITON_ENABLED := 0
+ifeq ($(WITH_TRITON),auto)
+ifneq ($(filter $(DOMAIN),$(TRITON_AUTO_DOMAINS)),)
+TRITON_ENABLED := 1
+endif
+else ifeq ($(WITH_TRITON),1)
+TRITON_ENABLED := 1
+endif
+SERVE_DEPS := stop start-minio start-redpanda start-prometheus start-grafana
+ifeq ($(TRITON_ENABLED),1)
+SERVE_DEPS += start-triton
+endif
 
 .PHONY: help setup install dev-install setup-models test lint fmt validate serve serve-mock serve-api serve-dashboard stop up down logs \
-	start-minio start-redpanda stop-minio stop-redpanda worker-pipeline worker-topic setup-runtime
+	start-minio start-redpanda start-triton start-prometheus start-grafana \
+	stop-minio stop-redpanda stop-triton stop-prometheus stop-grafana \
+	ensure-topics ensure-buckets status \
+	worker-pipeline worker-topic setup-runtime
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "%-22s %s\n",$$1,$$2}'
@@ -133,26 +170,168 @@ stop-redpanda:
 	@pids=$$(ss -ltnp "( sport = :$(REDPANDA_PORT) )" 2>/dev/null | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u); \
 	if [[ -n "$$pids" ]]; then kill $$pids 2>/dev/null || true; fi
 
-serve: stop start-minio start-redpanda ## Start API, dashboard, real MinIO, and Redpanda locally (primary stack)
+start-triton: ## Start Triton Inference Server in Docker (requires NVIDIA Container Toolkit)
+	@mkdir -p $(RUN_DIR) $(LOG_DIR)
+	@if command -v docker >/dev/null 2>&1; then \
+		if docker ps --format '{{.Names}}' | grep -qx "$(TRITON_CONTAINER)"; then \
+			echo "Triton already running as $(TRITON_CONTAINER)"; \
+		else \
+			docker rm -f $(TRITON_CONTAINER) >/dev/null 2>&1 || true; \
+			nohup docker run --rm --name $(TRITON_CONTAINER) --gpus all \
+				-p $(TRITON_HTTP_PORT):8000 -p $(TRITON_GRPC_PORT):8001 -p $(TRITON_METRICS_PORT):8002 \
+				-v $(CURDIR)/$(APP_DIR)/model_repository:/models:ro \
+				$(TRITON_IMAGE) tritonserver --model-repository=/models --strict-model-config=false --model-control-mode=poll --repository-poll-secs=5 \
+				> $(CURDIR)/$(TRITON_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(TRITON_PID_FILE); \
+		fi; \
+	elif [[ -x "$(TRITON_BIN)" ]]; then \
+		if ss -ltn "( sport = :$(TRITON_HTTP_PORT) )" 2>/dev/null | grep -q ":$(TRITON_HTTP_PORT)"; then \
+			echo "Triton already listening on $(TRITON_HTTP_PORT)"; \
+		else \
+			nohup $(TRITON_BIN) --model-repository=$(CURDIR)/$(APP_DIR)/model_repository \
+				--http-port=$(TRITON_HTTP_PORT) --grpc-port=$(TRITON_GRPC_PORT) --metrics-port=$(TRITON_METRICS_PORT) \
+				--strict-model-config=false --model-control-mode=poll --repository-poll-secs=5 \
+				> $(CURDIR)/$(TRITON_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(TRITON_PID_FILE); \
+		fi; \
+	else \
+		echo "Neither docker nor a native Triton binary was found."; \
+		echo "Install Docker plus NVIDIA Container Toolkit, or make sure $(TRITON_BIN) exists and is executable."; \
+		exit 1; \
+	fi
+	@ready=""; \
+	for attempt in {1..240}; do \
+		if curl -fsS http://127.0.0.1:$(TRITON_HTTP_PORT)/v2/health/ready >/dev/null 2>&1; then ready=1; break; fi; \
+		sleep 0.5; \
+	done; \
+	if [[ -n "$$ready" ]]; then \
+		echo "Triton:        http://127.0.0.1:$(TRITON_HTTP_PORT)  gRPC 127.0.0.1:$(TRITON_GRPC_PORT)  metrics :$(TRITON_METRICS_PORT)"; \
+	else \
+		echo "WARNING: Triton failed to become ready; see $(TRITON_LOG_FILE)"; \
+	fi
+
+stop-triton:
+	@if command -v docker >/dev/null 2>&1; then docker rm -f $(TRITON_CONTAINER) >/dev/null 2>&1 || true; fi
+	@if [[ -f "$(TRITON_PID_FILE)" ]]; then pid=$$(cat $(TRITON_PID_FILE)); kill $$pid 2>/dev/null || true; rm -f $(TRITON_PID_FILE); fi
+	@for port in $(TRITON_HTTP_PORT) $(TRITON_GRPC_PORT) $(TRITON_METRICS_PORT); do \
+		pids=$$(ss -ltnp "( sport = :$$port )" 2>/dev/null | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u); \
+		if [[ -n "$$pids" ]]; then kill $$pids 2>/dev/null || true; fi; \
+		for attempt in {1..50}; do \
+			if ! ss -ltn "( sport = :$$port )" 2>/dev/null | grep -q ":$$port"; then break; fi; \
+			sleep 0.2; \
+		done; \
+	done
+
+start-prometheus: ## Start Prometheus in the background (scrapes API, Triton, DCGM, MinIO, Redpanda)
+	@mkdir -p $(RUN_DIR) $(LOG_DIR) $(DATA_DIR)/prometheus
+	@if [[ ! -x "$(PROMETHEUS_BIN)" ]]; then \
+		echo "prometheus binary not found at $(PROMETHEUS_BIN)"; \
+		echo "Run 'make setup-runtime' to download Prometheus."; \
+		exit 1; \
+	fi
+	@if ss -ltn "( sport = :$(PROMETHEUS_PORT) )" 2>/dev/null | grep -q ":$(PROMETHEUS_PORT)"; then \
+		echo "Prometheus already listening on $(PROMETHEUS_PORT)"; \
+	else \
+		nohup $(PROMETHEUS_BIN) \
+			--config.file=$(CURDIR)/$(APP_DIR)/observability/prometheus.yml \
+			--storage.tsdb.path=$(CURDIR)/$(DATA_DIR)/prometheus \
+			--web.listen-address=:$(PROMETHEUS_PORT) \
+			--web.enable-lifecycle \
+			> $(CURDIR)/$(PROMETHEUS_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(PROMETHEUS_PID_FILE); \
+		for attempt in {1..60}; do \
+			if curl -fsS http://127.0.0.1:$(PROMETHEUS_PORT)/-/ready >/dev/null 2>&1; then break; fi; \
+			sleep 0.2; \
+		done; \
+	fi
+	@echo "Prometheus:    http://127.0.0.1:$(PROMETHEUS_PORT)"
+
+stop-prometheus:
+	@if [[ -f "$(PROMETHEUS_PID_FILE)" ]]; then pid=$$(cat $(PROMETHEUS_PID_FILE)); kill $$pid 2>/dev/null || true; rm -f $(PROMETHEUS_PID_FILE); fi
+	@pids=$$(ss -ltnp "( sport = :$(PROMETHEUS_PORT) )" 2>/dev/null | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u); \
+	if [[ -n "$$pids" ]]; then kill $$pids 2>/dev/null || true; fi
+
+start-grafana: ## Start Grafana with auto-provisioned Prometheus datasource and InferOps dashboards
+	@mkdir -p $(RUN_DIR) $(LOG_DIR) $(DATA_DIR)/grafana
+	@if [[ ! -x "$(GRAFANA_BIN)" ]]; then \
+		echo "grafana binary not found at $(GRAFANA_BIN)"; \
+		echo "Run 'make setup-runtime' to download Grafana."; \
+		exit 1; \
+	fi
+	@if ss -ltn "( sport = :$(GRAFANA_PORT) )" 2>/dev/null | grep -q ":$(GRAFANA_PORT)"; then \
+		echo "Grafana already listening on $(GRAFANA_PORT)"; \
+	else \
+		GF_SECURITY_ADMIN_USER=admin GF_SECURITY_ADMIN_PASSWORD=admin \
+		GF_PATHS_DATA=$(CURDIR)/$(DATA_DIR)/grafana \
+		GF_PATHS_LOGS=$(CURDIR)/$(LOG_DIR) \
+		GF_PATHS_PLUGINS=$(CURDIR)/$(DATA_DIR)/grafana/plugins \
+		GF_PATHS_PROVISIONING=$(CURDIR)/$(APP_DIR)/observability/grafana/provisioning \
+		GF_SERVER_HTTP_PORT=$(GRAFANA_PORT) \
+		GF_SERVER_HTTP_ADDR=0.0.0.0 \
+		GF_AUTH_ANONYMOUS_ENABLED=true \
+		GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer \
+		nohup $(GRAFANA_BIN) --homepath $(GRAFANA_DIR) \
+			> $(CURDIR)/$(GRAFANA_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(GRAFANA_PID_FILE); \
+		for attempt in {1..120}; do \
+			if curl -fsS http://127.0.0.1:$(GRAFANA_PORT)/api/health >/dev/null 2>&1; then break; fi; \
+			sleep 0.3; \
+		done; \
+	fi
+	@echo "Grafana:       http://127.0.0.1:$(GRAFANA_PORT)  (admin/admin)"
+
+stop-grafana:
+	@if [[ -f "$(GRAFANA_PID_FILE)" ]]; then pid=$$(cat $(GRAFANA_PID_FILE)); kill $$pid 2>/dev/null || true; rm -f $(GRAFANA_PID_FILE); fi
+	@pids=$$(ss -ltnp "( sport = :$(GRAFANA_PORT) )" 2>/dev/null | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u); \
+	if [[ -n "$$pids" ]]; then kill $$pids 2>/dev/null || true; fi
+
+ensure-topics: ## Create Redpanda topics required by InferOps (alerts, fusion, frames, evidence)
+	@if [[ -z "$(RPK_BIN)" ]]; then echo "rpk not found; run 'make setup-runtime'"; exit 1; fi
+	@for t in inferops.alerts inferops.fusion inferops.frames inferops.evidence; do \
+		$(RPK_BIN) --brokers 127.0.0.1:$(REDPANDA_PORT) topic create $$t -p 3 -r 1 >/dev/null 2>&1 || true; \
+	done
+	@$(RPK_BIN) --brokers 127.0.0.1:$(REDPANDA_PORT) topic list 2>/dev/null | grep '^inferops\.' || true
+
+ensure-buckets: ## Create MinIO buckets required by InferOps (inferops, inferops-clips)
+	@if [[ ! -x "$(MC_BIN)" ]]; then echo "mc not found; run 'make setup-runtime'"; exit 1; fi
+	@$(MC_BIN) alias set inferops-local http://127.0.0.1:$(MINIO_PORT) $(MINIO_ROOT_USER) $(MINIO_ROOT_PASSWORD) >/dev/null 2>&1 || true
+	@for b in inferops inferops-clips; do $(MC_BIN) mb -p inferops-local/$$b >/dev/null 2>&1 || true; done
+	@$(MC_BIN) ls inferops-local 2>/dev/null || true
+
+status: ## Show health of every InferOps stack component
+	@printf "%-14s %s\n" "API"        "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(API_PORT)/healthz 2>/dev/null || echo down)"
+	@printf "%-14s %s\n" "Dashboard"  "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(DASHBOARD_PORT) 2>/dev/null || echo down)"
+	@printf "%-14s %s\n" "MinIO"      "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(MINIO_PORT)/minio/health/live 2>/dev/null || echo down)"
+	@printf "%-14s %s\n" "Redpanda"   "$$($(RPK_BIN) --brokers 127.0.0.1:$(REDPANDA_PORT) cluster info >/dev/null 2>&1 && echo up || echo down)"
+	@printf "%-14s %s\n" "Triton"     "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(TRITON_HTTP_PORT)/v2/health/ready 2>/dev/null || echo down)"
+	@printf "%-14s %s\n" "Prometheus" "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(PROMETHEUS_PORT)/-/ready 2>/dev/null || echo down)"
+	@printf "%-14s %s\n" "Grafana"    "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(GRAFANA_PORT)/api/health 2>/dev/null || echo down)"
+	@printf "%-14s %s\n" "DCGM"       "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:9400/metrics 2>/dev/null || echo down)"
+
+serve: $(SERVE_DEPS) ## Start API, dashboard, MinIO, Redpanda, Prometheus, Grafana, and Triton when WITH_TRITON=1 or auto-enabled for DOMAIN=driver_behaviour
 	@mkdir -p $(RUN_DIR) $(LOG_DIR)
 	@cd $(APP_DIR) && { \
 		$(DOMAIN_ENV) \
+		$(PREWARM_PIPELINE_ENV) \
+		$(PREWARM_MODEL_ENV) \
 		INFEROPS_TRANSPORT_KIND=redpanda \
 		INFEROPS_TRANSPORT_BOOTSTRAP=127.0.0.1:$(REDPANDA_PORT) \
 		INFEROPS_S3_ENDPOINT=http://127.0.0.1:$(MINIO_PORT) \
 		INFEROPS_S3_ACCESS_KEY=$(MINIO_ROOT_USER) \
 		INFEROPS_S3_SECRET_KEY=$(MINIO_ROOT_PASSWORD) \
+		INFEROPS_TRITON_URL=127.0.0.1:$(TRITON_GRPC_PORT) \
+		INFEROPS_TRITON_HTTP_URL=http://127.0.0.1:$(TRITON_HTTP_PORT) \
 		nohup $(PY) -m uvicorn inferops.api.main:app --host 0.0.0.0 --port $(API_PORT) \
 			> $(CURDIR)/$(API_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(API_PID_FILE); }
 	@nohup $(PY) -m http.server $(DASHBOARD_PORT) --directory $(CURDIR)/frontend > $(CURDIR)/$(DASHBOARD_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(DASHBOARD_PID_FILE)
-	@for port in $(API_PORT) $(DASHBOARD_PORT); do \
-		ready=""; \
-		for attempt in {1..150}; do \
-			if ss -ltn "( sport = :$$port )" 2>/dev/null | grep -q ":$$port"; then ready=1; break; fi; \
-			sleep 0.2; \
-		done; \
-		if [[ -z "$$ready" ]]; then echo "WARNING: service on port $$port may not have started."; fi; \
-	done
+	@api_ready=""; \
+	for attempt in {1..300}; do \
+		if curl -fsS http://127.0.0.1:$(API_PORT)/healthz >/dev/null 2>&1; then api_ready=1; break; fi; \
+		sleep 0.2; \
+	done; \
+	if [[ -z "$$api_ready" ]]; then echo "WARNING: API may not have started cleanly."; fi
+	@dashboard_ready=""; \
+	for attempt in {1..150}; do \
+		if ss -ltn "( sport = :$(DASHBOARD_PORT) )" 2>/dev/null | grep -q ":$(DASHBOARD_PORT)"; then dashboard_ready=1; break; fi; \
+		sleep 0.2; \
+	done; \
+	if [[ -z "$$dashboard_ready" ]]; then echo "WARNING: dashboard on port $(DASHBOARD_PORT) may not have started."; fi
 	@echo "InferOps API:  http://127.0.0.1:$(API_PORT)"
 	@echo "Dashboard:     http://127.0.0.1:$(DASHBOARD_PORT)/dashboard.html"
 	@echo "Logs:          $(API_LOG_FILE)  $(DASHBOARD_LOG_FILE)  $(MINIO_LOG_FILE)  $(REDPANDA_LOG_FILE)"
@@ -173,7 +352,7 @@ serve-mock: stop ## Fallback: API + dashboard + Moto S3 mock + inproc transport 
 	@echo "Dashboard:                 http://127.0.0.1:$(DASHBOARD_PORT)/dashboard.html"
 	@echo "S3 (moto mock):            http://127.0.0.1:$(MINIO_PORT)"
 
-stop: stop-minio stop-redpanda ## Stop local API, dashboard, MinIO, Redpanda, and moto mock
+stop: stop-minio stop-redpanda stop-triton stop-prometheus stop-grafana ## Stop local API, dashboard, MinIO, Redpanda, Triton, Prometheus, Grafana, and moto mock
 	@set +e; \
 	for pidfile in "$(API_PID_FILE)" "$(DASHBOARD_PID_FILE)" "$(MOTO_PID_FILE)"; do \
 		if [[ -f "$$pidfile" ]]; then \

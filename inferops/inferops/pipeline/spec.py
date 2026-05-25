@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from inferops.core.tracking import TrackingSpec
+
 
 class StageDecl(BaseModel):
     name: str
@@ -26,4 +28,5 @@ class PipelineSpec(BaseModel):
     sinks: list[StageDecl] = Field(default_factory=list)
     edges: list[list[str]] = Field(default_factory=list)  # if empty, infer linear order
     limits: LimitsSpec = Field(default_factory=LimitsSpec)
+    tracking: TrackingSpec | None = None
     tags: dict[str, str] = Field(default_factory=dict)

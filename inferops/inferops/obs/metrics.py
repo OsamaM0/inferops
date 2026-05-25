@@ -49,6 +49,63 @@ PIPELINE_RUNS = Counter(
     ["pipeline", "result"], registry=REGISTRY,
 )
 
+# ── Real-time streaming / live infer / tracking ──────────────────────────────
+E2E_LATENCY = Histogram(
+    "inferops_e2e_latency_seconds",
+    "End-to-end latency from frame arrival to first WS push",
+    ["pipeline"], registry=REGISTRY,
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 1.0, 2.5),
+)
+STREAMS_ACTIVE = Gauge(
+    "inferops_streams_active", "Number of currently-active live streams",
+    ["pipeline", "source_type"], registry=REGISTRY,
+)
+STREAM_FPS_IN = Gauge(
+    "inferops_stream_fps_in", "Inbound frames per second per stream",
+    ["stream_id"], registry=REGISTRY,
+)
+STREAM_FPS_OUT = Gauge(
+    "inferops_stream_fps_out", "Outbound (processed) frames per second per stream",
+    ["stream_id"], registry=REGISTRY,
+)
+FRAMES_DROPPED = Counter(
+    "inferops_frames_dropped_total", "Frames dropped due to back-pressure",
+    ["pipeline", "reason"], registry=REGISTRY,
+)
+TRACKS_ACTIVE = Gauge(
+    "inferops_tracks_active", "Currently-active object tracks",
+    ["pipeline", "label"], registry=REGISTRY,
+)
+TRACKS_STARTED = Counter(
+    "inferops_tracks_started_total", "Tracks born this process lifetime",
+    ["pipeline", "label"], registry=REGISTRY,
+)
+TRACKS_CLOSED = Counter(
+    "inferops_tracks_closed_total", "Tracks closed (lost) this process lifetime",
+    ["pipeline", "label"], registry=REGISTRY,
+)
+CLASSIFICATIONS = Counter(
+    "inferops_classifications_total", "Classification predictions emitted",
+    ["model", "label"], registry=REGISTRY,
+)
+DETECTIONS = Counter(
+    "inferops_detections_total", "Detection predictions emitted",
+    ["pipeline", "label"], registry=REGISTRY,
+)
+EVIDENCE_UPLOADS = Counter(
+    "inferops_evidence_uploads_total", "Evidence artifacts uploaded",
+    ["bucket", "kind", "result"], registry=REGISTRY,
+)
+EVIDENCE_UPLOAD_LATENCY = Histogram(
+    "inferops_evidence_upload_seconds", "Evidence upload latency",
+    ["bucket", "kind"], registry=REGISTRY,
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+WS_CLIENTS = Gauge(
+    "inferops_websocket_clients", "Connected WebSocket clients per channel",
+    ["channel"], registry=REGISTRY,
+)
+
 
 def metrics_text() -> bytes:
     from prometheus_client import generate_latest

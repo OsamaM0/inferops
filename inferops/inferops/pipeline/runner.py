@@ -53,6 +53,37 @@ class PipelineRunner:
             decls[s.name] = s
         ordered_decls = [decls[n] for n in order_names]
 
+        # Auto-inject tracking stage right after the first `infer` stage if
+        # the pipeline declares a `tracking:` block with `enabled: true` and
+        # the user didn't already place a `track` stage explicitly.
+        tracking = self.spec.tracking
+        if tracking and tracking.enabled and not any(d.stage == "track" for d in ordered_decls):
+            anchor_name = tracking.insert_after or next(
+                (d.name for d in ordered_decls if d.stage == "infer"), ""
+            )
+            if anchor_name:
+                from inferops.pipeline.spec import StageDecl
+                track_decl = StageDecl(
+                    name="auto_track",
+                    stage="track",
+                    params={
+                        "algorithm": tracking.algorithm,
+                        "by": tracking.by,
+                        "max_age": tracking.max_age,
+                        "min_hits": tracking.min_hits,
+                        "iou_threshold": tracking.iou_threshold,
+                        "low_threshold": tracking.low_threshold,
+                        "score_high": tracking.score_high,
+                        "score_low": tracking.score_low,
+                        "per_class": tracking.per_class,
+                        "model_filter": list(tracking.model_filter),
+                    },
+                )
+                idx = next(i for i, d in enumerate(ordered_decls) if d.name == anchor_name)
+                ordered_decls.insert(idx + 1, track_decl)
+                log.info("tracking_auto_injected", pipeline=self.spec.name,
+                         after=anchor_name, algorithm=tracking.algorithm)
+
         for decl in ordered_decls:
             stage = _instantiate(decl)
             ctx = StageContext(pipeline=self.spec.name, name=decl.name, params=decl.params or {},
@@ -106,15 +137,27 @@ class PipelineRunner:
         if self._sinks:
             await asyncio.gather(*[s.finalize() for s in self._sinks], return_exceptions=True)
 
+    async def _run_sinks_bg(self, items: list[StageItem]) -> None:
+        """Fire-and-forget wrapper: run sinks + finalize without blocking the response."""
+        try:
+            await self._fan_sinks(items)
+            await self._finalize_sinks()
+        except Exception:
+            log.exception("sink_background_failed", pipeline=self.spec.name)
+
     async def run_one(self, item: StageItem) -> list[StageItem]:
         if not self._setup_done:
             await self.setup()
         t0 = time.perf_counter()
         try:
             outs = await self._through_stages(item)
-            await self._fan_sinks(outs)
-            await self._finalize_sinks()
+            # Fire evidence/sink writes as a background task so the HTTP
+            # response is returned immediately (P99 latency improvement).
+            asyncio.create_task(self._run_sinks_bg(outs))
             PIPELINE_RUNS.labels(pipeline=self.spec.name, result="ok").inc()
+            if outs:
+                stage_ms = {k: v for k, v in outs[0].trace.items() if k.startswith("stage_ms.")}
+                log.info("pipeline_stage_timings", pipeline=self.spec.name, **stage_ms)
             return outs
         except Exception as e:
             ERRORS.labels(stage=self.spec.name, kind="runner").inc()

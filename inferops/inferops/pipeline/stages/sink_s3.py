@@ -20,6 +20,7 @@ import orjson
 
 from inferops.adapters.s3_client import put_bytes
 from inferops.core.plugins import instantiate
+from inferops.obs import EVIDENCE_UPLOAD_LATENCY, EVIDENCE_UPLOADS
 from inferops.pipeline.stage import Stage
 
 _DEFAULT_COLOR: tuple[int, int, int] = (200, 80, 200)   # purple
@@ -83,16 +84,7 @@ class SinkS3(Stage):
         fps: float = 25.0,
         annotator: str | None = None,
         annotator_params: dict | None = None,
-        # legacy compat aliases
-        upload_image: bool = False,
-        clips_on_alert: bool = True,
     ) -> None:
-        # Legacy shim: map old params to new evidence_mode
-        if evidence_mode == "video" and upload_image:
-            evidence_mode = "both"
-        elif evidence_mode == "video" and not clips_on_alert:
-            evidence_mode = "json"
-
         super().__init__(prefix=prefix, bucket=bucket, evidence_mode=evidence_mode,
                          clips_bucket=clips_bucket, pre_frames=pre_frames,
                          post_frames=post_frames, fps=fps,
@@ -110,6 +102,12 @@ class SinkS3(Stage):
         self._buffers: dict = defaultdict(list)
 
     async def process(self, item):
+        # In live-streaming mode we explicitly skip *all* S3 work — the
+        # WebSocket client is waiting for bounding boxes, not durable
+        # evidence; per-frame PUTs would add ~50–200 ms each.
+        if item.payload.get("live_mode"):
+            return item
+
         uris = []
 
         alerts = item.payload.get("alerts", [])
@@ -189,9 +187,17 @@ class SinkS3(Stage):
     async def _upload_clip(self, stream_id, frames, ts_ms, alert_tag):
         h, w = frames[0].shape[:2]
         key = f"clips/{stream_id}/{ts_ms}_{alert_tag}.mp4"
-        mp4_bytes = await asyncio.to_thread(_encode_mp4, frames, w, h, self.fps)
-        return await put_bytes(key, mp4_bytes, bucket=self.clips_bucket,
-                               content_type="video/mp4")
+        bucket = self.clips_bucket
+        with EVIDENCE_UPLOAD_LATENCY.labels(bucket=bucket, kind="video").time():
+            mp4_bytes = await asyncio.to_thread(_encode_mp4, frames, w, h, self.fps)
+            try:
+                uri = await put_bytes(key, mp4_bytes, bucket=bucket,
+                                      content_type="video/mp4")
+            except Exception:
+                EVIDENCE_UPLOADS.labels(bucket=bucket, kind="video", result="error").inc()
+                raise
+        EVIDENCE_UPLOADS.labels(bucket=bucket, kind="video", result="ok").inc()
+        return uri
 
     async def _upload_clip_and_attach(self, stream_id, frames, ts_ms, alert_tag, alert_items):
         uri = await self._upload_clip(stream_id, frames, ts_ms, alert_tag)

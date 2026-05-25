@@ -999,8 +999,8 @@
                 <input id="cameraStreamIdInput" type="text" value="dashboard-camera" />
               </div>
               <div class="field">
-                <label class="panel-label" for="cameraIntervalInput">Loop interval ms</label>
-                <input id="cameraIntervalInput" type="number" min="400" step="100" value="1500" />
+                <label class="panel-label" for="cameraIntervalInput">Target FPS</label>
+                <input id="cameraIntervalInput" type="number" min="1" max="30" step="1" value="15" />
               </div>
               <div class="field">
                 <label class="panel-label">Camera actions</label>
@@ -1048,9 +1048,9 @@
               </div>
             </div>
             <div class="stack-row">
-              <button class="btn" id="videoRunBtn">Upload and run video</button>
+              <button class="btn" id="videoRunBtn">Stream and analyze video</button>
             </div>
-            <p class="note">Video mode uploads the file to the run-upload endpoint so the complete decode and alert flow runs server-side.</p>
+            <p class="note">Video mode plays the file in-browser and streams frames through the live WS endpoint — bounding boxes and face signals update on the overlay in real time.</p>
           </section>
 
           <section class="mode-panel" id="mode-rtsp">
@@ -1274,6 +1274,15 @@
       cameraLoopEnabled: false,
       cameraLoopBusy: false,
       cameraLoopTimer: null,
+      videoLoopEnabled: false,
+      videoLoopRvfcHandle: 0,
+      liveSocket: null,
+      liveSocketSeq: 0,
+      liveSocketLatency: 0,
+      liveSocketFps: 0,
+      liveSocketLastFrameAt: 0,
+      liveSocketFrameCount: 0,
+      liveSocketRvfcHandle: 0,
       alertSocket: null,
       previewUrls: {
         image: "",
@@ -1288,18 +1297,43 @@
 
     const $ = (id) => document.getElementById(id);
 
+    const DEFAULT_REQUEST_TIMEOUT_MS = 12000;
+    const LONG_REQUEST_TIMEOUT_MS = 90000;
+
+    function inferProxyApiBase() {
+      const { protocol, hostname } = window.location;
+      if (!(protocol === "http:" || protocol === "https:")) {
+        return "";
+      }
+      const runpod = hostname.match(/^(.*)-\d+(\.proxy\.runpod\.net)$/i);
+      if (runpod) {
+        return `${protocol}//${runpod[1]}-8080${runpod[2]}`;
+      }
+      return "";
+    }
+
+    function inferLegacyApiBase() {
+      if (!(window.location.protocol === "http:" || window.location.protocol === "https:")) {
+        return "";
+      }
+      if (window.location.port === "8080") {
+        return window.location.origin;
+      }
+      return `${window.location.protocol}//${window.location.hostname}:8080`;
+    }
+
     function inferDefaultApiBase() {
-      const saved = localStorage.getItem(STORAGE_KEYS.apiBase);
+      const inferred = inferProxyApiBase() || inferLegacyApiBase();
+      const saved = normalizeBase(localStorage.getItem(STORAGE_KEYS.apiBase) || "");
       if (saved) {
+        const legacy = normalizeBase(inferLegacyApiBase());
+        if (saved === legacy && inferred && inferred !== legacy) {
+          localStorage.setItem(STORAGE_KEYS.apiBase, inferred);
+          return inferred;
+        }
         return saved;
       }
-      if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-        if (window.location.port === "8080") {
-          return window.location.origin;
-        }
-        return `${window.location.protocol}//${window.location.hostname}:8080`;
-      }
-      return "http://localhost:8080";
+      return inferred || "http://localhost:8080";
     }
 
     function normalizeBase(input) {
@@ -1315,6 +1349,16 @@
 
     function apiUrl(path) {
       return `${state.apiBase}${path}`;
+    }
+
+    function requestTimeoutMs(path, options = {}) {
+      if (Number.isFinite(options.timeoutMs) && options.timeoutMs > 0) {
+        return options.timeoutMs;
+      }
+      if (path.includes("/v1/infer/") || path.includes("/v1/run/")) {
+        return LONG_REQUEST_TIMEOUT_MS;
+      }
+      return DEFAULT_REQUEST_TIMEOUT_MS;
     }
 
     function buildWsUrl(channel) {
@@ -1383,7 +1427,29 @@
     }
 
     async function request(path, options = {}) {
-      const response = await fetch(apiUrl(path), options);
+      const timeoutMs = requestTimeoutMs(path, options);
+      const controller = options.signal ? null : new AbortController();
+      const timeoutId = controller
+        ? window.setTimeout(() => controller.abort(new DOMException("Request timed out", "AbortError")), timeoutMs)
+        : null;
+      let response;
+      try {
+        response = await fetch(apiUrl(path), {
+          ...options,
+          signal: options.signal || controller.signal,
+        });
+      } catch (error) {
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+        if (error && error.name === "AbortError") {
+          throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+        }
+        throw error;
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
       const text = await response.text();
       let payload = null;
       if (text) {
@@ -1464,6 +1530,9 @@
       }
       if (kind === "image") {
         return $("imagePreview");
+      }
+      if (kind === "video") {
+        return $("videoPreview");
       }
       return null;
     }
@@ -1737,10 +1806,10 @@
       if (detail && detail.streamId) {
         bits.push(`<span class="chip">Stream <span class="mono">${escapeHtml(detail.streamId)}</span></span>`);
       }
-      if ((kind === "camera" || kind === "image") && state.previewAnnotationTarget === kind && state.previewAnnotations.length) {
+      if ((kind === "camera" || kind === "image" || kind === "video") && state.previewAnnotationTarget === kind && state.previewAnnotations.length) {
         bits.push(`<span class="chip">Boxes <span class="mono">${escapeHtml(String(state.previewAnnotations.length))}</span></span>`);
       }
-      if ((kind === "camera" || kind === "image") && state.previewAnnotationTarget === kind && state.previewAnnotationModel) {
+      if ((kind === "camera" || kind === "image" || kind === "video") && state.previewAnnotationTarget === kind && state.previewAnnotationModel) {
         bits.push(`<span class="chip">Model <span class="mono">${escapeHtml(state.previewAnnotationModel)}</span></span>`);
       }
       meta.innerHTML = bits.join("");
@@ -1831,7 +1900,7 @@
         ["API", system.services.api],
         ["Triton HTTP", system.services.triton_http],
         ["Triton metrics", system.services.triton_metrics],
-        ["MinIO S3", system.services.minio_s3],
+        ["MinIO S3", system.services.minio_s3 || system.services.s3],
         ["MinIO console", system.services.minio_console],
       ];
 
@@ -2128,7 +2197,7 @@
 
       try {
         const root = await request("/");
-        const [system, configs, models, streams, alerts, events] = await Promise.all([
+        const [system, configs, models, streams, alerts, events] = await Promise.allSettled([
           request("/v1/system/status"),
           request("/v1/configs"),
           request("/v1/models"),
@@ -2137,12 +2206,28 @@
           request("/v1/events?limit=12"),
         ]);
 
-        state.system = system;
-        state.configsIndex = configs;
-        state.models = Array.isArray(models) ? models : [];
-        state.streams = Array.isArray(streams) ? streams : [];
-        state.alerts = Array.isArray(alerts) ? alerts : Array.isArray(alerts && alerts.alerts) ? alerts.alerts : [];
-        state.events = Array.isArray(events) ? events : Array.isArray(events && events.events) ? events.events : [];
+        if (configs.status !== "fulfilled") {
+          throw configs.reason;
+        }
+        if (models.status !== "fulfilled") {
+          throw models.reason;
+        }
+        if (streams.status !== "fulfilled") {
+          throw streams.reason;
+        }
+        if (alerts.status !== "fulfilled") {
+          throw alerts.reason;
+        }
+        if (events.status !== "fulfilled") {
+          throw events.reason;
+        }
+
+        state.system = system.status === "fulfilled" ? system.value : null;
+        state.configsIndex = configs.value;
+        state.models = Array.isArray(models.value) ? models.value : [];
+        state.streams = Array.isArray(streams.value) ? streams.value : [];
+        state.alerts = Array.isArray(alerts.value) ? alerts.value : Array.isArray(alerts.value && alerts.value.alerts) ? alerts.value.alerts : [];
+        state.events = Array.isArray(events.value) ? events.value : Array.isArray(events.value && events.value.events) ? events.value.events : [];
 
         ensureSelectedDomain();
         renderServiceGrid();
@@ -2154,7 +2239,12 @@
         renderResult();
 
         state.connected = true;
-        setNotice(`Connected to ${root.name || "InferOps"} ${root.version || ""}.`, "status-ok");
+        setNotice(
+          system.status === "fulfilled"
+            ? `Connected to ${root.name || "InferOps"} ${root.version || ""}.`
+            : `Connected to ${root.name || "InferOps"} ${root.version || ""}, but system status is unavailable.`,
+          system.status === "fulfilled" ? "status-ok" : "status-warn",
+        );
 
         if (!state.selectedConfig) {
           const domain = selectedDomain();
@@ -2355,6 +2445,15 @@
         window.clearTimeout(state.cameraLoopTimer);
         state.cameraLoopTimer = null;
       }
+      const video = $("cameraPreview");
+      if (state.liveSocketRvfcHandle && video && typeof video.cancelVideoFrameCallback === "function") {
+        try { video.cancelVideoFrameCallback(state.liveSocketRvfcHandle); } catch (_) { /* ignore */ }
+      }
+      state.liveSocketRvfcHandle = 0;
+      if (state.liveSocket) {
+        try { state.liveSocket.close(); } catch (_) { /* ignore */ }
+        state.liveSocket = null;
+      }
       $("cameraLoopBtn").textContent = "Start analysis loop";
     }
 
@@ -2430,34 +2529,213 @@
       }
     }
 
+    function stopVideoLoop() {
+      state.videoLoopEnabled = false;
+      const video = $("videoPreview");
+      if (state.videoLoopRvfcHandle && video && typeof video.cancelVideoFrameCallback === "function") {
+        try { video.cancelVideoFrameCallback(state.videoLoopRvfcHandle); } catch (_) { /* ignore */ }
+      }
+      state.videoLoopRvfcHandle = 0;
+      if (!state.cameraLoopEnabled && state.liveSocket) {
+        try { state.liveSocket.close(); } catch (_) { /* ignore */ }
+        state.liveSocket = null;
+      }
+      const btn = $("videoRunBtn");
+      btn.disabled = false;
+      btn.textContent = "Stream and analyze video";
+    }
+
+    function buildLiveWsUrl(pipeline, streamId) {
+      const url = new URL(state.apiBase);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      url.pathname = `/v1/live/${encodeURIComponent(pipeline)}`;
+      url.search = `?stream_id=${encodeURIComponent(streamId)}`;
+      return url.toString();
+    }
+
+    function applyLivePayload(msg, pipeline, annotTarget) {
+      const dets = Array.isArray(msg.detections) ? msg.detections : [];
+      state.previewAnnotations = dets
+        .map((d) => {
+          const box = Array.isArray(d.box) && d.box.length === 4
+            ? d.box.map((v) => {
+                const n = Number(v);
+                return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0;
+              })
+            : null;
+          if (!box) return null;
+          return {
+            label: d.label || "object",
+            score: Number.isFinite(Number(d.score)) ? Number(d.score) : 0,
+            box,
+            track_id: d.track_id,
+          };
+        })
+        .filter(Boolean);
+      state.previewAnnotationTarget = annotTarget || "camera";
+      state.previewAnnotationModel = msg.model || (Array.isArray(msg.results) && msg.results[0] && msg.results[0].model) || "";
+      const detectionsByClass = {};
+      for (const d of state.previewAnnotations) {
+        detectionsByClass[d.label] = (detectionsByClass[d.label] || 0) + 1;
+      }
+      // Extract face-mesh / smoking / eating signals forwarded by FaceMeshStage.
+      const fm = msg.face_mesh || null;
+      const faceMeshSignals = fm ? {
+        confidence: fm.face_mesh_confidence ?? null,
+        drowsy_ear: fm.drowsy_ear ?? null,
+        distracted_score: fm.distracted_score ?? null,
+        face_pose: fm.face_pose || null,
+        face_box: Array.isArray(fm.face_box) ? fm.face_box : null,
+        face_status_label: fm.face_status_label || "",
+        face_source: fm.face_source || "",
+        smoking_face_score: typeof fm.smoking_face_score === "number" ? fm.smoking_face_score : null,
+        eating_face_score: typeof fm.eating_face_score === "number" ? fm.eating_face_score : null,
+        landmarks: [],
+      } : null;
+      state.lastResult = {
+        pipeline,
+        frames: 1,
+        detectionsByClass,
+        alerts: Array.isArray(msg.alerts) ? msg.alerts : [],
+        fusionEvents: Array.isArray(msg.fusion_events) ? msg.fusion_events : [],
+        previewDetections: state.previewAnnotations,
+        modelsUsed: state.previewAnnotationModel ? [state.previewAnnotationModel] : [],
+        faceMeshSignals,
+        raw: msg,
+      };
+      state.liveSocketLatency = Number(msg.latency_ms) || 0;
+      const nowMs = performance.now();
+      if (state.liveSocketLastFrameAt) {
+        const dt = nowMs - state.liveSocketLastFrameAt;
+        if (dt > 0) {
+          // EMA smoothing
+          const inst = 1000 / dt;
+          state.liveSocketFps = state.liveSocketFps
+            ? state.liveSocketFps * 0.8 + inst * 0.2
+            : inst;
+        }
+      }
+      state.liveSocketLastFrameAt = nowMs;
+      renderResult();
+    }
+
     async function toggleCameraLoop() {
       if (state.cameraLoopEnabled) {
         stopCameraLoop();
-        setNotice("Camera analysis loop stopped.", "status-info");
+        setNotice("Live analysis stopped.", "status-info");
         return;
       }
 
+      let pipeline;
+      try {
+        pipeline = currentPipeline();
+      } catch (error) {
+        setNotice(error.message, "status-err");
+        return;
+      }
+      try {
+        await startCamera();
+      } catch (error) {
+        setNotice(`Camera start failed: ${error.message}`, "status-err");
+        return;
+      }
+
+      const streamId = $("cameraStreamIdInput").value.trim() || "dashboard-camera";
+      const targetFps = Math.max(1, Math.min(30, Number($("cameraIntervalInput").value) || 15));
+      const minPeriodMs = 1000 / targetFps;
+      const video = $("cameraPreview");
+
       state.cameraLoopEnabled = true;
+      state.liveSocketSeq = 0;
+      state.liveSocketFps = 0;
+      state.liveSocketLastFrameAt = 0;
       $("cameraLoopBtn").textContent = "Stop analysis loop";
 
-      const step = async () => {
-        if (!state.cameraLoopEnabled) {
+      const ws = new WebSocket(buildLiveWsUrl(pipeline, streamId));
+      ws.binaryType = "arraybuffer";
+      state.liveSocket = ws;
+
+      ws.addEventListener("open", () => {
+        setNotice(`Live socket open → ${pipeline} @ ${targetFps} fps target.`, "status-ok");
+      });
+      ws.addEventListener("close", () => {
+        if (state.cameraLoopEnabled) {
+          setNotice("Live socket closed.", "status-warn");
+          stopCameraLoop();
+        }
+      });
+      ws.addEventListener("error", () => {
+        setNotice("Live socket error.", "status-err");
+      });
+      ws.addEventListener("message", (event) => {
+        let msg;
+        try {
+          if (typeof event.data === "string") {
+            msg = JSON.parse(event.data);
+          } else {
+            msg = JSON.parse(new TextDecoder().decode(new Uint8Array(event.data)));
+          }
+        } catch (err) {
+          console.error("live ws parse failed", err);
           return;
         }
-        const delay = Math.max(400, Number($("cameraIntervalInput").value) || 1500);
-        if (!state.cameraLoopBusy) {
-          state.cameraLoopBusy = true;
-          try {
-            await analyzeCameraFrame({ quiet: true });
-          } finally {
-            state.cameraLoopBusy = false;
-          }
+        if (msg.error) {
+          setNotice(`Live infer error: ${msg.error}`, "status-err");
+          return;
         }
-        state.cameraLoopTimer = window.setTimeout(step, delay);
+        applyLivePayload(msg, pipeline, "camera");
+      });
+
+      // Reusable canvas + JPEG capture; drop oldest, single in-flight sender.
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      let lastSentAt = 0;
+      let sending = false;
+
+      const captureAndSend = async () => {
+        if (!state.cameraLoopEnabled || ws.readyState !== WebSocket.OPEN) return;
+        if (sending) return;
+        const now = performance.now();
+        if (now - lastSentAt < minPeriodMs) return;
+        if (!video.videoWidth || !video.videoHeight) return;
+        sending = true;
+        try {
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.6));
+          if (!blob || !state.cameraLoopEnabled || ws.readyState !== WebSocket.OPEN) return;
+          const buffer = await blob.arrayBuffer();
+          // optional control packet with client timestamp
+          try {
+            ws.send(JSON.stringify({ client_ts_ms: Date.now(), seq: ++state.liveSocketSeq }));
+          } catch (_) { /* ignore */ }
+          ws.send(buffer);
+          lastSentAt = now;
+        } catch (err) {
+          console.error("live capture failed", err);
+        } finally {
+          sending = false;
+        }
       };
 
-      setNotice("Camera analysis loop started.", "status-ok");
-      await step();
+      if (typeof video.requestVideoFrameCallback === "function") {
+        const onFrame = () => {
+          if (!state.cameraLoopEnabled) return;
+          captureAndSend();
+          state.liveSocketRvfcHandle = video.requestVideoFrameCallback(onFrame);
+        };
+        state.liveSocketRvfcHandle = video.requestVideoFrameCallback(onFrame);
+      } else {
+        const tick = () => {
+          if (!state.cameraLoopEnabled) return;
+          captureAndSend();
+          state.cameraLoopTimer = window.setTimeout(tick, minPeriodMs);
+        };
+        tick();
+      }
     }
 
     function previewImageFile(file) {
@@ -2497,46 +2775,115 @@
     }
 
     async function runVideo() {
+      if (state.videoLoopEnabled) {
+        stopVideoLoop();
+        setNotice("Video analysis stopped.", "status-info");
+        return;
+      }
+
       const file = $("videoFileInput").files && $("videoFileInput").files[0];
       if (!file) {
         setNotice("Choose a video file first.", "status-warn");
         return;
       }
 
-      const btn = $("videoRunBtn");
-      const originalLabel = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "Processing…";
-
+      let pipeline;
       try {
-        previewVideoFile(file);
-        const streamId = $("videoStreamIdInput").value.trim() || "dashboard-video";
-        connectAlertSocket(streamId);
-        state.activeStreamId = streamId;
-
-        const form = new FormData();
-        form.append("video", file, file.name || "video.mp4");
-        form.append("stream_id", streamId);
-
-        setNotice(`Uploading and running ${file.name} through ${currentPipeline()}. This may take a moment…`, "status-info");
-
-        const payload = await request(`/v1/run/${encodeURIComponent(currentPipeline())}/upload`, {
-          method: "POST",
-          body: form,
-        });
-
-        state.lastResult = normalizeResult(payload);
-        clearPreviewAnnotations();
-        renderResult();
-        await refreshActivityOnly();
-        setNotice(`Uploaded video and ran ${currentPipeline()}.`, "status-ok");
+        pipeline = currentPipeline();
       } catch (error) {
-        console.error(error);
-        setNotice(`Video run failed: ${error.message}`, "status-err");
-      } finally {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
+        setNotice(error.message, "status-err");
+        return;
       }
+
+      const streamId = $("videoStreamIdInput").value.trim() || "dashboard-video";
+      previewVideoFile(file);
+      const video = $("videoPreview");
+
+      try { await video.play(); } catch (_) { /* requires user gesture */ }
+
+      const btn = $("videoRunBtn");
+      btn.textContent = "Stop analysis";
+      btn.disabled = false;
+
+      state.videoLoopEnabled = true;
+      state.liveSocketSeq = 0;
+      state.liveSocketFps = 0;
+      state.liveSocketLastFrameAt = 0;
+
+      const ws = new WebSocket(buildLiveWsUrl(pipeline, streamId));
+      ws.binaryType = "arraybuffer";
+      state.liveSocket = ws;
+
+      ws.addEventListener("open", () => {
+        setNotice(`Video stream socket open → ${pipeline}.`, "status-ok");
+      });
+      ws.addEventListener("close", () => {
+        if (state.videoLoopEnabled) stopVideoLoop();
+      });
+      ws.addEventListener("error", () => {
+        setNotice("Video WS error.", "status-err");
+        stopVideoLoop();
+      });
+      ws.addEventListener("message", (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(
+            typeof event.data === "string" ? event.data
+              : new TextDecoder().decode(new Uint8Array(event.data))
+          );
+        } catch (err) {
+          console.error("video ws parse failed", err);
+          return;
+        }
+        if (msg && !msg.error) applyLivePayload(msg, pipeline, "video");
+      });
+
+      const canvas = document.createElement("canvas");
+      const ctx2d = canvas.getContext("2d");
+      let sending = false;
+
+      const captureVideoFrame = async () => {
+        if (!state.videoLoopEnabled || ws.readyState !== WebSocket.OPEN) return;
+        if (sending || !video.videoWidth || !video.videoHeight || video.paused || video.ended) return;
+        sending = true;
+        try {
+          if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+          }
+          ctx2d.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.65));
+          if (!blob || !state.videoLoopEnabled || ws.readyState !== WebSocket.OPEN) return;
+          try { ws.send(JSON.stringify({ client_ts_ms: Date.now(), seq: ++state.liveSocketSeq })); } catch (_) {}
+          ws.send(await blob.arrayBuffer());
+        } catch (err) {
+          console.error("video capture failed", err);
+        } finally {
+          sending = false;
+        }
+      };
+
+      if (typeof video.requestVideoFrameCallback === "function") {
+        const onVfc = () => {
+          if (!state.videoLoopEnabled) return;
+          captureVideoFrame();
+          state.videoLoopRvfcHandle = video.requestVideoFrameCallback(onVfc);
+        };
+        state.videoLoopRvfcHandle = video.requestVideoFrameCallback(onVfc);
+      } else {
+        const tick = () => {
+          if (!state.videoLoopEnabled) return;
+          captureVideoFrame();
+          window.setTimeout(tick, 67);
+        };
+        tick();
+      }
+
+      video.addEventListener("ended", () => { if (state.videoLoopEnabled) stopVideoLoop(); }, { once: true });
+      setNotice(`Streaming ${file.name} through ${pipeline} — annotations update in real time.`, "status-info");
+      setPreview("video", { source: "video", pipeline, streamId });
+      connectAlertSocket(streamId);
+      state.activeStreamId = streamId;
     }
 
     async function startRtspStream() {

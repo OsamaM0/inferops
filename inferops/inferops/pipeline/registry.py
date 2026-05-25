@@ -23,6 +23,7 @@ BUILTINS: dict[str, str] = {
     "route_by": "inferops.pipeline.stages.route_by:RouteBy",
     "fuse": "inferops.pipeline.stages.fuse:Fuse",
     "alert": "inferops.pipeline.stages.alert:Alert",
+    "track": "inferops.pipeline.stages.track:Track",
     # sinks
     "sink_rest": "inferops.pipeline.stages.sink_rest:SinkREST",
     "sink_ws": "inferops.pipeline.stages.sink_ws:SinkWS",

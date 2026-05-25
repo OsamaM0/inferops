@@ -12,15 +12,18 @@ stages:
 
   - name: detect
     stage: infer
-    params: { model: rfdetr_driver_onnx, fallback_model: rfdetr_driver_synth }
+    params: { model: rfdetr_driver_triton, fallback_model: rfdetr_driver_synth }
 
   - name: face_mesh
     stage: examples.driver_behaviour.plugins.face_mesh_stage:FaceMeshStage
     params:
-      model: face_mesh_onnx
-      fallback_model: face_mesh_synth
+      model: face_mesh_triton
+      fallback_model: face_mesh_onnx
       crop_padding: 0.25
       face_confidence_threshold: 0.5
+      # In live mode (15 fps camera) only re-infer face mesh every 200 ms;
+      # intermediate frames reuse the cached landmarks → halves CPU load.
+      min_infer_interval_ms: 200
 
   - name: fuse
     stage: fuse
@@ -38,3 +41,13 @@ sinks:
       annotator: examples.driver_behaviour.plugins.frame_annotator:DriverAnnotator
 
 limits: { max_concurrency: 2, queue_size: 64 }
+
+tracking:
+  enabled: true
+  algorithm: iou_kalman
+  by: stream_id
+  max_age: 30
+  min_hits: 3
+  iou_threshold: 0.3
+  per_class: true
+  model_filter: [rfdetr_driver_triton, rfdetr_driver_synth]

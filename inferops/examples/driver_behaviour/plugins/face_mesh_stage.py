@@ -317,6 +317,8 @@ def _resolve_artifact_path(registry, model_name: str) -> Path | None:
 
 def _primary_model_looks_real(registry, model_name: str) -> bool:
     spec = registry.get_spec(model_name)
+    if spec.backend == "triton":
+        return True  # Triton serves the model; readiness is handled by the server
     if spec.backend != "onnxruntime":
         return False
     artifact = _resolve_artifact_path(registry, model_name)
@@ -496,6 +498,10 @@ class FaceMeshStage(Stage):
         self._haar_eye_detector = None
         self._haar_profile_detector = None
         self._face_cache: dict[str, dict[str, Any]] = {}
+
+    async def setup(self, ctx) -> None:
+        await super().setup(ctx)
+        self._ensure_haar_detectors()
 
     def _restore_cached_face(
         self,

@@ -65,6 +65,71 @@ Notes:
 - If you need Triton-backed model specs, install the extra client dependency with `pip install -e ".[dev,triton]"`.
 - If you need PyAV-based video stages, install `pip install -e ".[dev,video]"`.
 
+### Triton accelerated local run
+
+For the driver-behaviour pipeline on an NVIDIA GPU host with Docker and the
+NVIDIA Container Toolkit installed, start Triton together with the local API
+stack:
+
+```bash
+make serve DOMAIN=driver_behaviour
+```
+
+This starts Triton on HTTP `8000`, gRPC `8001`, and metrics `8002`, using
+`inferops/model_repository` as the model repository. The RF-DETR Triton config
+is fixed-batch because the current ONNX artifact has batch size `1`; for higher
+throughput, export a dynamic-batch ONNX or a TensorRT plan, then enable Triton
+dynamic batching in that model config.
+
+`make serve` now auto-starts Triton for `DOMAIN=driver_behaviour` and stops any
+stale Triton process already bound to `8000/8001/8002` before restarting it. To
+force CPU-only serving for that domain, use `make serve DOMAIN=driver_behaviour
+WITH_TRITON=0`. To force Triton on for another domain, set `WITH_TRITON=1`.
+When Docker is unavailable, `make serve` falls back to a native Triton binary if
+`tritonserver` is on `PATH` or installed at `/opt/tritonserver/bin/tritonserver`.
+
+For RunPod/DeepStream images, make sure Triton points at the populated InferOps
+repository (`/workspace/inferops/model_repository`) and wait for the model, not
+only the server, to become ready. With `--model-control-mode=explicit`, add
+`--load-model=rfdetr_driver_behaviour_onnx` or call the repository load API at
+boot; otherwise the first API request pays the model-load cost. Also match the
+image CUDA runtime to the host driver: DeepStream 9.0 / Triton 26.01 uses CUDA
+13.1 and requires a newer driver than 570.x, so on a 570.x host use an older
+Triton/DeepStream image or upgrade the host driver before expecting GPU Triton
+instances to load.
+
+#### Recommended RunPod start command
+
+Override the container start command (Pod template -> Docker command) with the
+following so models are pre-loaded with TensorRT engines warmed and the GPU/CPU
+memory pools are sized for streaming. Replace 570 with 580 if the host driver
+supports DeepStream 9.0.
+
+```bash
+/opt/tritonserver/bin/tritonserver \
+  --model-repository=/workspace/inferops/model_repository \
+  --model-control-mode=poll --repository-poll-secs=15 \
+  --load-model=rfdetr_driver_behaviour_onnx \
+  --load-model=face_mesh_onnx \
+  --load-model=tiny_classifier \
+  --cuda-memory-pool-byte-size=0:268435456 \
+  --pinned-memory-pool-byte-size=268435456 \
+  --response-cache-byte-size=67108864 \
+  --backend-config=onnxruntime,enable-cuda=true \
+  --log-info=false --strict-readiness=true \
+  --grpc-port=8001 --http-port=8000 --metrics-port=8002
+```
+
+If the host driver is stuck at 570.x, swap the image to
+`nvcr.io/nvidia/deepstream:7.1-triton-multiarch` (CUDA 12.4, driver >=535) and
+keep the same command. For GPU dashboards, run the DCGM exporter sidecar:
+
+```bash
+docker run -d --gpus all --rm -p 9400:9400 \
+  --name dcgm-exporter nvcr.io/nvidia/k8s/dcgm-exporter:3.3.7-3.4.2-ubuntu22.04
+```
+
+
 ### Smoke-test the API
 
 ```bash
@@ -170,10 +235,18 @@ make setup DOMAIN=driver_behaviour
 make up
 ```
 
+To include Triton in the Compose stack, enable the `triton` profile:
+
+```bash
+cd inferops
+docker compose --profile triton up -d
+```
+
 Important details:
 
 - The `api` container is configured for `INFEROPS_TRANSPORT_KIND=redpanda`.
-- The compose stack exposes API `8080`, Redpanda `19092`, MinIO `9000`, MinIO console `9001`, Prometheus `9090`, and Grafana `3000`.
+- The compose stack exposes API `8080`, Redpanda `19092`, MinIO `9000`, MinIO console `9001`, Prometheus `9090`, and Grafana `3000`; the Triton profile also exposes HTTP `8000`, gRPC `8001`, and metrics `8002`.
+- Triton requires an NVIDIA GPU-capable Docker runtime. Without that runtime, use `make serve DOMAIN=driver_behaviour` and the pipeline will fall back to the synthetic detector when the Triton backend is unavailable.
 - Stop and remove volumes with `make down`.
 
 ## Project layout

@@ -44,12 +44,20 @@ class Stage(ABC):
 
     async def __call__(self, item: StageItem) -> StageItem | list[StageItem] | None:
         t0 = time.perf_counter()
+        result: "StageItem | list[StageItem] | None" = None
         try:
-            return await self.process(item)
+            result = await self.process(item)
         finally:
-            STAGE_LATENCY.labels(pipeline=self.ctx.pipeline, stage=self.ctx.name).observe(
-                time.perf_counter() - t0
-            )
+            elapsed_s = time.perf_counter() - t0
+            STAGE_LATENCY.labels(pipeline=self.ctx.pipeline, stage=self.ctx.name).observe(elapsed_s)
+            key = f"stage_ms.{self.ctx.name}"
+            elapsed_str = f"{elapsed_s * 1000:.1f}"
+            if isinstance(result, list):
+                for it in result:
+                    it.trace[key] = elapsed_str
+            elif result is not None:
+                result.trace[key] = elapsed_str
+        return result
 
 
 class SourceStage(Stage):

@@ -12,6 +12,9 @@ class SinkPostgres(SinkStage):
         self.type_field = type_field
 
     async def process(self, item):
+        # Live-streaming WS path: caller wants minimum latency, not durability.
+        if item.payload.get("live_mode"):
+            return None
         payload = {
             k: v for k, v in item.payload.items()
             if k not in {"image_np", "image_bytes", "feeds", "frame_meta"}

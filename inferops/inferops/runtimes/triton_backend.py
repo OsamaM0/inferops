@@ -11,16 +11,15 @@ from inferops.obs import INFER_BATCH, INFER_LATENCY
 from inferops.registry.model_spec import ModelSpec
 from inferops.runtimes.base import InferenceBackend
 
-# Keep the gRPC channel alive between requests so idle connections are not
-# dropped by intermediate proxies/firewalls (which causes the ~2 s reconnect
-# penalty observed as "huge latency" on the first inference after an idle period).
+# Use conservative keepalive settings so the client does not trigger Triton's
+# ENHANCE_YOUR_CALM / too_many_pings protection when the channel is idle.
 _GRPC_CHANNEL_ARGS = [
-    ("grpc.keepalive_time_ms", 30_000),            # ping server every 30 s
-    ("grpc.keepalive_timeout_ms", 5_000),           # give server 5 s to respond
-    ("grpc.keepalive_permit_without_calls", True),  # ping even with no active RPCs
-    ("grpc.http2.max_pings_without_data", 0),       # unlimited pings
-    ("grpc.http2.min_time_between_pings_ms", 10_000),
-    ("grpc.http2.min_ping_interval_without_data_ms", 5_000),
+    ("grpc.keepalive_time_ms", 300_000),             # 5 min between keepalive pings
+    ("grpc.keepalive_timeout_ms", 20_000),           # give server 20 s to respond
+    ("grpc.keepalive_permit_without_calls", False),  # do not ping idle channels
+    ("grpc.http2.max_pings_without_data", 2),        # match server-side defaults
+    ("grpc.http2.min_time_between_pings_ms", 300_000),
+    ("grpc.http2.min_ping_interval_without_data_ms", 300_000),
 ]
 
 
@@ -28,9 +27,13 @@ class TritonBackend(InferenceBackend):
     def __init__(self, url: str | None = None) -> None:
         self._url = url or settings.triton.url
         self._client = None
+        self._infer_input_cls: Any | None = None
         self._model_name: str = ""
         self._inputs_meta: list[tuple[str, str, list[int]]] = []
         self._outputs_meta: list[str] = []
+        self._triton_outputs: list[Any] = []
+        self._batch_observer: Any | None = None
+        self._latency_observer: Any | None = None
 
     async def load(self, spec: ModelSpec) -> None:
         try:
@@ -42,6 +45,7 @@ class TritonBackend(InferenceBackend):
         if not spec.artifact.triton_model_name:
             raise BackendError(f"model {spec.name}: triton backend requires artifact.triton_model_name")
         self._model_name = spec.artifact.triton_model_name
+        self._infer_input_cls = triton_aio.InferInput
         self._client = triton_aio.InferenceServerClient(
             url=self._url, verbose=False, channel_args=_GRPC_CHANNEL_ARGS,
         )
@@ -64,26 +68,28 @@ class TritonBackend(InferenceBackend):
             for i in meta["inputs"]
         ]
         self._outputs_meta = [o["name"] for o in meta["outputs"]]
+        self._triton_outputs = [triton_aio.InferRequestedOutput(o) for o in self._outputs_meta]
+        self._batch_observer = INFER_BATCH.labels(model=spec.name)
+        self._latency_observer = INFER_LATENCY.labels(model=spec.name)
 
     async def infer(self, inputs):
-        import tritonclient.grpc.aio as triton_aio
-        from tritonclient.utils import np_to_triton_dtype
-        if self._client is None:
+        if self._client is None or self._infer_input_cls is None:
             raise BackendError("triton backend not loaded")
         triton_inputs = []
         first = None
-        for name, _dt, _ in self._inputs_meta:
+        for name, datatype, _ in self._inputs_meta:
             arr = inputs[name]
             if first is None:
                 first = arr
-            ti = triton_aio.InferInput(name, list(arr.shape), np_to_triton_dtype(arr.dtype))
+            ti = self._infer_input_cls(name, list(arr.shape), datatype)
             ti.set_data_from_numpy(arr)
             triton_inputs.append(ti)
-        triton_outputs = [triton_aio.InferRequestedOutput(o) for o in self._outputs_meta]
-        INFER_BATCH.labels(model=self.spec.name).observe(first.shape[0] if first is not None else 1)
+        if self._batch_observer is not None:
+            self._batch_observer.observe(first.shape[0] if first is not None else 1)
         t0 = time.perf_counter()
-        res = await self._client.infer(model_name=self._model_name, inputs=triton_inputs, outputs=triton_outputs)
-        INFER_LATENCY.labels(model=self.spec.name).observe(time.perf_counter() - t0)
+        res = await self._client.infer(model_name=self._model_name, inputs=triton_inputs, outputs=self._triton_outputs)
+        if self._latency_observer is not None:
+            self._latency_observer.observe(time.perf_counter() - t0)
         return {o: res.as_numpy(o) for o in self._outputs_meta}
 
     async def close(self) -> None:

@@ -55,10 +55,11 @@ class KafkaSink(AlertSink):
 
 class WSSink(AlertSink):
     async def emit(self, alert):
+        import orjson
         from inferops.pipeline.stages.sink_ws import HUB
         ch = self.spec.params.get("channel", "alerts").format(
             entity_id=alert.entity_id, type=alert.type, severity=alert.severity)
-        await HUB.publish(ch, alert.model_dump(mode="json"))
+        await HUB.publish_bytes(ch, orjson.dumps(alert.model_dump(mode="json")))
 
 
 class PostgresSink(AlertSink):

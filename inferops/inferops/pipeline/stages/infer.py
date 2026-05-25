@@ -15,6 +15,8 @@ class Infer(Stage):
         self.fallback_model = fallback_model
         self._resources: dict[str, dict] = {}
         self._active_model = model
+        self._primary_retry_at = 0.0
+        self._primary_retry_delay_s = 10.0
 
     async def setup(self, ctx):
         await super().setup(ctx)
@@ -54,6 +56,8 @@ class Infer(Stage):
         item.payload["model_selection"] = {"requested": self.model, "used": model_name}
         item.payload.pop("feeds", None)
         self._active_model = model_name
+        if model_name == self.model:
+            self._primary_retry_at = 0.0
         return item
 
     async def process(self, item: StageItem):
@@ -67,9 +71,10 @@ class Infer(Stage):
         override = item.payload.pop("model_override", None)
         if override and override in (self.model, self.fallback_model):
             return await self._run_with_model(override, item, frame)
-        candidates = [self._active_model]
-        if self._active_model != self.model:
+        now = time.monotonic()
+        if self._active_model != self.model and now < self._primary_retry_at:
             return await self._run_with_model(self._active_model, item, frame)
+        candidates = [self.model]
         if self.fallback_model:
             candidates.append(self.fallback_model)
 
@@ -79,6 +84,8 @@ class Infer(Stage):
                 return await self._run_with_model(model_name, item, frame)
             except Exception as exc:
                 last_error = exc
+                if model_name == self.model and self.fallback_model:
+                    self._primary_retry_at = now + self._primary_retry_delay_s
                 if model_name != self.model or not self.fallback_model:
                     raise
 

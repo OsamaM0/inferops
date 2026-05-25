@@ -19,6 +19,13 @@ MINIO_RELEASES = {
 MINIO_SERVER_BASE = "https://dl.min.io/server/minio/release"
 MINIO_CLIENT_BASE = "https://dl.min.io/client/mc/release"
 REDPANDA_DEB_SETUP_URL = "https://dl.redpanda.com/nzc4ZYQK3WRGd9sy/redpanda/cfg/setup/bash.deb.sh"
+
+# Pinned versions for observability stack — last LTS-ish releases that
+# work well together. Bump deliberately, not automatically.
+PROMETHEUS_VERSION = "2.54.1"
+GRAFANA_VERSION = "11.2.0"
+DCGM_EXPORTER_VERSION = "3.3.7-3.5.0"
+
 ARCH_ALIASES = {
     "amd64": "x86_64",
     "x86-64": "x86_64",
@@ -142,15 +149,101 @@ def _ensure_redpanda(*, dry_run: bool) -> None:
     print(f"Redpanda ready: redpanda={redpanda}, rpk={rpk}")
 
 
+def _extract_tarball(archive: Path, dest: Path, *, dry_run: bool) -> None:
+    print(f"+ extract {archive} -> {dest}")
+    if dry_run:
+        return
+    import tarfile
+    dest.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive, "r:*") as tf:
+        tf.extractall(dest)
+
+
+def _ensure_prometheus(*, force: bool, dry_run: bool) -> None:
+    """Download Prometheus static binary into .tools/bin."""
+    target = _tools_bin_dir() / "prometheus"
+    if target.exists() and os.access(target, os.X_OK) and not force:
+        print(f"prometheus already bootstrapped: {target}")
+        return
+    if shutil.which("prometheus") and not force:
+        print(f"prometheus on PATH: {shutil.which('prometheus')}")
+        return
+    system, machine = _platform_key()
+    if system != "Linux":
+        raise SystemExit("Automatic Prometheus install only supported on Linux.")
+    arch = "amd64" if machine == "x86_64" else "arm64"
+    name = f"prometheus-{PROMETHEUS_VERSION}.linux-{arch}"
+    url = (f"https://github.com/prometheus/prometheus/releases/download/"
+           f"v{PROMETHEUS_VERSION}/{name}.tar.gz")
+    with tempfile.TemporaryDirectory(prefix="inferops-prom-") as tmp_dir:
+        tmp = Path(tmp_dir)
+        tar = tmp / "prom.tar.gz"
+        _download(url, tar, executable=False, dry_run=dry_run)
+        _extract_tarball(tar, tmp, dry_run=dry_run)
+        if dry_run:
+            return
+        src = tmp / name / "prometheus"
+        promtool = tmp / name / "promtool"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+        shutil.copy2(promtool, _tools_bin_dir() / "promtool")
+        target.chmod(0o755)
+        (_tools_bin_dir() / "promtool").chmod(0o755)
+    print(f"prometheus ready: {target}")
+
+
+def _ensure_grafana(*, force: bool, dry_run: bool) -> None:
+    """Download Grafana OSS into .tools/grafana (bin/grafana-server)."""
+    workspace = _workspace_root()
+    install_dir = workspace / ".tools" / "grafana"
+    server = install_dir / "bin" / "grafana"
+    if not server.exists():
+        server = install_dir / "bin" / "grafana-server"
+    if server.exists() and os.access(server, os.X_OK) and not force:
+        print(f"grafana already bootstrapped: {server}")
+        return
+    if shutil.which("grafana-server") and not force:
+        print(f"grafana on PATH: {shutil.which('grafana-server')}")
+        return
+    system, machine = _platform_key()
+    if system != "Linux":
+        raise SystemExit("Automatic Grafana install only supported on Linux.")
+    arch = "amd64" if machine == "x86_64" else "arm64"
+    name = f"grafana-{GRAFANA_VERSION}.linux-{arch}"
+    url = (f"https://dl.grafana.com/oss/release/{name}.tar.gz")
+    with tempfile.TemporaryDirectory(prefix="inferops-grafana-") as tmp_dir:
+        tmp = Path(tmp_dir)
+        tar = tmp / "grafana.tar.gz"
+        _download(url, tar, executable=False, dry_run=dry_run)
+        _extract_tarball(tar, tmp, dry_run=dry_run)
+        if dry_run:
+            return
+        extracted = tmp / f"grafana-v{GRAFANA_VERSION}"
+        if not extracted.exists():
+            # Some releases extract under a `grafana-<version>` folder.
+            candidates = [p for p in tmp.iterdir() if p.is_dir() and p.name.startswith("grafana")]
+            if not candidates:
+                raise SystemExit("grafana extract: archive layout unexpected")
+            extracted = candidates[0]
+        if install_dir.exists():
+            shutil.rmtree(install_dir)
+        shutil.copytree(extracted, install_dir)
+    print(f"grafana ready: {install_dir}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Print the runtime bootstrap steps without executing them")
     parser.add_argument("--force-downloads", action="store_true", help="Re-download MinIO and mc even if the local copies already exist")
+    parser.add_argument("--skip-obs", action="store_true", help="Skip Prometheus/Grafana bootstrap (CI / fast loops)")
     args = parser.parse_args()
 
     _ensure_minio_binary("minio", force=args.force_downloads, dry_run=args.dry_run)
     _ensure_minio_binary("mc", force=args.force_downloads, dry_run=args.dry_run)
     _ensure_redpanda(dry_run=args.dry_run)
+    if not args.skip_obs:
+        _ensure_prometheus(force=args.force_downloads, dry_run=args.dry_run)
+        _ensure_grafana(force=args.force_downloads, dry_run=args.dry_run)
     print("Native runtime setup complete")
     return 0
 

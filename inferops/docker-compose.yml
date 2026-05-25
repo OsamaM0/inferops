@@ -50,6 +50,34 @@ services:
       MINIO_ROOT_PASSWORD: minio12345
     ports: ["9000:9000", "9001:9001"]
 
+  triton:
+    profiles: ["triton"]
+    image: nvcr.io/nvidia/tritonserver:24.04-py3
+    command:
+      - tritonserver
+      - --model-repository=/models
+      - --strict-model-config=false
+      - --model-control-mode=poll
+      - --repository-poll-secs=5
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - ./model_repository:/models:ro
+    ports: ["8000:8000", "8001:8001", "8002:8002"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/v2/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
   prometheus:
     image: prom/prometheus:v2.51.2
     volumes:
@@ -76,6 +104,9 @@ services:
       INFEROPS_PG_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/inferops
       INFEROPS_S3_ENDPOINT: http://minio:9000
       INFEROPS_OBS_LOG_JSON: "false"
+      INFEROPS_ACTIVE_DOMAIN: ${INFEROPS_ACTIVE_DOMAIN:-driver_behaviour}
+      INFEROPS_TRITON_URL: ${INFEROPS_TRITON_URL:-triton:8001}
+      INFEROPS_TRITON_HTTP_URL: ${INFEROPS_TRITON_HTTP_URL:-http://triton:8000}
     volumes:
       - ./configs:/app/configs
       - ./model_repository:/app/model_repository

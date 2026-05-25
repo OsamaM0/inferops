@@ -12,6 +12,7 @@ each time a new one arrives, so:
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from collections.abc import AsyncIterator
@@ -28,15 +29,29 @@ log = get_logger(__name__)
 
 class SourceRTSP(SourceStage):
     def __init__(self, url: str, stream_id: str = "rtsp", fps: float = 0.0,
-                 reconnect_s: float = 2.0) -> None:
-        super().__init__(url=url, stream_id=stream_id, fps=fps, reconnect_s=reconnect_s)
+                 reconnect_s: float = 2.0, transport: str = "tcp",
+                 latency_budget_ms: int = 100) -> None:
+        super().__init__(url=url, stream_id=stream_id, fps=fps,
+                         reconnect_s=reconnect_s, transport=transport,
+                         latency_budget_ms=latency_budget_ms)
         self.url = url
         self.stream_id = stream_id
         self.fps = fps          # 0 = uncapped; >0 = producer-side rate cap
         self.reconnect_s = reconnect_s
+        self.transport = transport
+        self.latency_budget_ms = latency_budget_ms
 
     async def run(self) -> AsyncIterator[StageItem]:
         loop = asyncio.get_running_loop()
+
+        # Tell FFmpeg/OpenCV to use a low-latency RTSP setup.  These env
+        # vars are read by the FFmpeg backend on VideoCapture construction.
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+            f"rtsp_transport;{self.transport}|fflags;nobuffer|flags;low_delay"
+            f"|max_delay;{self.latency_budget_ms * 1000}"
+            f"|reorder_queue_size;0|stimeout;5000000",
+        )
 
         # Shared state: always-latest frame.  Assignment is atomic under the GIL
         # in CPython, so no explicit lock is needed.
@@ -47,7 +62,12 @@ class SourceRTSP(SourceStage):
         def _reader() -> None:
             min_period = (1.0 / self.fps) if self.fps > 0 else 0.0
             while _running[0]:
-                cap = cv2.VideoCapture(self.url)
+                cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+                # Smallest possible internal buffer
+                try:
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except Exception:
+                    pass
                 if not cap.isOpened():
                     log.warning("rtsp_open_failed", url=self.url)
                     time.sleep(self.reconnect_s)
