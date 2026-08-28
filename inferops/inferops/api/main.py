@@ -74,8 +74,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("pg_init_skipped", err=str(e))
     log.info("inferops_started", version=__version__)
-    yield
-    log.info("inferops_stopping")
+    try:
+        yield
+    finally:
+        # Startup built pipeline runners and model backends; shutdown used to do
+        # nothing at all, so ONNX sessions, Triton gRPC channels, Kafka
+        # producers, S3 clients and buffered sink output were dropped on the
+        # floor on every restart. Tear down in reverse order of construction:
+        # runners hold references to backends, so they must go first.
+        log.info("inferops_stopping")
+        for name, close in (
+            ("pipelines", get_pipeline_store().close),
+            ("models", get_registry().close),
+        ):
+            try:
+                await close()
+            except Exception as exc:
+                # One failing subsystem must not prevent the rest from closing.
+                log.warning("shutdown_close_failed", subsystem=name, err=str(exc))
+        log.info("inferops_stopped")
 
 
 def create_app() -> FastAPI:

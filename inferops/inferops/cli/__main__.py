@@ -65,16 +65,21 @@ def _module_available(name: str) -> bool:
 
 
 def _artifact_candidates(path: str, *, spec_dir: Path, model_repository: Path) -> list[Path]:
-    artifact = Path(path)
-    if artifact.is_absolute():
-        return [artifact]
-    return [
-        spec_dir / artifact,
-        spec_dir.parent / artifact,
-        model_repository / artifact,
-        Path.cwd() / artifact,
-        artifact,
-    ]
+    """Delegate to the shared resolver so preflight and runtime always agree.
+
+    This used to be a hand-rolled list that omitted ``settings.domain_root`` and
+    the configs-dir sibling, so ``inferops preflight`` could report a model as
+    missing that OnnxRuntimeBackend resolved without trouble.
+    """
+    from inferops.core.artifacts import artifact_candidates
+
+    return artifact_candidates(
+        path,
+        base_dir=spec_dir,
+        model_repository=model_repository,
+        domain_root=settings.domain_root,
+        configs_dir=settings.configs_dir,
+    )
 
 
 @app.callback(invoke_without_command=True)

@@ -18,6 +18,9 @@ log = get_logger(__name__)
 
 
 class FusionEngine:
+    # Class-level so a process with many engines still warns only once.
+    _persist_warned = False
+
     def __init__(self, spec: FusionSpec) -> None:
         self.spec = spec
         self._windows: dict[tuple[str, str], Window] = {}   # (entity, signal) -> Window
@@ -58,9 +61,12 @@ class FusionEngine:
         if w is None:
             return []
         w.add(sig.ts_ms, float(sig.value))
-        return await self._evaluate(sig.entity_id, sig.ts_ms)
+        emitted = await self._evaluate(sig.entity_id, sig.ts_ms)
+        if emitted and self.spec.persistence_enabled:
+            await self._persist(emitted)
+        return emitted
 
-    async def ingest_item(self, item: StageItem) -> list[FusionEvent]:
+    async def ingest_item(self, item: StageItem, pipeline: str | None = None) -> list[FusionEvent]:
         entity = getattr(item, self.spec.entity_key, None) or item.stream_id
         ts = item.ts_ms or now_ms()
         emitted: list[FusionEvent] = []
@@ -84,6 +90,10 @@ class FusionEngine:
             if w is not None:
                 w.add(ts, v)
         emitted.extend(await self._evaluate(entity, ts))
+        # Persist symmetrically with AlertEngine so GET /v1/events works for
+        # every domain, not only those wiring an explicit sink_postgres stage.
+        if emitted and self.spec.persistence_enabled:
+            await self._persist(emitted, pipeline)
         return emitted
 
     async def _evaluate(self, entity: str, ts_ms: int) -> list[FusionEvent]:
@@ -133,6 +143,34 @@ class FusionEngine:
                 except Exception as e:
                     log.warning("fusion_publish_failed", err=str(e))
         return emitted
+
+    async def _persist(self, events: list[FusionEvent], pipeline: str | None = None) -> None:
+        try:
+            from inferops.adapters.postgres_dao import insert_event
+
+            for ev in events:
+                await insert_event({
+                    "id": ev.id,
+                    # The column holds the *pipeline* name — that is what
+                    # sink_postgres writes and what GET /v1/events filters on.
+                    # Falling back to the fusion spec name only when the caller
+                    # has no pipeline context (e.g. direct engine use in tests).
+                    "pipeline": pipeline or self.spec.name,
+                    "type": ev.type,
+                    "entity_id": ev.entity_id,
+                    "ts_ms": ev.ts_ms,
+                    "payload": ev.payload,
+                })
+        except Exception as e:
+            # Warn once, then drop to debug: a sustained database outage must
+            # not flood the log at frame rate, but silence would hide data loss.
+            if not FusionEngine._persist_warned:
+                FusionEngine._persist_warned = True
+                log.warning("fusion_persist_failed", err=str(e),
+                            hint="events are not being stored; check INFEROPS_PG_URL",
+                            note="further failures logged at debug level")
+            else:
+                log.debug("fusion_persist_failed", err=str(e))
 
 
 class _NullWindow:

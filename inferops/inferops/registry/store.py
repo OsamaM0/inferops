@@ -52,16 +52,40 @@ class ModelRegistry:
             raise RegistryError(f"unknown model: {name}")
         return self._specs[name]
 
+    def loaded_backends(self) -> dict[str, InferenceBackend]:
+        """Backends built so far, for status reporting.
+
+        A copy, so callers cannot mutate the cache, and read without the lock
+        because status endpoints must never block the inference path.
+        """
+        return dict(self._backends)
+
     async def get_backend(self, name: str) -> InferenceBackend:
+        # Fast path first: this runs once per inference call, and taking the
+        # registry lock on every frame serialised the whole pipeline behind any
+        # concurrent model load.
+        cached = self._backends.get(name)
+        if cached is not None:
+            return cached
         spec = self.get_spec(name)
         async with self._lock:
-            if name in self._backends:
-                return self._backends[name]
+            cached = self._backends.get(name)
+            if cached is not None:
+                return cached
             from inferops.runtimes import build_backend
             backend = build_backend(spec, base_dir=self._base_dir)
-            await backend.load(spec)
-            if spec.warmup.iterations > 0:
-                await backend.warmup()
+            try:
+                await backend.load(spec)
+                if spec.warmup.iterations > 0:
+                    await backend.warmup()
+            except Exception:
+                # A backend that failed partway can still hold a gRPC channel,
+                # an ORT session or CUDA memory. Release it, and leave nothing
+                # in the cache so the next call retries cleanly instead of
+                # handing out a permanently broken backend.
+                with suppress(Exception):
+                    await backend.close()
+                raise
             self._backends[name] = backend
             return backend
 

@@ -52,5 +52,11 @@ class FusionSpec(BaseModel):
     rules: list[RuleSpec] = Field(default_factory=list)
     state_machine: StateMachineSpec | None = None
     outputs: FusionOutputs = Field(default_factory=FusionOutputs)
+    # Mirrors AlertSpec.persistence_enabled. Without this the engine emitted
+    # events but never stored them, so GET /v1/events was permanently empty
+    # unless a pipeline happened to declare a `sink_postgres` stage — while
+    # alerts persisted automatically. The dashboard's Events panel reads that
+    # endpoint, so it could never populate.
+    persistence_enabled: bool = True
     # How to extract signals from a StageItem (signal_name -> python expression)
     extract: dict[str, str] = Field(default_factory=dict)

@@ -72,6 +72,22 @@ class TritonBackend(InferenceBackend):
         self._batch_observer = INFER_BATCH.labels(model=spec.name)
         self._latency_observer = INFER_LATENCY.labels(model=spec.name)
 
+        # Triton owns device placement via instance_group in config.pbtxt, so
+        # report what the server told us rather than guessing from DeviceSpec.
+        instance_groups = cfg.get("config", {}).get("instance_group", []) or []
+        kinds = [g.get("kind", "") for g in instance_groups]
+        self.device = "remote"
+        self.device_info = {
+            "requested": spec.device.preferred,
+            "effective": "remote",
+            "server": self._url,
+            "triton_model": self._model_name,
+            "instance_kinds": kinds,
+            "downgraded": bool(kinds) and spec.device.preferred == "gpu"
+                          and not any("GPU" in k for k in kinds),
+            "reason": f"placement decided by Triton instance_group ({', '.join(kinds) or 'unspecified'})",
+        }
+
     async def infer(self, inputs):
         if self._client is None or self._infer_input_cls is None:
             raise BackendError("triton backend not loaded")

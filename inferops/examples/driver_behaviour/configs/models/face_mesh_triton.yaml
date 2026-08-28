@@ -1,0 +1,45 @@
+# MediaPipe FaceMesh v2 served by Triton (GPU path).
+# See model_repository/face_mesh_onnx/config.pbtxt.
+name: face_mesh_triton
+version: 1
+task: landmarks
+
+backend: triton
+artifact:
+  triton_model_name: face_mesh_onnx
+
+device:
+  preferred: gpu
+  gpu_id: 0
+
+# FaceMeshStage reads inputs[0].name and inputs[0].shape[-1] to build its feed
+# dict and to scale landmarks back out of the crop, so these must match the
+# exported graph exactly.
+inputs:
+  - name: input_12
+    shape: [1, 3, 256, 256]
+    dtype: float32
+    layout: NCHW
+    color: RGB
+
+outputs:
+  - name: Identity
+    shape: [1, 1, 1, 1434]
+    dtype: float32
+    layout: ND
+    color: NONE
+  - name: Identity_1
+    shape: [1, 1, 1, 1]
+    dtype: float32
+    layout: ND
+    color: NONE
+  - name: Identity_2
+    shape: [1, 1]
+    dtype: float32
+    layout: ND
+    color: NONE
+
+# FaceMeshStage owns crop + resize + landmark decoding, so no plugins here.
+batching:
+  enabled: false
+  max_batch_size: 1

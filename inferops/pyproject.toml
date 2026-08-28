@@ -11,6 +11,10 @@ requires-python = ">=3.10"
 dependencies = [
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
+  # Imported directly by inferops/core/config.py. It previously arrived only as
+  # a transitive dep of pydantic-settings, so the package would break at import
+  # the moment that dependency changed.
+  "python-dotenv>=1.0",
   "structlog>=24.1",
   "orjson>=3.9",
   "pyyaml>=6.0",
@@ -20,8 +24,17 @@ dependencies = [
   "rich>=13.7",
   "numpy>=1.26",
   "pillow>=10.2",
-  "opencv-python-headless>=4.9",
-  "onnxruntime-gpu>=1.17",
+  # Upper-bounded on purpose: the codebase targets the OpenCV 4 Python API.
+  # OpenCV 5 removed `cv2.CascadeClassifier` from the default module and ships
+  # no Haar cascade XMLs, which broke the face-mesh stage's Haar fallback at
+  # pipeline-setup time. Lift this only after porting those call sites.
+  "opencv-python-headless>=4.9,<5",
+  # CPU wheel by default. `onnxruntime-gpu` must NOT be a base dependency: its
+  # wheels link CUDA at import time, so on a CPU-only host `import onnxruntime`
+  # dies with `ImportError: libcudart.so.N` and nothing in the package can even
+  # be imported — despite the README advertising a CPU-only local mode.
+  # Install the GPU wheel explicitly with the `gpu` extra.
+  "onnxruntime>=1.17",
   "aiokafka>=0.10",
   "redis[hiredis]>=5.0",
   "boto3>=1.34",
@@ -40,6 +53,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# GPU inference in-process. Pick the wheel matching the host CUDA major version
+# and install it *instead of* the CPU wheel:
+#   pip uninstall -y onnxruntime && pip install "inferops[gpu]"
+gpu    = ["onnxruntime-gpu>=1.17"]
 triton = ["tritonclient[grpc,http]>=2.45"]
 video  = ["av>=12.0"]
 dev = [

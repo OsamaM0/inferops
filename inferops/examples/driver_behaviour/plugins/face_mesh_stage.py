@@ -28,6 +28,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from inferops.core.artifacts import resolve_artifact
 from inferops.core.config import get_model_repository_root
 from inferops.core.config import settings
 from inferops.core.types import StageItem
@@ -290,29 +291,23 @@ def _intersection_score(
 
 
 def _resolve_artifact_path(registry, model_name: str) -> Path | None:
+    """Locate a model artifact using the same rules as the ONNX backend.
+
+    Shares :func:`inferops.core.artifacts.resolve_artifact` so this probe cannot
+    drift from what OnnxRuntimeBackend actually loads — otherwise the stage can
+    conclude the real model "looks present" while the backend fails to find it.
+    """
     spec = registry.get_spec(model_name)
     if not spec.artifact.path:
         return None
-    path = Path(spec.artifact.path)
-    if path.is_absolute():
-        return path if path.exists() else None
-
-    candidates: list[Path] = []
-    if registry.base_dir:
-        candidates.extend([registry.base_dir / path, registry.base_dir.parent / path])
-    candidates.extend([
-        Path.cwd() / path,
-        get_model_repository_root(settings) / path,
-        Path(settings.configs_dir).resolve().parent / path,
-    ])
-    if settings.domain_root:
-        candidates.append(Path(settings.domain_root) / path)
-    candidates.append(path)
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+    found, _tried = resolve_artifact(
+        spec.artifact.path,
+        base_dir=registry.base_dir,
+        model_repository=get_model_repository_root(settings),
+        domain_root=settings.domain_root,
+        configs_dir=settings.configs_dir,
+    )
+    return found
 
 
 def _primary_model_looks_real(registry, model_name: str) -> bool:
@@ -497,6 +492,9 @@ class FaceMeshStage(Stage):
         self._haar_face_detector = None
         self._haar_eye_detector = None
         self._haar_profile_detector = None
+        # Latched once the cascades prove unloadable, so we warn a single time
+        # instead of re-probing the filesystem on every frame.
+        self._haar_unavailable = False
         self._face_cache: dict[str, dict[str, Any]] = {}
 
     async def setup(self, ctx) -> None:
@@ -557,25 +555,46 @@ class FaceMeshStage(Stage):
         }
 
     def _ensure_haar_detectors(self) -> None:
+        if self._haar_unavailable:
+            return
         if (
             self._haar_face_detector is not None
             and self._haar_eye_detector is not None
             and self._haar_profile_detector is not None
         ):
             return
-        base = Path(cv2.data.haarcascades)
-        self._haar_face_detector = cv2.CascadeClassifier(
-            str(base / "haarcascade_frontalface_default.xml")
-        )
-        self._haar_eye_detector = cv2.CascadeClassifier(
-            str(base / "haarcascade_eye.xml")
-        )
-        self._haar_profile_detector = cv2.CascadeClassifier(
-            str(base / "haarcascade_profileface.xml")
-        )
+        # Haar detection is an optional assist, not a hard requirement: it only
+        # kicks in when the detector produced no plausible face box. OpenCV 5
+        # dropped `cv2.CascadeClassifier` from the default module and ships no
+        # cascade XMLs, and this runs from setup(), so an unguarded failure took
+        # down construction of the entire pipeline. Degrade instead.
+        try:
+            base = Path(cv2.data.haarcascades)
+            cascade_cls = cv2.CascadeClassifier
+            face = cascade_cls(str(base / "haarcascade_frontalface_default.xml"))
+            eye = cascade_cls(str(base / "haarcascade_eye.xml"))
+            profile = cascade_cls(str(base / "haarcascade_profileface.xml"))
+            if face.empty():
+                raise RuntimeError(
+                    f"haarcascade_frontalface_default.xml not found under {base}"
+                )
+        except Exception as exc:
+            self._haar_unavailable = True
+            log.warning(
+                "haar_face_detector_unavailable",
+                err=f"{type(exc).__name__}: {exc}",
+                cv2_version=getattr(cv2, "__version__", "unknown"),
+                impact="face-mesh falls back to detector boxes only",
+            )
+            return
+        self._haar_face_detector = face
+        self._haar_eye_detector = eye
+        self._haar_profile_detector = profile
 
     def _detect_face_with_haar(self, img: np.ndarray) -> dict[str, Any] | None:
         self._ensure_haar_detectors()
+        if self._haar_face_detector is None:
+            return None
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         face_candidates: list[tuple[int, int, int, int]] = []
         frontal_faces = self._haar_face_detector.detectMultiScale(

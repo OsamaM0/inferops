@@ -116,3 +116,48 @@ async def test_rfdetr_postprocess_preserves_legacy_pixel_boxes():
     assert det.label == "phone"
     assert det.box == (0.375, 0.25, 0.625, 0.75)
     assert det.attrs["xyxy_pixels"] == (75.0, 25.0, 125.0, 75.0)
+
+
+@pytest.mark.asyncio
+async def test_rfdetr_drops_the_background_class_column():
+    """The Triton export has 7 logit columns for 6 classes.
+
+    The 7th is DETR's no-object slot; it used to be emitted as a detection
+    labelled "6", which the fusion rules then reacted to on every frame.
+    """
+    post = RFDetrPostprocess(conf_threshold=0.5)
+    logits = np.full((1, 1, 7), -5.0, dtype=np.float32)
+    logits[0, 0, 6] = 4.0                     # confident background query
+    boxes = np.array([[[0.5, 0.5, 0.2, 0.2]]], dtype=np.float32)
+    frame = Frame(stream_id="cam1", ts_ms=1, width=100, height=100)
+    spec = ModelSpec(name="rfdetr_driver", inputs=[])
+
+    result = await post({"logits": logits, "boxes": boxes}, frame, spec)
+    assert result.detections == []
+    assert result.raw["by_class"] == {}
+
+
+@pytest.mark.asyncio
+async def test_rfdetr_uses_labels_from_the_model_spec():
+    """`labels.inline` in the model YAML was dead config: the class list was hardcoded."""
+    post = RFDetrPostprocess(conf_threshold=0.5)
+    logits = np.array([[[0.0, 4.0, 0.0]]], dtype=np.float32)
+    boxes = np.array([[[0.5, 0.5, 0.2, 0.2]]], dtype=np.float32)
+    frame = Frame(stream_id="cam1", ts_ms=1, width=100, height=100)
+    spec = ModelSpec(name="custom", inputs=[],
+                     labels={"inline": ["alpha", "beta", "gamma"]})
+
+    result = await post({"logits": logits, "boxes": boxes}, frame, spec)
+    assert [d.label for d in result.detections] == ["beta"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_class_names_still_win_over_the_spec():
+    post = RFDetrPostprocess(conf_threshold=0.5, class_names=["x", "y", "z"])
+    logits = np.array([[[0.0, 4.0, 0.0]]], dtype=np.float32)
+    boxes = np.array([[[0.5, 0.5, 0.2, 0.2]]], dtype=np.float32)
+    frame = Frame(stream_id="cam1", ts_ms=1, width=100, height=100)
+    spec = ModelSpec(name="custom", inputs=[], labels={"inline": ["alpha", "beta", "gamma"]})
+
+    result = await post({"logits": logits, "boxes": boxes}, frame, spec)
+    assert [d.label for d in result.detections] == ["y"]

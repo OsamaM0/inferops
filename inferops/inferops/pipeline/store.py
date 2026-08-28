@@ -1,6 +1,8 @@
 """Pipeline registry — loads PipelineSpec YAMLs."""
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from pathlib import Path
 
 from inferops.core.config import get_spec_dir, settings
@@ -15,14 +17,20 @@ class PipelineStore:
     def __init__(self) -> None:
         self._specs: dict[str, PipelineSpec] = {}
         self._runners: dict[str, PipelineRunner] = {}
+        # Guards runner construction. Without it two concurrent requests for the
+        # same pipeline each build and set up a runner; the loser is overwritten
+        # in `_runners` and orphaned with its stages still holding Kafka
+        # producers, S3 clients and WebSocket registrations.
+        self._lock = asyncio.Lock()
 
     async def reload_from(self, directory: str | Path) -> int:
-        await self.close()
-        self._specs.clear()
-        for _path, data in load_dir(directory):
-            spec = PipelineSpec(**data)
-            self._specs[spec.name] = spec
-        return len(self._specs)
+        async with self._lock:
+            await self._close_locked()
+            self._specs.clear()
+            for _path, data in load_dir(directory):
+                spec = PipelineSpec(**data)
+                self._specs[spec.name] = spec
+            return len(self._specs)
 
     def list(self) -> list[PipelineSpec]:
         return list(self._specs.values())
@@ -33,19 +41,40 @@ class PipelineStore:
         return self._specs[name]
 
     async def get_runner(self, name: str) -> PipelineRunner:
-        if name in self._runners:
-            return self._runners[name]
+        # Fast path: an already-built runner needs no lock, keeping the
+        # per-request hot path free of contention.
+        cached = self._runners.get(name)
+        if cached is not None:
+            return cached
         spec = self.get(name)
-        from inferops.adapters.transport import get_transport
-        runner = PipelineRunner(spec, registry=get_registry(), transport=get_transport())
-        await runner.setup()
-        self._runners[name] = runner
-        return runner
+        async with self._lock:
+            # Re-check: another task may have built it while we waited.
+            cached = self._runners.get(name)
+            if cached is not None:
+                return cached
+            from inferops.adapters.transport import get_transport
+            runner = PipelineRunner(spec, registry=get_registry(), transport=get_transport())
+            try:
+                await runner.setup()
+            except Exception:
+                # Never cache a half-built runner, and release whatever its
+                # stages already acquired before setup() raised.
+                with suppress(Exception):
+                    await runner.teardown()
+                raise
+            self._runners[name] = runner
+            return runner
+
+    async def _close_locked(self) -> None:
+        for r in self._runners.values():
+            # One failing teardown must not strand the remaining runners.
+            with suppress(Exception):
+                await r.teardown()
+        self._runners.clear()
 
     async def close(self) -> None:
-        for r in self._runners.values():
-            await r.teardown()
-        self._runners.clear()
+        async with self._lock:
+            await self._close_locked()
 
 
 _store: PipelineStore | None = None

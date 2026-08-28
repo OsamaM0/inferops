@@ -112,6 +112,15 @@ class SyntheticFaceMeshBackend(InferenceBackend):
 
     async def load(self, spec: ModelSpec) -> None:
         self.spec = spec
+        # Pure numpy: always CPU, regardless of what DeviceSpec asks for.
+        self.device = "cpu"
+        self.device_info = {
+            "requested": spec.device.preferred,
+            "effective": "cpu",
+            "downgraded": spec.device.preferred == "gpu",
+            "reason": "synthetic backend runs in numpy on the CPU",
+            "active_providers": [],
+        }
         tags = spec.tags or {}
         self._drowsy     = tags.get("drowsy", "0") == "1"
         self._distracted = tags.get("distracted", "0") == "1"

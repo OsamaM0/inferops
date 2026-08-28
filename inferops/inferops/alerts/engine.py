@@ -13,6 +13,9 @@ log = get_logger(__name__)
 
 
 class AlertEngine:
+    # Class-level so a process with many engines still warns only once.
+    _persist_warned = False
+
     def __init__(self, spec: AlertSpec) -> None:
         self.spec = spec
         self._sinks = [build_sink(s) for s in spec.sinks]
@@ -99,7 +102,19 @@ class AlertEngine:
                     "payload": alert.payload,
                 })
             except Exception as e:
-                log.debug("alert_persist_failed", err=str(e))
+                # Losing an alert is a real incident, not a debug detail. This
+                # was log.debug, so with no database reachable every alert
+                # vanished and the dashboard's activity panels stayed empty with
+                # nothing in the logs to explain why. Warn on the first failure,
+                # then fall back to debug so a sustained outage cannot flood the
+                # log at frame rate.
+                if not AlertEngine._persist_warned:
+                    AlertEngine._persist_warned = True
+                    log.warning("alert_persist_failed", err=str(e),
+                                hint="alerts are not being stored; check INFEROPS_PG_URL",
+                                note="further failures logged at debug level")
+                else:
+                    log.debug("alert_persist_failed", err=str(e))
         return alert
 
     async def ingest_item(self, item: StageItem) -> list[Alert]:

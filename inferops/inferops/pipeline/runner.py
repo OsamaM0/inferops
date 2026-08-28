@@ -41,6 +41,10 @@ class PipelineRunner:
         self._stages: list[Stage] = []
         self._sinks: list[SinkStage] = []
         self._setup_done = False
+        # Strong references to in-flight background sink tasks. asyncio keeps
+        # only a weak reference, so an unreferenced task can be garbage
+        # collected before it finishes writing.
+        self._sink_tasks: set[asyncio.Task] = set()
 
     async def setup(self) -> None:
         if self._setup_done:
@@ -107,9 +111,26 @@ class PipelineRunner:
         self._setup_done = True
 
     async def teardown(self) -> None:
+        # Let background sink writes finish before closing the stages they write
+        # through, otherwise shutdown races them and loses the last evidence.
+        if self._sink_tasks:
+            await asyncio.gather(*list(self._sink_tasks), return_exceptions=True)
+            self._sink_tasks.clear()
+        # finalize() is the documented "all items are done" hook; this is the
+        # only place it belongs for request-driven pipelines, and it is what
+        # flushes SinkS3's buffered clip.
+        with suppress(Exception):
+            await self._finalize_sinks()
         for s in [*([self._source] if self._source else []), *self._stages, *self._sinks]:
             with suppress(Exception):
                 await s.teardown()
+        # Drop the stage instances and clear the flag so a torn-down runner is
+        # rebuilt cleanly instead of silently reusing closed resources or
+        # accumulating a second copy of every stage on the next setup().
+        self._source = None
+        self._stages = []
+        self._sinks = []
+        self._setup_done = False
 
     async def _through_stages(self, item: StageItem) -> list[StageItem]:
         current = [item]
@@ -138,10 +159,16 @@ class PipelineRunner:
             await asyncio.gather(*[s.finalize() for s in self._sinks], return_exceptions=True)
 
     async def _run_sinks_bg(self, items: list[StageItem]) -> None:
-        """Fire-and-forget wrapper: run sinks + finalize without blocking the response."""
+        """Background wrapper: run sinks without blocking the HTTP response.
+
+        Deliberately does NOT call ``_finalize_sinks()``. ``finalize()`` is
+        documented as "called once after all items are processed"; calling it
+        per request made SinkS3 flush and clear its pre/post-roll buffer after
+        every frame, so evidence clips were never assembled and concurrent
+        requests wiped each other's buffers.
+        """
         try:
             await self._fan_sinks(items)
-            await self._finalize_sinks()
         except Exception:
             log.exception("sink_background_failed", pipeline=self.spec.name)
 
@@ -151,9 +178,13 @@ class PipelineRunner:
         t0 = time.perf_counter()
         try:
             outs = await self._through_stages(item)
-            # Fire evidence/sink writes as a background task so the HTTP
-            # response is returned immediately (P99 latency improvement).
-            asyncio.create_task(self._run_sinks_bg(outs))
+            # Evidence/sink writes run in the background so the HTTP response is
+            # returned immediately. asyncio only holds a weak reference to a
+            # task, so without keeping one here the GC could collect it
+            # mid-flight and silently drop the evidence and database writes.
+            task = asyncio.create_task(self._run_sinks_bg(outs))
+            self._sink_tasks.add(task)
+            task.add_done_callback(self._sink_tasks.discard)
             PIPELINE_RUNS.labels(pipeline=self.spec.name, result="ok").inc()
             if outs:
                 stage_ms = {k: v for k, v in outs[0].trace.items() if k.startswith("stage_ms.")}

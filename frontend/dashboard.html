@@ -1369,6 +1369,24 @@
       return url.toString();
     }
 
+    // Every InferOps socket fans out binary orjson frames, but a socket without
+    // `binaryType = "arraybuffer"` yields a Blob instead. Both live and alert
+    // sockets decode through here so the two paths cannot drift apart again.
+    async function decodeSocketPayload(data) {
+      if (data === null || data === undefined) return null;
+      if (typeof data === "string") return JSON.parse(data);
+      if (data instanceof ArrayBuffer) {
+        return JSON.parse(new TextDecoder().decode(new Uint8Array(data)));
+      }
+      if (typeof Blob !== "undefined" && data instanceof Blob) {
+        return JSON.parse(await data.text());
+      }
+      if (ArrayBuffer.isView(data)) {
+        return JSON.parse(new TextDecoder().decode(data));
+      }
+      throw new TypeError(`unsupported websocket payload type: ${typeof data}`);
+    }
+
     function escapeHtml(value) {
       return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -2301,10 +2319,15 @@
 
       try {
         const socket = new WebSocket(buildWsUrl(`alerts.${streamId}`));
+        // The server fans out with WebSocket.send_bytes (see sink_ws.py), so
+        // frames arrive as binary. Without this the browser hands us a Blob and
+        // JSON.parse sees the string "[object Blob]" — every alert was dropped.
+        socket.binaryType = "arraybuffer";
         state.alertSocket = socket;
-        socket.onmessage = (event) => {
+        socket.onmessage = async (event) => {
           try {
-            const payload = JSON.parse(event.data);
+            const payload = await decodeSocketPayload(event.data);
+            if (payload === null) return;
             state.alerts = [payload, ...(state.alerts || [])].slice(0, 12);
             renderAlertsAndEvents();
             renderRuntimeSummary();
@@ -2667,14 +2690,11 @@
       ws.addEventListener("error", () => {
         setNotice("Live socket error.", "status-err");
       });
-      ws.addEventListener("message", (event) => {
+      ws.addEventListener("message", async (event) => {
         let msg;
         try {
-          if (typeof event.data === "string") {
-            msg = JSON.parse(event.data);
-          } else {
-            msg = JSON.parse(new TextDecoder().decode(new Uint8Array(event.data)));
-          }
+          msg = await decodeSocketPayload(event.data);
+          if (msg === null) return;
         } catch (err) {
           console.error("live ws parse failed", err);
           return;
@@ -2824,13 +2844,11 @@
         setNotice("Video WS error.", "status-err");
         stopVideoLoop();
       });
-      ws.addEventListener("message", (event) => {
+      ws.addEventListener("message", async (event) => {
         let msg;
         try {
-          msg = JSON.parse(
-            typeof event.data === "string" ? event.data
-              : new TextDecoder().decode(new Uint8Array(event.data))
-          );
+          msg = await decodeSocketPayload(event.data);
+          if (msg === null) return;
         } catch (err) {
           console.error("video ws parse failed", err);
           return;

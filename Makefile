@@ -8,6 +8,7 @@ DATA_DIR := .data
 TOOLS_BIN_DIR := $(CURDIR)/.tools/bin
 API_PORT ?= 8080
 DASHBOARD_PORT ?= 8090
+INFEROPS_API_URL ?= http://127.0.0.1:$(API_PORT)
 DOMAIN ?=
 DOMAIN_ENV := $(if $(DOMAIN),INFEROPS_ACTIVE_DOMAIN=$(DOMAIN),)
 DOMAIN_ARG := $(if $(DOMAIN),--domain $(DOMAIN),)
@@ -15,6 +16,12 @@ COMMA := ,
 PREWARM_PIPELINE_ENV := $(if $(DOMAIN),INFEROPS_PREWARM_PIPELINES=$(DOMAIN),)
 PREWARM_MODEL_ENV := $(if $(filter $(DOMAIN),driver_behaviour),INFEROPS_PREWARM_MODELS=rfdetr_driver_triton$(COMMA)face_mesh_triton$(COMMA)face_mesh_onnx,)
 TRITON_AUTO_DOMAINS := driver_behaviour
+# serve-mock supplies a mock S3 (moto) but used to leave INFEROPS_PG_URL at its
+# Postgres default, so every event/alert insert failed against a server that was
+# never started and the dashboard's activity panels stayed permanently empty.
+# The DAO already declares SQLite variants for its JSONB columns, so point the
+# mock stack at a local file and the whole surface works offline.
+MOCK_PG_URL ?= sqlite+aiosqlite:///$(CURDIR)/$(DATA_DIR)/inferops-mock.db
 MINIO_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 REDPANDA_PORT ?= 19092
@@ -49,7 +56,11 @@ MOTO_LOG_FILE := $(LOG_DIR)/moto-s3.log
 TRITON_LOG_FILE := $(LOG_DIR)/triton.log
 PROMETHEUS_LOG_FILE := $(LOG_DIR)/prometheus.log
 GRAFANA_LOG_FILE := $(LOG_DIR)/grafana.log
-MOTO_SERVER := $(CURDIR)/$(APP_DIR)/.venv/bin/moto_server
+# Mirror the PY fallback: prefer the project venv, otherwise take whatever is on
+# PATH. This was pinned to the venv path with no fallback, so `make serve-mock`
+# failed outright in any environment that installs into a conda/system env.
+VENV_MOTO := $(CURDIR)/$(APP_DIR)/.venv/bin/moto_server
+MOTO_SERVER ?= $(if $(wildcard $(VENV_MOTO)),$(VENV_MOTO),$(shell command -v moto_server 2>/dev/null || echo moto_server))
 MINIO_BIN ?= $(shell command -v minio 2>/dev/null || echo $(TOOLS_BIN_DIR)/minio)
 MC_BIN ?= $(shell command -v mc 2>/dev/null || echo $(TOOLS_BIN_DIR)/mc)
 REDPANDA_BIN ?= $(shell command -v redpanda 2>/dev/null)
@@ -67,7 +78,7 @@ ifeq ($(TRITON_ENABLED),1)
 SERVE_DEPS += start-triton
 endif
 
-.PHONY: help setup install dev-install setup-models test lint fmt validate serve serve-mock serve-api serve-dashboard stop up down logs \
+.PHONY: help setup install dev-install setup-models test scenario lint fmt validate serve serve-mock serve-api serve-dashboard stop up down logs \
 	start-minio start-redpanda start-triton start-prometheus start-grafana \
 	stop-minio stop-redpanda stop-triton stop-prometheus stop-grafana \
 	ensure-topics ensure-buckets status \
@@ -94,6 +105,13 @@ setup-models: ## Build/download example models
 
 test: ## Run InferOps tests
 	cd $(APP_DIR) && $(PY) -m pytest -q
+
+scenario: ## Drive the dashboard end-to-end in a real browser and screenshot each step
+	@command -v curl >/dev/null || { echo "curl is required"; exit 1; }
+	@curl -fsS $(INFEROPS_API_URL)/healthz >/dev/null 2>&1 || { \
+		echo "API is not up on $(INFEROPS_API_URL) — run: make serve-mock DOMAIN=driver_behaviour"; exit 1; }
+	cd $(APP_DIR) && $(PY) scripts/e2e_dashboard_scenario.py --out $(CURDIR)/$(RUN_DIR)/scenario
+	@echo "Screenshots: $(CURDIR)/$(RUN_DIR)/scenario"
 
 lint: ## Lint InferOps
 	cd $(APP_DIR) && $(PY) -m ruff check .
@@ -336,9 +354,9 @@ serve: $(SERVE_DEPS) ## Start API, dashboard, MinIO, Redpanda, Prometheus, Grafa
 	@echo "Dashboard:     http://127.0.0.1:$(DASHBOARD_PORT)/dashboard.html"
 	@echo "Logs:          $(API_LOG_FILE)  $(DASHBOARD_LOG_FILE)  $(MINIO_LOG_FILE)  $(REDPANDA_LOG_FILE)"
 
-serve-mock: stop ## Fallback: API + dashboard + Moto S3 mock + inproc transport (no Redpanda/MinIO)
-	@mkdir -p $(RUN_DIR) $(LOG_DIR)
-	@cd $(APP_DIR) && { $(DOMAIN_ENV) INFEROPS_TRANSPORT_KIND=inproc nohup $(PY) -m uvicorn inferops.api.main:app --host 0.0.0.0 --port $(API_PORT) > $(CURDIR)/$(API_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(API_PID_FILE); }
+serve-mock: stop ## Fallback: API + dashboard + Moto S3 mock + SQLite + inproc transport (no Redpanda/MinIO)
+	@mkdir -p $(RUN_DIR) $(LOG_DIR) $(DATA_DIR)
+	@cd $(APP_DIR) && { $(DOMAIN_ENV) INFEROPS_TRANSPORT_KIND=inproc INFEROPS_PG_URL=$(MOCK_PG_URL) nohup $(PY) -m uvicorn inferops.api.main:app --host 0.0.0.0 --port $(API_PORT) > $(CURDIR)/$(API_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(API_PID_FILE); }
 	@nohup $(PY) -m http.server $(DASHBOARD_PORT) --directory $(CURDIR)/frontend > $(CURDIR)/$(DASHBOARD_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(DASHBOARD_PID_FILE)
 	@nohup $(MOTO_SERVER) -p $(MINIO_PORT) > $(CURDIR)/$(MOTO_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(MOTO_PID_FILE)
 	@for port in $(API_PORT) $(DASHBOARD_PORT) $(MINIO_PORT); do \

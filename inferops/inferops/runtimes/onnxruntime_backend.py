@@ -4,7 +4,10 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from typing import Any
 
+from inferops.core.artifacts import resolve_artifact
+from inferops.core.devices import resolve_onnx_providers
 from inferops.core.errors import BackendError
 from inferops.obs import INFER_BATCH, INFER_LATENCY, get_logger
 from inferops.registry.model_spec import ModelSpec
@@ -19,67 +22,119 @@ class OnnxRuntimeBackend(InferenceBackend):
         self._sess = None
         self._input_names: list[str] = []
         self._output_names: list[str] = []
+        self.device: str = "cpu"
+        self.device_info: dict[str, Any] = {}
 
-    async def load(self, spec: ModelSpec) -> None:
-        import onnxruntime as ort
-        self.spec = spec
+    def _resolve_model_path(self, spec: ModelSpec) -> Path:
         if not spec.artifact.path:
             raise BackendError(f"model {spec.name}: onnxruntime backend requires artifact.path")
-        p = Path(spec.artifact.path)
-        if not p.is_absolute():
-            tried = []
-            candidates = []
-            if self.base_dir:
-                candidates += [self.base_dir / p, self.base_dir.parent / p]
-            # also try cwd and settings.model_repository sibling
-            from inferops.core.config import get_model_repository_root
-            from inferops.core.config import settings as _s
+        from inferops.core.config import get_model_repository_root
+        from inferops.core.config import settings as _s
 
-            model_repository_root = get_model_repository_root(_s)
-            candidates += [
-                Path.cwd() / p,
-                model_repository_root / p,
-                Path(_s.configs_dir).resolve().parent / p,
-            ]
-            if _s.domain_root:
-                candidates.append(Path(_s.domain_root) / p)
-            candidates.append(Path(p))
-            for c in candidates:
-                tried.append(str(c))
-                if c.exists():
-                    p = c
-                    break
-            else:
-                raise BackendError(f"model file not found, tried: {tried}")
-        if not p.exists():
-            raise BackendError(f"model file not found: {p}")
-        providers = ["CPUExecutionProvider"]
-        if spec.device.preferred == "gpu":
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        found, tried = resolve_artifact(
+            spec.artifact.path,
+            base_dir=self.base_dir,
+            model_repository=get_model_repository_root(_s),
+            domain_root=_s.domain_root,
+            configs_dir=_s.configs_dir,
+        )
+        if found is None:
+            raise BackendError(
+                f"model {spec.name}: file not found, tried: {[str(p) for p in tried]}"
+            )
+        return found
 
-        def _create_session(path: str) -> ort.InferenceSession:
+    async def load(self, spec: ModelSpec) -> None:
+        try:
+            import onnxruntime as ort
+        except Exception as exc:
+            # onnxruntime-gpu wheels raise ImportError on CPU-only hosts when
+            # their CUDA shared objects are missing. Surface that as a backend
+            # error naming the install fix rather than a bare ImportError.
+            raise BackendError(
+                f"model {spec.name}: onnxruntime is not importable ({type(exc).__name__}: {exc}). "
+                "Install the CPU wheel with `pip install onnxruntime`, or install matching CUDA "
+                "runtime libraries for onnxruntime-gpu."
+            ) from exc
+
+        self.spec = spec
+        path = self._resolve_model_path(spec)
+
+        resolution = resolve_onnx_providers(spec.device.preferred, spec.device.gpu_id)
+        self.device = resolution.effective_device
+        providers = resolution.providers
+
+        def _create_session(target: str, provider_list: list[Any]) -> ort.InferenceSession:
             opts = ort.SessionOptions()
-            # Enable all graph optimisations (constant folding, node fusion, …)
+            # Enable all graph optimisations (constant folding, node fusion, ...).
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            # Sequential mode: nodes always execute in the same order, which
-            # avoids floating-point non-determinism from parallel thread scheduling.
-            # This ensures the exact same input always produces the exact same output.
-            opts.execution_mode = ort.ExecutionMode.ORT_PARALELL
-            return ort.InferenceSession(path, providers=providers, sess_options=opts)
+            # Sequential execution: nodes always run in the same order, which
+            # avoids floating-point non-determinism from parallel thread
+            # scheduling, so identical input always yields identical output.
+            # (The previous value, ORT_PARALELL, was a typo for ORT_PARALLEL and
+            # raised AttributeError on every load.)
+            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            return ort.InferenceSession(target, providers=provider_list, sess_options=opts)
 
-        # Run the blocking session-creation in a thread so the event loop stays live
-        self._sess = await asyncio.to_thread(_create_session, str(p))
+        # Run the blocking session-creation in a thread so the event loop stays live.
+        try:
+            self._sess = await asyncio.to_thread(_create_session, str(path), providers)
+        except Exception as exc:
+            if resolution.effective_device != "gpu":
+                raise BackendError(
+                    f"model {spec.name}: failed to create ONNX session from {path}: {exc}"
+                ) from exc
+            # CUDA looked available but session creation still failed (driver
+            # mismatch, OOM, unsupported op). Retry on CPU instead of taking the
+            # whole pipeline down.
+            log.warning("onnx_gpu_session_failed_falling_back_to_cpu",
+                        model=spec.name, err=str(exc))
+            self.device = "cpu"
+            try:
+                self._sess = await asyncio.to_thread(
+                    _create_session, str(path), ["CPUExecutionProvider"]
+                )
+            except Exception as cpu_exc:
+                raise BackendError(
+                    f"model {spec.name}: failed to create ONNX session from {path} "
+                    f"on GPU ({exc}) and on CPU ({cpu_exc})"
+                ) from cpu_exc
+
         self._input_names = [i.name for i in self._sess.get_inputs()]
         self._output_names = [o.name for o in self._sess.get_outputs()]
         active = self._sess.get_providers()
-        log.info("onnx_session_loaded", model=spec.name,
-                 requested_providers=providers, active_providers=active,
-                 gpu_active=any("CUDA" in ep for ep in active))
+        gpu_active = any("CUDA" in ep or "TensorRT" in ep for ep in active)
+        # get_providers() is authoritative: trust it over our own prediction.
+        self.device = "gpu" if gpu_active else "cpu"
+        self.device_info = {
+            "requested": resolution.requested_device,
+            "effective": self.device,
+            "gpu_id": resolution.gpu_id,
+            "downgraded": resolution.requested_device == "gpu" and self.device != "gpu",
+            "reason": resolution.reason,
+            "active_providers": list(active),
+        }
+        emit = log.warning if self.device_info["downgraded"] else log.info
+        emit("onnx_session_loaded", model=spec.name, path=str(path),
+             requested_device=resolution.requested_device, effective_device=self.device,
+             gpu_id=resolution.gpu_id, downgraded=self.device_info["downgraded"],
+             reason=resolution.reason, active_providers=active)
 
     async def infer(self, inputs):
         if self._sess is None:
             raise BackendError("backend not loaded")
         feeds = {n: inputs[n] for n in self._input_names if n in inputs}
+        if not feeds:
+            raise BackendError(
+                f"model {self.spec.name}: none of the model inputs {self._input_names} "
+                f"were supplied (got: {sorted(inputs)})"
+            )
+        missing = [n for n in self._input_names if n not in feeds]
+        if missing:
+            raise BackendError(
+                f"model {self.spec.name}: missing required input(s) {missing}; "
+                f"got: {sorted(inputs)}"
+            )
         first = next(iter(feeds.values()))
         INFER_BATCH.labels(model=self.spec.name).observe(first.shape[0] if first.ndim > 0 else 1)
         t0 = time.perf_counter()
@@ -88,4 +143,10 @@ class OnnxRuntimeBackend(InferenceBackend):
         return dict(zip(self._output_names, outs, strict=True))
 
     async def close(self) -> None:
-        self._sess = None
+        # Drop the session and let ORT release its device memory. Without an
+        # explicit del the arena can outlive a hot reload and leak GPU memory.
+        sess, self._sess = self._sess, None
+        if sess is not None:
+            del sess
+        self._input_names = []
+        self._output_names = []

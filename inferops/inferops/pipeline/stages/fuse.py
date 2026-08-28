@@ -16,7 +16,9 @@ class Fuse(Stage):
         self._engine = get_fusion_store().get(self.fusion_name)
 
     async def process(self, item):
-        events = await self._engine.ingest_item(item)
+        # Pass the pipeline name so persisted events carry the same identifier
+        # sink_postgres uses, which is what GET /v1/events filters on.
+        events = await self._engine.ingest_item(item, pipeline=self.ctx.pipeline)
         if events:
             item.payload.setdefault("fusion_events", []).extend(
                 [e.model_dump(mode="json") for e in events]

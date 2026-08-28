@@ -12,11 +12,24 @@ triton/model_repository/*/[0-9]*/model.plan
 output_onnx/
 
 # Runtime directories (inside project)
-models/
-logs/
-data/
+#
+# These MUST stay anchored. A bare `models/` pattern matches *any* directory
+# named `models` at any depth, which silently excluded `configs/models/` and
+# `examples/*/configs/models/` — i.e. every ModelSpec YAML in the project.
+# Git never descends into an excluded directory, so a later `!configs/models/**`
+# negation cannot bring them back; the pattern itself has to be anchored.
+/models/
+/inferops/models/
+/logs/
+/inferops/logs/
+/data/
+/inferops/data/
 .demo.db*
-screenshots/
+# Anchored for the same reason as the directories above: a bare `screenshots/`
+# also matched `docs/screenshots/`, so committed documentation images would have
+# been silently dropped exactly the way the model specs were.
+/screenshots/
+/inferops/screenshots/
 
 # IDE
 .vscode/

@@ -57,6 +57,38 @@ def _safe_s3_probe(bucket: str, prefix: str = "") -> dict[str, Any]:
         return {"available": False, "count": None}
 
 
+def _runtime_info() -> dict[str, Any]:
+    """Report what device inference is actually running on.
+
+    Nothing previously surfaced this, so a spec asking for ``preferred: gpu``
+    that silently degraded to CPU — missing CUDA libs, no visible device, an
+    ONNX Runtime built without the CUDA provider — looked identical to a
+    healthy GPU deployment. ``downgraded`` is the flag to alert on.
+    """
+    from inferops.core.devices import describe_runtime
+    from inferops.registry import get_registry
+
+    info: dict[str, Any] = describe_runtime()
+    models: list[dict[str, Any]] = []
+    try:
+        for name, backend in get_registry().loaded_backends().items():
+            device_info = getattr(backend, "device_info", None) or {}
+            models.append({
+                "model": name,
+                "backend": type(backend).__name__,
+                "device": getattr(backend, "device", None),
+                "requested_device": device_info.get("requested"),
+                "downgraded": bool(device_info.get("downgraded", False)),
+                "reason": device_info.get("reason"),
+                "active_providers": device_info.get("active_providers"),
+            })
+    except Exception as exc:                      # never let status 500
+        info["models_error"] = str(exc)
+    info["models"] = models
+    info["models_downgraded"] = [m["model"] for m in models if m["downgraded"]]
+    return info
+
+
 async def _db_counts() -> dict[str, int | None]:
     try:
         engine = get_engine()
@@ -112,6 +144,7 @@ async def system_status():
             "redpanda_admin": {"port": 19644, "open": redpanda_admin_open},
         },
         "transport": {"kind": settings.transport.kind, "bootstrap": settings.transport.bootstrap},
+        "runtime": _runtime_info(),
         "deepstream": {"version": deepstream_version},
         "database": db_counts,
         "evidence": {

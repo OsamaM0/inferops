@@ -46,10 +46,28 @@ def _looks_like_placeholder_output(logits: np.ndarray, boxes: np.ndarray) -> boo
 class RFDetrPostprocess(Postprocessor):
     def __init__(self, conf_threshold: float = 0.35,
                  class_names: list[str] | None = None,
-                 reject_placeholder_outputs: bool = True) -> None:
+                 reject_placeholder_outputs: bool = True,
+                 drop_unmapped_classes: bool = True) -> None:
         self.conf = conf_threshold
-        self.classes = tuple(class_names) if class_names else CLASS_NAMES
+        self.classes = tuple(class_names) if class_names else None
         self.reject_placeholder_outputs = reject_placeholder_outputs
+        # The Triton export emits 7 logit columns for 6 real classes; the extra
+        # column is the DETR no-object/background slot. Emitting it produced
+        # phantom high-confidence detections labelled "6" on every frame.
+        self.drop_unmapped_classes = drop_unmapped_classes
+
+    def _class_names(self, spec: ModelSpec) -> tuple[str, ...]:
+        """Explicit param > the spec's own labels > the legacy built-in list.
+
+        Reading ``spec.label_list()`` is what makes ``labels.inline`` in the
+        model YAML live configuration rather than documentation.
+        """
+        if self.classes:
+            return self.classes
+        from_spec = spec.label_list()
+        if from_spec:
+            return tuple(from_spec)
+        return CLASS_NAMES
 
     async def __call__(self, raw, frame: Frame, spec: ModelSpec) -> Result:
         logits_b, boxes_b = _split_outputs(raw)
@@ -67,11 +85,16 @@ class RFDetrPostprocess(Postprocessor):
         keep = conf >= self.conf
         cls_ids, conf, bx = cls_ids[keep], conf[keep], boxes[keep]
 
+        classes = self._class_names(spec)
         ow = max(int(frame.width or 1), 1)
         oh = max(int(frame.height or 1), 1)
         dets: list[Detection] = []
         by_class: dict[str, list[dict]] = {}
         for i in range(len(cls_ids)):
+            # Background / no-object columns have no label; emitting them as
+            # str(index) invented detections the fusion rules then reacted to.
+            if self.drop_unmapped_classes and not 0 <= int(cls_ids[i]) < len(classes):
+                continue
             cx, cy, w, h = bx[i]
             x1 = float(max(0.0, (cx - w / 2)))
             y1 = float(max(0.0, (cy - h / 2)))
@@ -79,7 +102,7 @@ class RFDetrPostprocess(Postprocessor):
             y2 = float(min(1.0, (cy + h / 2)))
             xyxy_pixels = (x1 * ow, y1 * oh, x2 * ow, y2 * oh)
             c = int(cls_ids[i])
-            label = self.classes[c] if 0 <= c < len(self.classes) else str(c)
+            label = classes[c] if 0 <= c < len(classes) else str(c)
             d = Detection(label=label, score=float(conf[i]), box=(x1, y1, x2, y2),
                           attrs={"orig_w": ow, "orig_h": oh, "xyxy_pixels": xyxy_pixels})
             dets.append(d)
