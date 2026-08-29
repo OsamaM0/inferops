@@ -7,16 +7,24 @@ observability services.
 
 At the core is a typed pipeline DAG composing:
 
-**source → decode → preprocess → infer → postprocess → fuse → alert → sinks**
+**source → decode → preprocess → infer → postprocess → track → fuse → alert → sinks**
+
+The platform itself knows nothing about any particular computer-vision
+problem. A concrete product is a **domain pack**: a directory of YAML plus
+optional Python plugins that the platform loads at runtime. The bundled
+`examples/driver_behaviour` pack is one such product and can be deleted or
+replaced without touching the platform — see [Domain packs](#domain-packs).
 
 ## What you get
 
 - YAML-driven model registry, pipeline specs, fusion rules, and alert rules
-- ONNX Runtime and Triton inference backends
+- ONNX Runtime, Triton, TensorRT and synthetic backends, plus pack-provided backends
 - In-process and Redpanda transports behind the same abstraction
 - FastAPI, WebSocket fan-out, and Prometheus metrics
 - Worker entrypoints for source-driven and topic-driven pipelines
-- Evidence browsing and event/alert storage integrations
+- Evidence capture (JSON, snapshots, MP4 clips) with YAML-defined trigger rules
+- A generic dashboard that renders any pack's pipelines, detections, signals and alerts
+- `inferops domain init` to scaffold a runnable pack for a new project in one command
 
 ## What it looks like running
 
@@ -121,7 +129,10 @@ Run all `make` commands from the repository root; the root `Makefile` is the onl
 
 Level 1 sets up InferOps itself. This installs dependencies, validates the
 core platform config, installs the native `make serve` prerequisites on
-Debian/Ubuntu Linux, and starts the API/dashboard with no active domain:
+Debian/Ubuntu Linux, and starts the API/dashboard with no domain pack — the
+core `tiny_classifier` pipeline runs through the real ONNX Runtime backend so
+every surface (API, dashboard, video upload, live WebSocket, evidence) can be
+exercised with nothing downloaded:
 
 ```bash
 python -m venv inferops/.venv
@@ -131,29 +142,38 @@ make validate
 make serve-mock
 ```
 
-Level 2 selects one domain pack for the process. The bundled driver behaviour
-domain includes its own model specs, pipelines, fusion rules, alert rules,
-plugins, and model asset setup:
+Level 2 selects one domain pack for the process. `make domains` lists the
+packs found under `examples/` and `domains/`; the bundled driver behaviour pack
+includes its own model specs, pipelines, fusion rules, alert rules, plugins,
+Triton configs and model asset installers:
 
 ```bash
-make setup DOMAIN=driver_behaviour
+make domains
+make setup DOMAIN=driver_behaviour       # installs the pack's extras + assets from domain.yaml
 make validate DOMAIN=driver_behaviour
-make test
+make test DOMAIN=driver_behaviour        # core suite, then the pack's own tests
 make serve-mock DOMAIN=driver_behaviour
+```
+
+Level 3 is your own project:
+
+```bash
+make new-domain NAME=ppe_site LABELS=person,helmet,vest
+make serve-mock DOMAIN=ppe_site          # runs immediately on the synthetic detector
 ```
 
 Open `http://localhost:8080/docs` after the server starts. The dashboard is available at `http://localhost:8090/dashboard.html`.
 
 Notes:
 
-- `make setup` installs Python dependencies, optional model assets, and config validation. On Debian/Ubuntu Linux it also bootstraps native `make serve` prerequisites by downloading `minio` and `mc` into `.tools/bin` and installing `redpanda`/`rpk` from the official APT repository.
+- `make setup` installs Python dependencies, the selected pack's extras and model assets (both declared in its `domain.yaml`), and runs config validation. On Debian/Ubuntu Linux it also bootstraps native `make serve` prerequisites by downloading `minio` and `mc` into `.tools/bin` and installing `redpanda`/`rpk` from the official APT repository.
+- `GPU=1 make setup` (or `make install GPU=1`) swaps the CPU `onnxruntime` wheel for `onnxruntime-gpu`. Check the `runtime` block of `GET /v1/system/status` afterwards; `models_downgraded` must be empty.
 - Use `SKIP_RUNTIME=1 make setup` if you only want the Python environment and plan to use `make serve-mock` or `make up`.
 - `make setup-runtime` reruns only the native runtime bootstrap when you need to repair or upgrade the local `make serve` prerequisites.
 - `make serve` is the native broker-backed path. After `make setup`, it expects local `minio` plus `rpk`/`redpanda` binaries to be available either from `.tools/bin` or the system PATH.
-- Core InferOps starts without driver models or driver pipelines unless you pass `DOMAIN=driver_behaviour` or set `INFEROPS_ACTIVE_DOMAIN=driver_behaviour`.
-- The checked-in local profile in `configs/platform.yaml` sets `transport.kind: redpanda`; use `make serve-mock DOMAIN=driver_behaviour` or set `INFEROPS_TRANSPORT_KIND=inproc` for the lightweight local path.
+- Core InferOps starts with only `configs/` unless you pass `DOMAIN=<pack>` or set `INFEROPS_ACTIVE_DOMAIN=<pack>` (or `INFEROPS_DOMAIN_ROOT=/path/to/pack` for a pack outside the repository).
+- The checked-in local profile in `configs/platform.yaml` sets `transport.kind: redpanda`; use `make serve-mock` or set `INFEROPS_TRANSPORT_KIND=inproc` for the lightweight local path.
 - If your shell does not resolve the `inferops` console script, use `python -m inferops.cli ...` instead.
-- If you need Triton-backed model specs, install the extra client dependency with `pip install -e ".[dev,triton]"`.
 - If you need PyAV-based video stages, install `pip install -e ".[dev,video]"`.
 
 ### Triton accelerated local run
@@ -166,16 +186,18 @@ stack:
 make serve DOMAIN=driver_behaviour
 ```
 
-This starts Triton on HTTP `8000`, gRPC `8001`, and metrics `8002`, using
-`inferops/model_repository` as the model repository. The RF-DETR Triton config
-is fixed-batch because the current ONNX artifact has batch size `1`; for higher
+This starts Triton on HTTP `8000`, gRPC `8001`, and metrics `8002`, using the
+pack's `examples/driver_behaviour/model_repository` as the model repository
+(a pack's `model_repository/` replaces the core one when present; `make`
+resolves it through `inferops domain env`). The RF-DETR Triton config is
+fixed-batch because the current ONNX artifact has batch size `1`; for higher
 throughput, export a dynamic-batch ONNX or a TensorRT plan, then enable Triton
 dynamic batching in that model config.
 
-`make serve` now auto-starts Triton for `DOMAIN=driver_behaviour` and stops any
-stale Triton process already bound to `8000/8001/8002` before restarting it. To
-force CPU-only serving for that domain, use `make serve DOMAIN=driver_behaviour
-WITH_TRITON=0`. To force Triton on for another domain, set `WITH_TRITON=1`.
+`make serve` auto-starts Triton for any pack whose `domain.yaml` says
+`triton: true`, and stops any stale Triton process already bound to
+`8000/8001/8002` before restarting it. To force CPU-only serving, use
+`make serve DOMAIN=<pack> WITH_TRITON=0`; to force Triton on, `WITH_TRITON=1`.
 When Docker is unavailable, `make serve` falls back to a native Triton binary if
 `tritonserver` is on `PATH` or installed at `/opt/tritonserver/bin/tritonserver`.
 
@@ -234,6 +256,60 @@ The bundled `driver_behaviour` pipeline runs the RF-DETR driver model when
 available and falls back to the synthetic detector in local development, then
 passes results through fusion, alerts, and evidence storage.
 
+## Domain packs
+
+A domain pack is the whole of a project's domain knowledge, kept out of the
+platform:
+
+```
+examples/<name>/               # or domains/<name>/, or any INFEROPS_DOMAIN_ROOT
+  domain.yaml                  # manifest: label, extras, triton, prewarm, assets, scenario
+  __init__.py                  # the pack is importable as the package <name>
+  configs/
+    models/*.yaml              # ModelSpec: backend, artifact, inputs/outputs, labels, plugins
+    pipelines/*.yaml           # PipelineSpec: stages, sinks, tracking
+    fusion/*.yaml              # FusionSpec: signals, windows, rules, state machine
+    alerts/*.yaml              # AlertSpec: severity, dedupe, cooldown, sinks
+    platform.yaml              # optional overrides merged over core configs/platform.yaml
+  plugins/                     # stages, pre/post-processors, annotators, backends
+  model_repository/            # optional Triton/ONNX artifacts; replaces the core repository
+  scripts/                     # optional asset installers referenced from domain.yaml
+  tests/                       # optional; run with `make test DOMAIN=<name>`
+```
+
+Rules that keep the platform generic:
+
+- **Plugins are referenced from YAML, never imported by the core.** Use the
+  pack-relative form `.plugins.<module>:<Class>` for stages
+  (`stage:`), pre/post-processors (`plugin:`), evidence annotators
+  (`annotator:`) and backends (`backend:`). Selecting the pack puts its parent
+  directory on `sys.path`, so a pack can live outside the repository.
+- **`backend:` is open.** Built-ins are `onnxruntime`, `triton`, `tensorrt`
+  and `synthetic`; anything else is a `module:Class` reference to an
+  `InferenceBackend` subclass shipped by the pack.
+- **The synthetic detector is label-driven.** `tags.emit:
+  "label=every_n[@cx,cy,w,h]; ..."` decides which of the spec's `labels`
+  fire and how often, so any pack can run and be tested with no weights.
+- **Evidence triggers are YAML.** `sink_s3` keeps its sustained-alert timer
+  running from `trigger_rules` (`class`/`min_score`, `class`/`max_score`,
+  `signal`/`min`/`max`, or `alert`), or from a `trigger_flags`
+  `module:callable`. With neither, the frame's alerts and fusion events count.
+- **The dashboard reads two generic channels.** A stage that wants to show
+  per-frame state sets `payload["signals"]` (`{name: number|string}`, rendered
+  as chips) and `payload["overlay_boxes"]` (`[{label, box:[x1,y1,x2,y2],
+  tone}]`, drawn on the preview). Both are forwarded by `/v1/infer` and the
+  live WebSocket; nothing in the UI names a domain.
+- **Tooling reads the manifest.** `make setup/serve/test/scenario` get pip
+  extras, asset installers, Triton auto-start, prewarm lists, the model
+  repository and the browser-scenario plan from `domain.yaml` via
+  `inferops domain env`.
+
+`inferops domain init <name> --labels a,b,c` (or `make new-domain NAME=...
+LABELS=...`) writes a pack with a real ONNX detector spec (YOLO-style decode),
+a synthetic fallback, fusion and alert rules for the first label, evidence
+triggers, a README and a smoke test; it validates and serves immediately.
+Other CLI helpers: `inferops domain list | info | env | setup-assets`.
+
 ## Configuration model
 
 InferOps merges configuration in layers:
@@ -241,7 +317,7 @@ InferOps merges configuration in layers:
 1. Code defaults from `inferops/core/config.py`
 2. Platform defaults from `configs/platform.yaml`
 3. One active domain selected by `INFEROPS_ACTIVE_DOMAIN` or `INFEROPS_DOMAIN_ROOT`
-4. YAML specs in that active domain's `configs/models`, `configs/pipelines`, `configs/fusion`, and `configs/alerts`
+4. YAML specs in that active domain's `configs/models`, `configs/pipelines`, `configs/fusion`, and `configs/alerts` (a section present in the pack replaces the core section)
 5. Environment variables such as `INFEROPS_*`
 
 Common overrides:
@@ -259,23 +335,28 @@ Common overrides:
 ## Common CLI workflows
 
 ```bash
+inferops domain list
+inferops domain init ppe_site --labels person,helmet,vest
 inferops validate --domain driver_behaviour
 inferops preflight --domain driver_behaviour
 INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops models list
 INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops models show rfdetr_driver_synth
 INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops pipelines list
 INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops pipelines run driver_behaviour path/to/image.jpg
+INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops pipelines run driver_behaviour ../train/test.mp4
 INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops worker pipeline driver_behaviour
 INFEROPS_ACTIVE_DOMAIN=driver_behaviour inferops worker topic driver_video \
   --input-topic inferops.frames \
   --output-topic inferops.results
 ```
 
-`inferops validate --domain <name>` checks the selected domain's YAML contracts.
-`inferops preflight --domain <name>` also checks backend dependencies, plugin
-imports, stage references, and local model artifacts. `inferops pipelines run`
-is the fastest local sanity check when you want to execute a pipeline directly
-from the CLI with an image file.
+`inferops validate --domain <name>` checks the manifest and the selected
+domain's YAML contracts. `inferops preflight --domain <name>` also checks
+backend dependencies, plugin imports, stage references, and local model
+artifacts (a missing artifact is only a warning when the pipeline declares a
+`fallback_model`). `inferops pipelines run` is the fastest local sanity check
+when you want to execute a pipeline directly from the CLI with an image or
+video file.
 
 ## HTTP API
 
@@ -343,12 +424,12 @@ Important details:
 ## Project layout
 
 ```
-inferops/                # Python package: registry, pipeline runtime, API, workers
-configs/                 # Core platform defaults
-examples/                # Optional domain packs with configs, plugins, and setup assets
-model_repository/        # Triton/ONNX model artifacts
-scripts/                 # Model download/build helpers, demos, browser scenario
-tests/                   # Smoke, contract, device, lifecycle, and pipeline tests
+inferops/                # Python package: registry, pipeline runtime, API, workers, testing helpers
+configs/                 # Core platform defaults + the core tiny_classifier reference pipeline
+examples/                # Domain packs (configs, plugins, model_repository, scripts, tests, domain.yaml)
+model_repository/        # Core model artifacts (tiny classifier); packs bring their own
+scripts/                 # Setup, tiny-model builder, video demo, browser scenario
+tests/                   # Core suite — runs with no domain pack active
 deploy/docker/           # Container build assets
 docker-compose.yml       # Local multi-service stack
 ../docs/images/          # Screenshots embedded above, refreshed by `make scenario --docs`
@@ -359,11 +440,21 @@ docker-compose.yml       # Local multi-service stack
 
 ```bash
 make validate DOMAIN=driver_behaviour
-make test
+make test                        # core suite only (no domain)
+make test DOMAIN=driver_behaviour # core suite + examples/driver_behaviour/tests
+make test-all                    # core suite + every pack that ships tests
 make lint
 ```
 
-For a narrow API smoke test from the repository root, run `inferops/.venv/bin/python -m pytest -q inferops/tests/test_api_smoke.py`.
+Settings are computed once per process, so the core suite (`tests/`) always
+runs domain-free and each pack's suite runs in its own pytest process with
+that pack selected. A pack's `tests/conftest.py` is two lines:
+
+```python
+from inferops.testing import configure_test_env
+configure_test_env(domain="my_pack")
+from inferops.testing.fixtures import *  # mock S3, tiny model, clean DB
+```
 
 ### End-to-end browser scenario
 
@@ -371,7 +462,10 @@ For a narrow API smoke test from the repository root, run `inferops/.venv/bin/py
 running stack and screenshots every step. It is a test, not a demo: each step
 asserts, and it exits non-zero on the first failure — including on any console
 error, uncaught JS exception, failed request, or non-2xx response observed in
-the browser over the whole run.
+the browser over the whole run. It works for any served pack: the pipeline,
+whether repeated frames must raise an alert, and the sample video come from
+the pack's `domain.yaml` `scenario:` block (override with `--pipeline`,
+`--video`, `--expect-alert/--no-expect-alert`, or `SCENARIO_ARGS=...`).
 
 ```bash
 make serve-mock DOMAIN=driver_behaviour   # terminal 1
@@ -384,16 +478,14 @@ Requires the browser driver once:
 pip install playwright && python -m playwright install chromium
 ```
 
-The scenario walks a driver-behaviour incident:
-
 | Step | What it exercises | Assertion |
 | ---- | ----------------- | --------- |
 | 1 | Dashboard loads and connects to the API | connected, models registered |
 | 2 | Device / execution-provider reporting | `runtime` block present |
 | 3 | Single frame through the full pipeline | one frame processed |
-| 4 | Repeated frames until fusion escalates | an alert is emitted |
-| 5 | Real dashcam clip via `POST /v1/run/{pipeline}/upload` | frames decoded, detections produced |
-| 6 | Events and alerts read back from storage | both panels non-empty |
+| 4 | Repeated frames until fusion escalates | an alert is emitted (when `expect_alert`) |
+| 5 | Sample video via `POST /v1/run/{pipeline}/upload` | frames decoded (+ detections/alerts when `expect_alert`) |
+| 6 | Events and alerts read back from storage | both panels non-empty (when `expect_alert`) |
 | 7 | Config editor live reload | reload succeeds |
 | 8 | Browser health across the whole run | zero errors of any kind |
 
@@ -404,9 +496,9 @@ README with:
 python scripts/e2e_dashboard_scenario.py --docs
 ```
 
-Detections note: with no GPU, no Triton, and no downloaded weights the `detect`
-stage falls back to `rfdetr_driver_synth`, a deterministic synthetic backend.
-The pipeline is exercised for real end to end — decode, tracking, face mesh,
-fusion, alerts, evidence, persistence — but the detections themselves do not
-depend on frame pixels. Attach a GPU and start Triton and the same scenario
-exercises the real RF-DETR path unchanged.
+Detections note: with no GPU, no Triton, and no downloaded weights the driver
+pack's `detect` stage falls back to `rfdetr_driver_synth`, the label-driven
+synthetic backend. The pipeline is exercised for real end to end — decode,
+tracking, face mesh, fusion, alerts, evidence, persistence — but the detections
+themselves do not depend on frame pixels. Attach a GPU and start Triton and the
+same scenario exercises the real RF-DETR path unchanged.

@@ -1,8 +1,8 @@
 # MediaPipe FaceMesh v2 run in-process through ONNX Runtime.
 #
-# Populated by `python scripts/download_face_mesh_model.py`. When the artifact
-# is absent, FaceMeshStage's `_primary_model_looks_real()` size check rejects
-# it and the stage falls through to `face_mesh_synth`.
+# Populated by `make setup DOMAIN=driver_behaviour` (see domain.yaml assets).
+# When the artifact is absent, FaceMeshStage's `_primary_model_looks_real()`
+# size check rejects it and the stage falls through to `face_mesh_synth`.
 name: face_mesh_onnx
 version: 1
 task: landmarks

@@ -566,16 +566,16 @@
       box-shadow: 0 10px 18px rgba(0, 0, 0, 0.2);
     }
 
-    .preview-box.is-face {
+    .preview-box.is-overlay {
       border-width: 3px;
     }
 
-    .preview-box.is-face.is-warn {
+    .preview-box.is-overlay.is-warn {
       border-color: var(--warn);
       background: linear-gradient(180deg, rgba(163, 109, 25, 0.2), rgba(163, 109, 25, 0.04));
     }
 
-    .preview-box.is-face.is-danger {
+    .preview-box.is-overlay.is-danger {
       border-color: var(--err);
       background: linear-gradient(180deg, rgba(187, 61, 55, 0.22), rgba(187, 61, 55, 0.04));
     }
@@ -1160,10 +1160,10 @@
           </section>
         </div>
 
-        <section class="stack-card" id="faceMeshSection" style="display:none">
-          <h4>Face Status</h4>
-          <div class="pill-list" id="resultFaceMeshList">
-            <div class="empty-state">No face mesh data in last run.</div>
+        <section class="stack-card" id="signalsSection" style="display:none">
+          <h4>Signals</h4>
+          <div class="pill-list" id="resultSignalsList">
+            <div class="empty-state">No signals in last run.</div>
           </div>
         </section>
 
@@ -1582,114 +1582,80 @@
       return Math.max(0, Math.min(1, number));
     }
 
-    function getFacePoseDegrees(faceMesh) {
-      const pose = faceMesh && faceMesh.face_pose ? faceMesh.face_pose : {};
-      const yawRaw = pose.yaw_deg !== undefined ? pose.yaw_deg : pose.yaw;
-      const pitchRaw = pose.pitch_deg !== undefined ? pose.pitch_deg : pose.pitch;
-      const yaw = Number.isFinite(Number(yawRaw)) ? Number(yawRaw) : null;
-      const pitch = Number.isFinite(Number(pitchRaw)) ? Number(pitchRaw) : null;
-      return { yaw, pitch };
+    // Generic per-frame signals: a flat { name: number | string } object.
+    function normalizeSignals(signals) {
+      if (!signals || typeof signals !== "object" || Array.isArray(signals)) {
+        return {};
+      }
+      const out = {};
+      for (const [key, value] of Object.entries(signals)) {
+        if (typeof value === "number" || typeof value === "string") {
+          out[key] = value;
+        }
+      }
+      return out;
     }
 
-    function normalizeFaceBox(box) {
-      if (!Array.isArray(box) || box.length !== 4) {
-        return null;
+    // Generic overlay boxes: [{ label, box: [x1,y1,x2,y2] (0..1), tone: ok|warn|danger }].
+    function normalizeOverlayBoxes(boxes) {
+      if (!Array.isArray(boxes)) {
+        return [];
       }
-      return box.map((value) => clampUnit(value));
-    }
-
-    function buildFaceBoxFromLandmarks(landmarks) {
-      if (!Array.isArray(landmarks) || !landmarks.length) {
-        return null;
-      }
-
-      let minX = 1;
-      let minY = 1;
-      let maxX = 0;
-      let maxY = 0;
-      let validCount = 0;
-
-      for (const landmark of landmarks) {
-        const x = Array.isArray(landmark) ? landmark[0] : landmark && landmark.x;
-        const y = Array.isArray(landmark) ? landmark[1] : landmark && landmark.y;
-        if (!Number.isFinite(Number(x)) || !Number.isFinite(Number(y))) {
+      const out = [];
+      for (const entry of boxes) {
+        if (!entry || !Array.isArray(entry.box) || entry.box.length !== 4) {
           continue;
         }
-        const nx = clampUnit(x);
-        const ny = clampUnit(y);
-        minX = Math.min(minX, nx);
-        minY = Math.min(minY, ny);
-        maxX = Math.max(maxX, nx);
-        maxY = Math.max(maxY, ny);
-        validCount += 1;
+        const tone = entry.tone === "warn" || entry.tone === "danger" ? entry.tone : "ok";
+        out.push({
+          label: entry.label ? String(entry.label) : "",
+          box: entry.box.map((value) => clampUnit(value)),
+          tone,
+        });
       }
-
-      if (!validCount) {
-        return null;
-      }
-
-      const padX = Math.max(0.02, (maxX - minX) * 0.08);
-      const padY = Math.max(0.02, (maxY - minY) * 0.12);
-      return [
-        clampUnit(minX - padX),
-        clampUnit(minY - padY),
-        clampUnit(maxX + padX),
-        clampUnit(maxY + padY),
-      ];
+      return out;
     }
 
-    function describeFaceStatus(faceMesh) {
-      const labels = [];
-      let tone = "";
-      const drowsyScore = Number(faceMesh && faceMesh.drowsy_ear);
-      const pose = getFacePoseDegrees(faceMesh);
-      const explicitLabel = faceMesh && faceMesh.face_status_label ? String(faceMesh.face_status_label) : "";
+    function formatSignalLabel(key) {
+      return String(key)
+        .split("_")
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+    }
 
-      if (explicitLabel) {
-        if (/drowsy/i.test(explicitLabel)) {
-          tone = "is-danger";
-        } else if (/looking/i.test(explicitLabel)) {
-          tone = "is-warn";
+    function formatSignalValue(value) {
+      if (typeof value === "number") {
+        if (!Number.isFinite(value)) {
+          return String(value);
         }
-        return { label: explicitLabel, tone, yaw: pose.yaw, pitch: pose.pitch };
+        return String(Number(value.toFixed(3)));
       }
+      return String(value);
+    }
 
-      if (Number.isFinite(drowsyScore) && drowsyScore >= 0.5) {
-        labels.push("Drowsy");
-        tone = "is-danger";
+    function signalTone(key, value) {
+      const text = typeof value === "string" ? value.toLowerCase() : "";
+      if (/_alert$/.test(String(key)) || /drowsy|danger|critical/.test(text)) {
+        return "danger";
       }
-
-      if (pose.yaw !== null && Math.abs(pose.yaw) >= 30) {
-        labels.push(pose.yaw > 0 ? "Looking Left" : "Looking Right");
-        if (!tone) {
-          tone = "is-warn";
-        }
-      } else if (pose.pitch !== null && Math.abs(pose.pitch) >= 20) {
-        labels.push(pose.pitch > 0 ? "Looking Down" : "Looking Up");
-        if (!tone) {
-          tone = "is-warn";
-        }
+      if (/warn|looking/.test(text)) {
+        return "warn";
       }
-
-      return {
-        label: labels.join(" | ") || "Driver Face",
-        tone,
-        yaw: pose.yaw,
-        pitch: pose.pitch,
-      };
+      return "";
     }
 
     function renderPreviewAnnotations() {
       const overlay = $("previewOverlay");
       const targetKind = state.previewAnnotationTarget;
       const media = getPreviewMediaElement(targetKind);
-      const faceMesh = state.lastResult ? state.lastResult.faceMeshSignals : null;
-      const faceBox = buildFaceBoxFromLandmarks(faceMesh && faceMesh.landmarks)
-        || normalizeFaceBox(faceMesh && faceMesh.face_box);
+      const overlayBoxes = state.lastResult && Array.isArray(state.lastResult.overlayBoxes)
+        ? state.lastResult.overlayBoxes
+        : [];
       const hasBoxes = state.previewAnnotations.length > 0;
-      const hasFaceBox = Boolean(faceBox);
+      const hasOverlayBoxes = overlayBoxes.length > 0;
 
-      if (!media || media.classList.contains("hidden") || (!hasBoxes && !hasFaceBox)) {
+      if (!media || media.classList.contains("hidden") || (!hasBoxes && !hasOverlayBoxes)) {
         clearPreviewAnnotations({ preserveState: true });
         return;
       }
@@ -1737,23 +1703,24 @@
         `;
       }).join("");
 
-      let faceBoxHtml = "";
-      if (faceBox) {
-        const [x1, y1, x2, y2] = faceBox;
-        const faceState = describeFaceStatus(faceMesh);
+      const overlayBoxHtml = overlayBoxes.map((entry) => {
+        const [x1, y1, x2, y2] = entry.box;
         const left = offsetX + (x1 * renderWidth);
         const top = offsetY + (y1 * renderHeight);
         const width = Math.max(2, (x2 - x1) * renderWidth);
         const height = Math.max(2, (y2 - y1) * renderHeight);
-        const labelClass = faceState.tone ? ` ${faceState.tone}` : "";
-        faceBoxHtml = `
-          <div class="preview-box is-face${labelClass}" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;">
-            <span class="preview-box-label${labelClass}">${escapeHtml(faceState.label)}</span>
+        const toneClass = entry.tone === "danger" ? " is-danger" : entry.tone === "warn" ? " is-warn" : "";
+        const labelHtml = entry.label
+          ? `<span class="preview-box-label${toneClass}">${escapeHtml(entry.label)}</span>`
+          : "";
+        return `
+          <div class="preview-box is-overlay${toneClass}" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;">
+            ${labelHtml}
           </div>
         `;
-      }
+      }).join("");
 
-      overlay.innerHTML = boxHtml + faceBoxHtml;
+      overlay.innerHTML = boxHtml + overlayBoxHtml;
     }
 
     function extractPreviewDetections(outputs) {
@@ -1854,24 +1821,29 @@
         }
       }
 
-      // Extract face mesh signals from the first item that has them.
-      let faceMeshSignals = null;
+      // Take signals / overlay boxes from the first item whose payload carries them,
+      // falling back to the last item.
+      let signalsSource = null;
+      let overlaySource = null;
+      let lastPayload = null;
       for (const item of outputs || []) {
-        if (item.payload && item.payload.face_mesh_confidence !== undefined) {
-          faceMeshSignals = {
-            confidence: item.payload.face_mesh_confidence,
-            drowsy_ear: item.payload.drowsy_ear,
-            distracted_score: item.payload.distracted_score,
-            face_pose: item.payload.face_pose || null,
-            face_box: Array.isArray(item.payload.face_box) ? item.payload.face_box : null,
-            face_status_label: item.payload.face_status_label || "",
-            face_source: item.payload.face_source || "",
-            smoking_face_score: item.payload.smoking_face_score,
-            eating_face_score: item.payload.eating_face_score,
-            landmarks: Array.isArray(item.payload.face_landmarks) ? item.payload.face_landmarks : [],
-          };
-          break;
+        const payload = item && item.payload;
+        if (!payload) {
+          continue;
         }
+        lastPayload = payload;
+        if (!signalsSource && payload.signals && typeof payload.signals === "object") {
+          signalsSource = payload.signals;
+        }
+        if (!overlaySource && Array.isArray(payload.overlay_boxes)) {
+          overlaySource = payload.overlay_boxes;
+        }
+      }
+      if (!signalsSource && lastPayload) {
+        signalsSource = lastPayload.signals;
+      }
+      if (!overlaySource && lastPayload) {
+        overlaySource = lastPayload.overlay_boxes;
       }
 
       return {
@@ -1882,7 +1854,8 @@
         fusionEvents,
         previewDetections: preview.detections,
         modelsUsed: preview.modelsUsed,
-        faceMeshSignals,
+        signals: normalizeSignals(signalsSource),
+        overlayBoxes: normalizeOverlayBoxes(overlaySource),
         raw: outputs,
       };
     }
@@ -1900,7 +1873,8 @@
         fusionEvents: Array.isArray(payload && payload.fusion_events) ? payload.fusion_events : [],
         previewDetections: [],
         modelsUsed: Array.isArray(payload && payload.models_used) ? payload.models_used : [],
-        faceMeshSignals: null,
+        signals: normalizeSignals(payload && payload.signals),
+        overlayBoxes: normalizeOverlayBoxes(payload && payload.overlay_boxes),
         raw: payload,
       };
     }
@@ -2126,7 +2100,8 @@
         $("resultDetections").textContent = "-";
         $("resultAlertList").innerHTML = '<div class="empty-state">Run the pipeline to populate alert output.</div>';
         $("resultDetectionList").innerHTML = '<div class="empty-state">Detection counts appear here after inference.</div>';
-        $("faceMeshSection").style.display = "none";
+        $("signalsSection").style.display = "none";
+        $("resultSignalsList").innerHTML = '<div class="empty-state">No signals in last run.</div>';
         $("resultJson").textContent = "Waiting for the first pipeline result.";
         setPill("resultBadge", "status-info", "No run yet");
         clearPreviewAnnotations();
@@ -2150,49 +2125,19 @@
         ? detections.map(([label, count]) => `<span class="chip">${escapeHtml(label)} <span class="mono">${escapeHtml(String(count))}</span></span>`).join("")
         : '<div class="empty-state">No detections were reported in the last run.</div>';
 
-      // Face mesh signals panel.
-      const faceMesh = result.faceMeshSignals;
-      const faceMeshSection = $("faceMeshSection");
-      if (faceMesh) {
-        faceMeshSection.style.display = "";
-        const chips = [];
-        const faceState = describeFaceStatus(faceMesh);
-        const pose = getFacePoseDegrees(faceMesh);
-        if (faceMesh.face_source) {
-          chips.push(`<span class="chip">Face source <span class="mono">${escapeHtml(faceMesh.face_source)}</span></span>`);
-        }
-        if (typeof faceMesh.confidence === "number") {
-          chips.push(`<span class="chip">Face conf <span class="mono">${(faceMesh.confidence * 100).toFixed(0)}%</span></span>`);
-        }
-        if (faceState.label !== "Driver Face") {
-          const stateTone = faceState.tone === "is-danger" ? " chip-danger" : faceState.tone === "is-warn" ? " chip-warn" : "";
-          chips.push(`<span class="chip${stateTone}">${escapeHtml(faceState.label)}</span>`);
-        }
-        if (typeof faceMesh.drowsy_ear === "number") {
-          const drowsyTone = faceMesh.drowsy_ear >= 0.5 ? " chip-danger" : "";
-          chips.push(`<span class="chip${drowsyTone}">Drowsy score <span class="mono">${faceMesh.drowsy_ear.toFixed(2)}</span></span>`);
-        }
-        if (typeof faceMesh.distracted_score === "number") {
-          const disTone = faceMesh.distracted_score >= 0.5 ? " chip-warn" : "";
-          chips.push(`<span class="chip${disTone}">Distraction score <span class="mono">${faceMesh.distracted_score.toFixed(2)}</span></span>`);
-        }
-        if (pose.yaw !== null) {
-          chips.push(`<span class="chip">Yaw <span class="mono">${pose.yaw.toFixed(1)}&deg;</span></span>`);
-        }
-        if (pose.pitch !== null) {
-          chips.push(`<span class="chip">Pitch <span class="mono">${pose.pitch.toFixed(1)}&deg;</span></span>`);
-        }
-        if (typeof faceMesh.smoking_face_score === "number" && faceMesh.smoking_face_score > 0) {
-          chips.push(`<span class="chip chip-danger">Smoking <span class="mono">${(faceMesh.smoking_face_score * 100).toFixed(0)}%</span></span>`);
-        }
-        if (typeof faceMesh.eating_face_score === "number" && faceMesh.eating_face_score > 0) {
-          chips.push(`<span class="chip chip-warn">Eating <span class="mono">${(faceMesh.eating_face_score * 100).toFixed(0)}%</span></span>`);
-        }
-        $("resultFaceMeshList").innerHTML = chips.length
-          ? chips.join("")
-          : '<div class="empty-state">Face mesh ran but returned no signals.</div>';
+      // Generic signals panel: one chip per signal key.
+      const signalEntries = Object.entries(result.signals || {});
+      const signalsSection = $("signalsSection");
+      if (signalEntries.length) {
+        signalsSection.style.display = "";
+        $("resultSignalsList").innerHTML = signalEntries.map(([key, value]) => {
+          const tone = signalTone(key, value);
+          const toneClass = tone === "danger" ? " chip-danger" : tone === "warn" ? " chip-warn" : "";
+          return `<span class="chip${toneClass}">${escapeHtml(formatSignalLabel(key))} <span class="mono">${escapeHtml(formatSignalValue(value))}</span></span>`;
+        }).join("");
       } else {
-        faceMeshSection.style.display = "none";
+        signalsSection.style.display = "none";
+        $("resultSignalsList").innerHTML = '<div class="empty-state">No signals in last run.</div>';
       }
 
       $("resultJson").textContent = JSON.stringify(result.raw, null, 2);
@@ -2601,20 +2546,7 @@
       for (const d of state.previewAnnotations) {
         detectionsByClass[d.label] = (detectionsByClass[d.label] || 0) + 1;
       }
-      // Extract face-mesh / smoking / eating signals forwarded by FaceMeshStage.
-      const fm = msg.face_mesh || null;
-      const faceMeshSignals = fm ? {
-        confidence: fm.face_mesh_confidence ?? null,
-        drowsy_ear: fm.drowsy_ear ?? null,
-        distracted_score: fm.distracted_score ?? null,
-        face_pose: fm.face_pose || null,
-        face_box: Array.isArray(fm.face_box) ? fm.face_box : null,
-        face_status_label: fm.face_status_label || "",
-        face_source: fm.face_source || "",
-        smoking_face_score: typeof fm.smoking_face_score === "number" ? fm.smoking_face_score : null,
-        eating_face_score: typeof fm.eating_face_score === "number" ? fm.eating_face_score : null,
-        landmarks: [],
-      } : null;
+      // Generic per-frame state forwarded by any domain stage.
       state.lastResult = {
         pipeline,
         frames: 1,
@@ -2623,7 +2555,8 @@
         fusionEvents: Array.isArray(msg.fusion_events) ? msg.fusion_events : [],
         previewDetections: state.previewAnnotations,
         modelsUsed: state.previewAnnotationModel ? [state.previewAnnotationModel] : [],
-        faceMeshSignals,
+        signals: normalizeSignals(msg.signals),
+        overlayBoxes: normalizeOverlayBoxes(msg.overlay_boxes),
         raw: msg,
       };
       state.liveSocketLatency = Number(msg.latency_ms) || 0;

@@ -12,10 +12,23 @@ INFEROPS_API_URL ?= http://127.0.0.1:$(API_PORT)
 DOMAIN ?=
 DOMAIN_ENV := $(if $(DOMAIN),INFEROPS_ACTIVE_DOMAIN=$(DOMAIN),)
 DOMAIN_ARG := $(if $(DOMAIN),--domain $(DOMAIN),)
-COMMA := ,
-PREWARM_PIPELINE_ENV := $(if $(DOMAIN),INFEROPS_PREWARM_PIPELINES=$(DOMAIN),)
-PREWARM_MODEL_ENV := $(if $(filter $(DOMAIN),driver_behaviour),INFEROPS_PREWARM_MODELS=rfdetr_driver_triton$(COMMA)face_mesh_triton$(COMMA)face_mesh_onnx,)
-TRITON_AUTO_DOMAINS := driver_behaviour
+# Everything domain-specific (Triton auto-start, model repository, tests,
+# prewarm) is read from the pack's domain.yaml through `inferops domain env`;
+# nothing here names a particular domain.
+ifneq ($(DOMAIN),)
+DOMAIN_ENV_LINES := $(shell cd $(APP_DIR) && $(PY) -m inferops.cli domain env --domain $(DOMAIN) 2>/dev/null)
+domain_var = $(patsubst $(1)=%,%,$(filter $(1)=%,$(DOMAIN_ENV_LINES)))
+DOMAIN_ROOT := $(call domain_var,INFEROPS_DOMAIN_ROOT)
+DOMAIN_TRITON := $(call domain_var,INFEROPS_DOMAIN_TRITON)
+DOMAIN_MODEL_REPOSITORY := $(call domain_var,INFEROPS_DOMAIN_MODEL_REPOSITORY)
+DOMAIN_HAS_TESTS := $(call domain_var,INFEROPS_DOMAIN_HAS_TESTS)
+ifeq ($(DOMAIN_ROOT),)
+$(warning DOMAIN=$(DOMAIN) could not be resolved; run `make domains` to list packs)
+endif
+endif
+MODEL_REPOSITORY_DIR ?= $(if $(DOMAIN_MODEL_REPOSITORY),$(DOMAIN_MODEL_REPOSITORY),$(CURDIR)/$(APP_DIR)/model_repository)
+GPU ?= 0
+GPU_ARG := $(if $(filter $(GPU),1),--gpu,)
 # serve-mock supplies a mock S3 (moto) but used to leave INFEROPS_PG_URL at its
 # Postgres default, so every event/alert insert failed against a server that was
 # never started and the dashboard's activity panels stayed permanently empty.
@@ -67,7 +80,7 @@ REDPANDA_BIN ?= $(shell command -v redpanda 2>/dev/null)
 RPK_BIN ?= $(shell command -v rpk 2>/dev/null)
 TRITON_ENABLED := 0
 ifeq ($(WITH_TRITON),auto)
-ifneq ($(filter $(DOMAIN),$(TRITON_AUTO_DOMAINS)),)
+ifeq ($(DOMAIN_TRITON),1)
 TRITON_ENABLED := 1
 endif
 else ifeq ($(WITH_TRITON),1)
@@ -78,7 +91,8 @@ ifeq ($(TRITON_ENABLED),1)
 SERVE_DEPS += start-triton
 endif
 
-.PHONY: help setup install dev-install setup-models test scenario lint fmt validate serve serve-mock serve-api serve-dashboard stop up down logs \
+.PHONY: help setup install dev-install setup-models test test-core test-domain test-all scenario lint fmt validate preflight \
+	domains new-domain serve serve-mock serve-api serve-dashboard stop up down logs \
 	start-minio start-redpanda start-triton start-prometheus start-grafana \
 	stop-minio stop-redpanda stop-triton stop-prometheus stop-grafana \
 	ensure-topics ensure-buckets status \
@@ -86,31 +100,56 @@ endif
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "%-22s %s\n",$$1,$$2}'
+	@echo
+	@echo "Most targets take DOMAIN=<pack> (see 'make domains'). GPU=1 installs onnxruntime-gpu."
 
-setup: ## Install InferOps core and native serve prerequisites, optionally with DOMAIN=driver_behaviour
+setup: ## Install InferOps core (+ DOMAIN=<pack> extras and model assets) and native serve prerequisites
 	@if [[ ! -x "$(VENV_PY)" ]]; then python3 -m venv $(APP_DIR)/.venv; fi
-	cd $(APP_DIR) && $(VENV_PY) scripts/setup_inferops.py $(DOMAIN_ARG)
+	cd $(APP_DIR) && $(VENV_PY) scripts/setup_inferops.py $(DOMAIN_ARG) $(GPU_ARG)
 	@if [[ "$(SKIP_RUNTIME)" != "1" ]]; then $(MAKE) setup-runtime; fi
 
 setup-runtime: ## Install native MinIO/mc and Redpanda/rpk prerequisites for make serve
 	cd $(APP_DIR) && $(PY) scripts/setup_native_runtime.py
 
-install: ## Install InferOps with dev dependencies
-	cd $(APP_DIR) && $(PY) -m pip install -e ".[dev]"
+install: ## Install InferOps with dev dependencies (GPU=1 for the CUDA onnxruntime wheel)
+	cd $(APP_DIR) && $(PY) scripts/setup_inferops.py --skip-models $(GPU_ARG)
 
 dev-install: install ## Alias for install
 
-setup-models: ## Build/download example models
-	cd $(APP_DIR) && $(PY) scripts/make_tiny_model.py && $(PY) scripts/setup_inferops.py --domain driver_behaviour --skip-install
+setup-models: ## Build the core tiny model and download DOMAIN=<pack> assets declared in its domain.yaml
+	cd $(APP_DIR) && $(PY) scripts/make_tiny_model.py
+	@if [[ -n "$(DOMAIN)" ]]; then cd $(APP_DIR) && $(PY) -m inferops.cli domain setup-assets --domain $(DOMAIN); fi
 
-test: ## Run InferOps tests
-	cd $(APP_DIR) && $(PY) -m pytest -q
+domains: ## List available domain packs
+	cd $(APP_DIR) && $(PY) -m inferops.cli domain list
 
-scenario: ## Drive the dashboard end-to-end in a real browser and screenshot each step
+new-domain: ## Scaffold a runnable domain pack: make new-domain NAME=my_project LABELS=person,helmet
+	@if [[ -z "$(NAME)" ]]; then echo "usage: make new-domain NAME=<identifier> [LABELS=a,b,c]"; exit 1; fi
+	cd $(APP_DIR) && $(PY) -m inferops.cli domain init $(NAME) $(if $(LABELS),--labels $(LABELS),)
+
+test: test-core test-domain ## Run the core suite, then the DOMAIN=<pack> suite when one is selected
+
+test-core: ## Run the domain-free core test suite
+	cd $(APP_DIR) && env -u INFEROPS_ACTIVE_DOMAIN -u INFEROPS_DOMAIN_ROOT $(PY) -m pytest -q tests
+
+test-domain: ## Run the selected DOMAIN=<pack> test suite (examples/<pack>/tests)
+	@if [[ -z "$(DOMAIN)" ]]; then echo "no DOMAIN selected; skipping domain tests"; exit 0; fi
+	@if [[ "$(DOMAIN_HAS_TESTS)" != "1" ]]; then echo "domain $(DOMAIN) has no tests/ directory"; exit 0; fi
+	cd $(APP_DIR) && INFEROPS_ACTIVE_DOMAIN=$(DOMAIN) $(PY) -m pytest -q $(DOMAIN_ROOT)/tests
+
+test-all: test-core ## Run the core suite plus every domain pack that ships tests
+	@for d in $(APP_DIR)/examples/*/tests $(APP_DIR)/domains/*/tests; do \
+		[[ -d "$$d" ]] || continue; \
+		name=$$(basename $$(dirname $$d)); \
+		echo "== domain $$name =="; \
+		(cd $(APP_DIR) && INFEROPS_ACTIVE_DOMAIN=$$name $(PY) -m pytest -q $$(realpath $$d)) || exit 1; \
+	done
+
+scenario: ## Drive the dashboard end-to-end in a real browser and screenshot each step (uses the served domain)
 	@command -v curl >/dev/null || { echo "curl is required"; exit 1; }
 	@curl -fsS $(INFEROPS_API_URL)/healthz >/dev/null 2>&1 || { \
-		echo "API is not up on $(INFEROPS_API_URL) — run: make serve-mock DOMAIN=driver_behaviour"; exit 1; }
-	cd $(APP_DIR) && $(PY) scripts/e2e_dashboard_scenario.py --out $(CURDIR)/$(RUN_DIR)/scenario
+		echo "API is not up on $(INFEROPS_API_URL) — run: make serve-mock DOMAIN=<pack>"; exit 1; }
+	cd $(APP_DIR) && $(PY) scripts/e2e_dashboard_scenario.py --api $(INFEROPS_API_URL) --out $(CURDIR)/$(RUN_DIR)/scenario $(SCENARIO_ARGS)
 	@echo "Screenshots: $(CURDIR)/$(RUN_DIR)/scenario"
 
 lint: ## Lint InferOps
@@ -119,8 +158,11 @@ lint: ## Lint InferOps
 fmt: ## Format InferOps
 	cd $(APP_DIR) && $(PY) -m ruff format . && $(PY) -m ruff check --fix .
 
-validate: ## Validate InferOps YAML configs
+validate: ## Validate InferOps YAML configs (DOMAIN=<pack> for that pack's surface)
 	cd $(APP_DIR) && $(PY) -m inferops.cli validate $(DOMAIN_ARG)
+
+preflight: ## Validate plus dependency, plugin-import and model-artifact checks
+	cd $(APP_DIR) && $(PY) -m inferops.cli preflight $(DOMAIN_ARG)
 
 
 serve-api: ## Run only the InferOps API in the foreground
@@ -197,7 +239,7 @@ start-triton: ## Start Triton Inference Server in Docker (requires NVIDIA Contai
 			docker rm -f $(TRITON_CONTAINER) >/dev/null 2>&1 || true; \
 			nohup docker run --rm --name $(TRITON_CONTAINER) --gpus all \
 				-p $(TRITON_HTTP_PORT):8000 -p $(TRITON_GRPC_PORT):8001 -p $(TRITON_METRICS_PORT):8002 \
-				-v $(CURDIR)/$(APP_DIR)/model_repository:/models:ro \
+				-v $(MODEL_REPOSITORY_DIR):/models:ro \
 				$(TRITON_IMAGE) tritonserver --model-repository=/models --strict-model-config=false --model-control-mode=poll --repository-poll-secs=5 \
 				> $(CURDIR)/$(TRITON_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(TRITON_PID_FILE); \
 		fi; \
@@ -205,7 +247,7 @@ start-triton: ## Start Triton Inference Server in Docker (requires NVIDIA Contai
 		if ss -ltn "( sport = :$(TRITON_HTTP_PORT) )" 2>/dev/null | grep -q ":$(TRITON_HTTP_PORT)"; then \
 			echo "Triton already listening on $(TRITON_HTTP_PORT)"; \
 		else \
-			nohup $(TRITON_BIN) --model-repository=$(CURDIR)/$(APP_DIR)/model_repository \
+			nohup $(TRITON_BIN) --model-repository=$(MODEL_REPOSITORY_DIR) \
 				--http-port=$(TRITON_HTTP_PORT) --grpc-port=$(TRITON_GRPC_PORT) --metrics-port=$(TRITON_METRICS_PORT) \
 				--strict-model-config=false --model-control-mode=poll --repository-poll-secs=5 \
 				> $(CURDIR)/$(TRITON_LOG_FILE) 2>&1 < /dev/null & echo $$! > $(CURDIR)/$(TRITON_PID_FILE); \
@@ -322,12 +364,10 @@ status: ## Show health of every InferOps stack component
 	@printf "%-14s %s\n" "Grafana"    "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:$(GRAFANA_PORT)/api/health 2>/dev/null || echo down)"
 	@printf "%-14s %s\n" "DCGM"       "$$(curl -fsS -o /dev/null -w %{http_code} http://127.0.0.1:9400/metrics 2>/dev/null || echo down)"
 
-serve: $(SERVE_DEPS) ## Start API, dashboard, MinIO, Redpanda, Prometheus, Grafana, and Triton when WITH_TRITON=1 or auto-enabled for DOMAIN=driver_behaviour
+serve: $(SERVE_DEPS) ## Start API, dashboard, MinIO, Redpanda, Prometheus, Grafana, and Triton when WITH_TRITON=1 or the domain.yaml says triton: true
 	@mkdir -p $(RUN_DIR) $(LOG_DIR)
 	@cd $(APP_DIR) && { \
 		$(DOMAIN_ENV) \
-		$(PREWARM_PIPELINE_ENV) \
-		$(PREWARM_MODEL_ENV) \
 		INFEROPS_TRANSPORT_KIND=redpanda \
 		INFEROPS_TRANSPORT_BOOTSTRAP=127.0.0.1:$(REDPANDA_PORT) \
 		INFEROPS_S3_ENDPOINT=http://127.0.0.1:$(MINIO_PORT) \
@@ -398,8 +438,8 @@ down: ## Stop the InferOps compose stack
 logs: ## Follow compose logs
 	cd $(APP_DIR) && docker compose logs -f --tail=200
 
-worker-pipeline: ## Run a configured source-driven pipeline worker, e.g. PIPELINE=driver_stream
+worker-pipeline: ## Run a configured source-driven pipeline worker: DOMAIN=<pack> PIPELINE=<name>
 	cd $(APP_DIR) && $(DOMAIN_ENV) $(PY) -m inferops.workers.pipeline_worker $(PIPELINE)
 
-worker-topic: ## Run topic worker, e.g. PIPELINE=driver_video INPUT=in OUTPUT=out
+worker-topic: ## Run topic worker: DOMAIN=<pack> PIPELINE=<name> INPUT=in OUTPUT=out
 	cd $(APP_DIR) && $(DOMAIN_ENV) $(PY) -m inferops.workers.topic_worker $(PIPELINE) $(INPUT) $(OUTPUT)

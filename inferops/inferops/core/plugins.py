@@ -4,13 +4,23 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
+from inferops.core.domain import resolve_plugin_ref
 from inferops.core.errors import ConfigError
 
 
 def load_object(path: str) -> Any:
-    """Load a `module:Attr` or `module.Attr` reference."""
+    """Load a `module:Attr` or `module.Attr` reference.
+
+    A leading dot (``.plugins.my_stage:MyStage``) is resolved against the
+    active domain pack, so a pack's YAML does not need to know its own
+    directory name.
+    """
     if not path:
         raise ConfigError("empty plugin reference")
+    try:
+        path = resolve_plugin_ref(path)
+    except ValueError as e:
+        raise ConfigError(str(e)) from e
     if ":" in path:
         mod_name, attr = path.split(":", 1)
     else:

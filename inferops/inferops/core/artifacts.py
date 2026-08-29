@@ -3,8 +3,7 @@
 This logic used to exist in three places that had drifted apart:
 
 * ``inferops/runtimes/onnxruntime_backend.py`` — the runtime loader
-* ``examples/driver_behaviour/plugins/face_mesh_stage.py`` — the "is the real
-  model present?" probe
+* domain stages that probe whether a real model artifact is present
 * ``inferops/cli/__main__.py`` — ``inferops preflight``
 
 The CLI copy omitted ``settings.domain_root`` and the configs-dir sibling, so

@@ -1,0 +1,35 @@
+# Domain pack manifest. Everything the platform tooling needs to know about
+# this pack lives here; the core package never references driver concepts.
+name: driver_behaviour
+label: Driver Behaviour
+description: >-
+  In-cab driver monitoring: RF-DETR object detection (phone, cigarette, food,
+  seatbelt, wheel) fused with MediaPipe face-mesh drowsiness and head-pose
+  signals into alerts with evidence clips.
+version: 1
+
+# pip extras from inferops/pyproject.toml installed by `make setup DOMAIN=...`
+python_extras: [triton]
+
+# `make serve DOMAIN=driver_behaviour` starts Triton automatically.
+triton: true
+
+# Loaded at API startup so the first request does not pay the cold start.
+prewarm_pipelines: [driver_behaviour]
+prewarm_models: [rfdetr_driver_triton, face_mesh_triton, face_mesh_onnx]
+
+# Model artifacts, relative to this directory. `installer` is a script run
+# from this directory (or a module:function) when the file is missing.
+assets:
+  - path: model_repository/rfdetr_driver_behaviour_onnx/1/model.onnx
+    installer: scripts/download_rfdetr_driver_model.py
+    description: RF-DETR driver-behaviour detector (Triton ONNX)
+  - path: model_repository/face_mesh_onnx/1/model.onnx
+    installer: scripts/download_face_mesh_model.py
+    description: MediaPipe FaceMesh v2 (ONNX Runtime / Triton)
+
+# Drives `make scenario` (browser end-to-end test).
+scenario:
+  pipeline: driver_behaviour
+  sample_video: ../../../train/test.mp4
+  expect_alert: true

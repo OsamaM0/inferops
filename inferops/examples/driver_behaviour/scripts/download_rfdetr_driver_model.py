@@ -21,12 +21,12 @@ MODEL_NAME = "rfdetr_driver_behaviour_onnx"
 MIN_MODEL_BYTES = 10 * 1024 * 1024
 
 
-def _repo_root() -> Path:
+def _domain_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
 def _default_output() -> Path:
-    return _repo_root() / "model_repository" / MODEL_NAME / "1" / "model.onnx"
+    return _domain_root() / "model_repository" / MODEL_NAME / "1" / "model.onnx"
 
 
 def _default_live_output() -> Path | None:

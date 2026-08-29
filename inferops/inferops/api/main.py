@@ -21,7 +21,7 @@ from inferops.api.routes import (
     system,
     ws_live,
 )
-from inferops.core.config import settings
+from inferops.core.config import get_config_stack, settings
 from inferops.fusion import autoload as autoload_fusion
 from inferops.obs import get_logger, init_tracing
 from inferops.pipeline import autoload as autoload_pipelines
@@ -32,13 +32,17 @@ from inferops.registry import get_registry
 log = get_logger(__name__)
 
 
-def _env_names(name: str) -> list[str]:
+def _env_names(name: str, default: list[str] | None = None) -> list[str]:
+    if name not in os.environ:
+        return list(default or [])
     raw = os.environ.get(name, "")
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
 async def _prewarm_runtime() -> None:
-    model_names = _env_names("INFEROPS_PREWARM_MODELS")
+    # The domain manifest is the default; INFEROPS_PREWARM_* overrides it.
+    manifest = get_config_stack(settings).manifest()
+    model_names = _env_names("INFEROPS_PREWARM_MODELS", manifest.prewarm_models if manifest else None)
     if model_names:
         registry = get_registry()
         for model_name in model_names:
@@ -48,7 +52,7 @@ async def _prewarm_runtime() -> None:
             except Exception as exc:
                 log.warning("model_prewarm_failed", model=model_name, err=str(exc))
 
-    pipeline_names = _env_names("INFEROPS_PREWARM_PIPELINES")
+    pipeline_names = _env_names("INFEROPS_PREWARM_PIPELINES", manifest.prewarm_pipelines if manifest else None)
     if pipeline_names:
         store = get_pipeline_store()
         for pipeline_name in pipeline_names:

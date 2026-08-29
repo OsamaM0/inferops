@@ -1,9 +1,8 @@
 """Plain stretch-resize preprocessor (no aspect-ratio padding).
 
 This is the correct partner for postprocessors that map normalised box
-coordinates straight back onto the original frame — e.g.
-``examples.driver_behaviour.plugins.postprocess_rfdetr:RFDetrPostprocess``,
-which does::
+coordinates straight back onto the original frame (DETR-style decoders such as
+``inferops.plugins.builtin.detr_decode:DetrDecode``), which do::
 
     x1_px = (cx - w / 2) * frame.width
 

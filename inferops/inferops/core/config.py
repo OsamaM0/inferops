@@ -92,12 +92,22 @@ class ConfigStack:
             active_domain=active_domain,
             domain_root=domain_root,
         )
+        # Selecting a domain is what makes its plugins importable; doing it here
+        # means every entrypoint (API, CLI, workers, tests) behaves the same.
+        from inferops.core.domain import activate_domain_imports
+
+        self.domain_package = activate_domain_imports(self.domain_root)
 
     @property
     def domain_configs_dir(self) -> Path | None:
         if self.domain_root is None:
             return None
         return self.domain_root / "configs"
+
+    def manifest(self):
+        from inferops.core.domain import load_domain_manifest
+
+        return load_domain_manifest(self.domain_root)
 
     def platform(self) -> dict[str, Any]:
         merged: dict[str, Any] = {}

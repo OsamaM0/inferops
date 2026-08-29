@@ -57,12 +57,12 @@ _MAX_MODEL_BYTES = 10_000_000
 _EXPECTED_SHA256 = ""
 
 
-def _repo_root() -> Path:
+def _domain_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
 def _default_output() -> Path:
-    return _repo_root() / "model_repository" / "face_mesh_onnx" / "1" / "model.onnx"
+    return _domain_root() / "model_repository" / "face_mesh_onnx" / "1" / "model.onnx"
 
 
 def _sha256(path: Path) -> str:

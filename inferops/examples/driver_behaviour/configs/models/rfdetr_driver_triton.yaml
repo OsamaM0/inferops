@@ -48,7 +48,7 @@ preprocess:
     normalize: false
 
 postprocess:
-  plugin: examples.driver_behaviour.plugins.postprocess_rfdetr:RFDetrPostprocess
+  plugin: .plugins.postprocess_rfdetr:RFDetrPostprocess
   params:
     conf_threshold: 0.35
 

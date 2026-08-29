@@ -178,11 +178,13 @@ async def list_configs():
             "stages": [stage.model_dump(mode="json") for stage in spec.stages],
         })
 
+    manifest = stack.manifest()
     return {
         "configs_dir": str(root.resolve()),
         "active_domain": settings.active_domain,
         "domain_root": str(stack.domain_root.resolve()) if stack.domain_root else None,
         "domain_configs_dir": str(stack.domain_configs_dir.resolve()) if stack.domain_configs_dir else None,
+        "domain_pack": manifest.model_dump(mode="json") if manifest else None,
         "sections": list(_SECTIONS),
         "files": files,
         "domains": domains,

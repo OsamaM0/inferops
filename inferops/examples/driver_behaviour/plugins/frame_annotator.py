@@ -8,7 +8,7 @@ via the pipeline YAML:
       stage: sink_s3
       params:
         evidence_mode: both
-        annotator: examples.driver_behaviour.plugins.frame_annotator:DriverAnnotator
+        annotator: .plugins.frame_annotator:DriverAnnotator
 """
 from __future__ import annotations
 

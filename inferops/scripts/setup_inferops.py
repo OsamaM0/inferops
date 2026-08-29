@@ -1,14 +1,14 @@
-"""Install InferOps core and optionally one active domain pack."""
+"""Install InferOps core and optionally one active domain pack.
+
+Everything domain-specific (pip extras, model assets) comes from the pack's
+``domain.yaml`` manifest, so this script never changes when a pack is added.
+"""
 from __future__ import annotations
 
 import argparse
 import subprocess
 import sys
 from pathlib import Path
-
-DOMAIN_EXTRAS = {
-    "driver_behaviour": ["triton"],
-}
 
 
 def _repo_root() -> Path:
@@ -52,39 +52,52 @@ def _ensure_pip(repo: Path) -> None:
         )
 
 
-def _install(repo: Path, *, domain: str | None, include_dev: bool) -> None:
+def _domain_extras(repo: Path, domain: str | None) -> list[str]:
+    """Read python_extras from the manifest without importing the package.
+
+    Runs before ``pip install``, so only PyYAML (a build-time dependency of
+    nothing else here) may be relied on; fall back to no extras if missing.
+    """
+    if not domain:
+        return []
+    try:
+        import yaml
+    except ImportError:
+        return []
+    for parent in ("examples", "domains"):
+        path = repo / parent / domain / "domain.yaml"
+        if path.exists():
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            return [str(x) for x in data.get("python_extras", [])]
+    return []
+
+
+def _install(repo: Path, *, domain: str | None, include_dev: bool, gpu: bool) -> None:
     extras = []
     if include_dev:
         extras.append("dev")
-    if domain:
-        extras.extend(DOMAIN_EXTRAS.get(domain, []))
+    if gpu:
+        extras.append("gpu")
+    extras.extend(_domain_extras(repo, domain))
     seen = []
     for extra in extras:
         if extra not in seen:
             seen.append(extra)
     spec = ".[{}]".format(",".join(seen)) if seen else "."
+    if gpu:
+        # The CPU and CUDA wheels both install as the `onnxruntime` module and
+        # cannot coexist; the CPU one must go first or the GPU wheel is shadowed.
+        _run([sys.executable, "-m", "pip", "uninstall", "-y", "onnxruntime"], cwd=repo)
     _run([sys.executable, "-m", "pip", "install", "-e", spec], cwd=repo)
 
 
-def _setup_driver_models(repo: Path, *, force: bool) -> None:
-    target = repo / "model_repository" / "rfdetr_driver_behaviour_onnx" / "1" / "model.onnx"
-    if target.exists() and not force:
-        print(f"driver model already exists: {target}")
-    else:
-        _run([sys.executable, "scripts/download_rfdetr_driver_model.py"], cwd=repo)
-
-    face_mesh_target = repo / "model_repository" / "face_mesh_onnx" / "1" / "model.onnx"
-    if face_mesh_target.exists() and not force:
-        print(f"face-mesh model already exists: {face_mesh_target}")
-    else:
-        _run([sys.executable, "scripts/download_face_mesh_model.py"], cwd=repo)
-
-
 def _setup_domain_assets(repo: Path, *, domain: str | None, force: bool) -> None:
-    if domain == "driver_behaviour":
-        _setup_driver_models(repo, force=force)
-    elif domain:
-        print(f"no asset installer registered for domain: {domain}")
+    if not domain:
+        return
+    cmd = [sys.executable, "-m", "inferops.cli", "domain", "setup-assets", "--domain", domain]
+    if force:
+        cmd.append("--force")
+    _run(cmd, cwd=repo)
 
 
 def _validate(repo: Path, *, domain: str | None) -> None:
@@ -104,12 +117,13 @@ def main() -> int:
     parser.add_argument("--skip-models", action="store_true", help="Do not download/build domain model assets")
     parser.add_argument("--force-models", action="store_true", help="Download domain model assets even if present")
     parser.add_argument("--no-dev", action="store_true", help="Install runtime dependencies only")
+    parser.add_argument("--gpu", action="store_true", help="Install onnxruntime-gpu instead of the CPU wheel")
     args = parser.parse_args()
 
     repo = _repo_root()
     if not args.skip_install:
         _ensure_pip(repo)
-        _install(repo, domain=args.domain, include_dev=not args.no_dev)
+        _install(repo, domain=args.domain, include_dev=not args.no_dev, gpu=args.gpu)
     if not args.skip_models:
         _setup_domain_assets(repo, domain=args.domain, force=args.force_models)
     _validate(repo, domain=args.domain)

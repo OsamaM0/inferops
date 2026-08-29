@@ -40,20 +40,19 @@ preprocess:
     normalize: false
 
 postprocess:
-  plugin: examples.driver_behaviour.plugins.postprocess_rfdetr:RFDetrPostprocess
+  plugin: .plugins.postprocess_rfdetr:RFDetrPostprocess
   params:
     conf_threshold: 0.35
     # The synthetic backend deliberately emits low-variance tensors; the
     # placeholder guard is meant for accidental demo ONNX files, not this.
     reject_placeholder_outputs: false
 
-# Scenario knobs consumed by SyntheticDetectorBackend.load().
+# Scenario knobs consumed by SyntheticDetectorBackend.load():
+# label=every_n_frames[@cx,cy,w,h], ';'-separated. The DriverBehaviour box is
+# the centred face/torso region that enables the face-mesh stage.
 tags:
-  classes: "6"
   queries: "20"
-  phone_every: "3"
-  cig_every: "17"
-  driver_every: "2"
+  emit: "phone=3@0.55,0.55,0.20,0.18; cigarette=17@0.30,0.60,0.06,0.06; DriverBehaviour=2@0.50,0.35,0.40,0.50"
   seed: "0"
 
 batching:

@@ -73,17 +73,15 @@ dev = [
 [project.scripts]
 inferops = "inferops.cli.__main__:app"
 
+# Only the platform is packaged. Domain packs (examples/<name>, domains/<name>,
+# or any directory given through INFEROPS_DOMAIN_ROOT) are loaded from disk at
+# runtime, so adding or deleting one never touches this file.
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["inferops*", "examples*"]
+include = ["inferops*"]
 
 [tool.setuptools.package-data]
-"examples.driver_behaviour" = [
-  "configs/models/*.yaml",
-  "configs/pipelines/*.yaml",
-  "configs/fusion/*.yaml",
-  "configs/alerts/*.yaml",
-]
+"inferops.testing" = ["*.py"]
 
 [tool.ruff]
 line-length = 110

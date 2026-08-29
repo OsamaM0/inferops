@@ -11,13 +11,17 @@ Sustained-alert evidence (controlled by trigger_secs):
   for at least *trigger_secs* seconds.  A ring-buffer of the last *pre_secs*
   seconds is always kept so the video can start before the trigger moment.
   A JPEG snapshot is automatically saved at the exact trigger frame.
+
+What counts as "the condition is active" on a given frame is domain knowledge,
+so it comes from the pipeline YAML (see ``trigger_rules`` / ``trigger_flags``
+below), not from this module.
 """
 from __future__ import annotations
 
 import asyncio
 import os
 import tempfile
-from collections import defaultdict, deque
+from collections import defaultdict
 from contextlib import suppress
 from typing import Any
 
@@ -26,63 +30,73 @@ import numpy as np
 import orjson
 
 from inferops.adapters.s3_client import put_bytes
-from inferops.core.plugins import instantiate
+from inferops.core.plugins import instantiate, load_object
 from inferops.core.types import now_ms
 from inferops.obs import EVIDENCE_UPLOAD_LATENCY, EVIDENCE_UPLOADS
 from inferops.pipeline.stage import Stage
 
 
-def _current_alert_flags(item) -> set[str]:
-    """
-    Derive the set of alert-type strings that are TRUE *right now* directly
-    from per-frame payload signals and detection results — not from throttled
-    alert/fusion events.  This lets the sustained-trigger tracker work
-    accurately even when the alert engine is in cooldown.
-    """
-    flags: set[str] = set()
-    payload = item.payload
-
-    # Phone in frame with enough confidence
+def _class_scores(item, label: str) -> list[float]:
+    scores: list[float] = []
     for r in (item.results or []):
-        if any(d.get("score", 0.0) >= 0.45
-               for d in (r.raw or {}).get("by_class", {}).get("phone", [])):
-            flags.add("phone_use")
-            break
+        by_class = (r.raw or {}).get("by_class") if r.raw else None
+        if by_class is not None:
+            scores.extend(float(d.get("score", 0.0)) for d in by_class.get(label, []))
+        elif r.detections:
+            scores.extend(float(d.score) for d in r.detections if d.label == label)
+    return scores
 
-    # Cigarette near mouth (face-mesh intersection score)
-    if (payload.get("smoking_face_score") or 0.0) >= 0.15:
-        flags.add("smoking")
-    else:
-        for r in (item.results or []):
-            if any(d.get("score", 0.0) >= 0.60
-                   for d in (r.raw or {}).get("by_class", {}).get("cigarette", [])):
-                flags.add("smoking")
-                break
 
-    # Food / drink near mouth
-    if (payload.get("eating_face_score") or 0.0) >= 0.40:
-        flags.add("eating")
+def _rule_active(rule: dict[str, Any], item) -> bool:
+    """Evaluate one trigger rule against the current frame.
 
-    # Drowsiness via EAR
-    if (payload.get("drowsy_ear") or 0.0) >= 0.5:
-        flags.add("drowsiness")
+    Rule forms (all thresholds inclusive on ``min``, exclusive on ``max``)::
 
-    # Head-pose distraction
-    if (payload.get("distracted_score") or 0.0) >= 0.5:
-        flags.add("distraction")
+      {flag: phone_use,   class: phone,     min_score: 0.45}   # any detection >= min
+      {flag: no_seatbelt, class: seatbelt,  max_score: 0.40}   # present, best < max
+      {flag: drowsiness,  signal: drowsy_ear, min: 0.5}        # payload[signal] >= min
+      {flag: hands_off,   signal: hand_on_wheel, max: 0.5, default: 1.0}
+      {flag: any_alert,   alert: phone_use}                    # alert/fusion event this frame
+    """
+    if "class" in rule:
+        scores = _class_scores(item, str(rule["class"]))
+        if "min_score" in rule:
+            return any(s >= float(rule["min_score"]) for s in scores)
+        if "max_score" in rule:
+            return bool(scores) and max(scores) < float(rule["max_score"])
+        return bool(scores)
+    if "signal" in rule:
+        key = str(rule["signal"])
+        value = item.payload.get(key)
+        if value is None:
+            value = item.payload.get("signals", {}).get(key) if isinstance(item.payload.get("signals"), dict) else None
+        if value is None:
+            value = rule.get("default")
+        if value is None:
+            return False
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return False
+        if "min" in rule and v < float(rule["min"]):
+            return False
+        if "max" in rule and v >= float(rule["max"]):
+            return False
+        return "min" in rule or "max" in rule
+    if "alert" in rule:
+        wanted = str(rule["alert"])
+        return any(a.get("type") == wanted for a in item.payload.get("alerts", [])) or any(
+            e.get("type") == wanted for e in item.payload.get("fusion_events", [])
+        )
+    raise ValueError(f"trigger rule needs one of class/signal/alert: {rule}")
 
-    # Seatbelt detected with low confidence (≈ not wearing)
-    for r in (item.results or []):
-        sb = (r.raw or {}).get("by_class", {}).get("seatbelt", [])
-        if sb and max(d.get("score", 0.0) for d in sb) < 0.4:
-            flags.add("no_seatbelt")
-            break
 
-    # Hands off wheel
-    if (payload.get("hand_on_wheel", 1.0) or 1.0) < 0.5:
-        flags.add("hands_off_wheel")
-
+def _flags_from_events(item) -> set[str]:
+    """Default trigger: whatever the fusion/alert engines said about this frame."""
+    flags = {str(a.get("type")) for a in item.payload.get("alerts", []) if a.get("type")}
+    flags |= {str(e.get("type")) for e in item.payload.get("fusion_events", []) if e.get("type")}
     return flags
+
 
 _DEFAULT_COLOR: tuple[int, int, int] = (200, 80, 200)   # purple
 
@@ -134,6 +148,13 @@ class SinkS3(Stage):
     fps            : frame-rate for encoded video clips (default 25.0)
     trigger_secs   : seconds of *continuous* alert before saving evidence
                      (default 5.0 — set to 0.0 to save on every alert frame)
+    trigger_rules  : per-frame conditions that keep the sustained-alert timer
+                     running (see ``_rule_active``). Evaluated on raw signals so
+                     they are not throttled by alert dedupe/cooldown. When
+                     omitted, the frame's alerts + fusion events are used.
+    trigger_flags  : "module:callable(item) -> set[str]" for conditions a rule
+                     cannot express; merged with ``trigger_rules``.
+    annotator      : "module:Class" FrameAnnotator for domain overlays on clips
     """
 
     def __init__(
@@ -148,12 +169,15 @@ class SinkS3(Stage):
         annotator: str | None = None,
         annotator_params: dict | None = None,
         trigger_secs: float = 5.0,
+        trigger_rules: list[dict[str, Any]] | None = None,
+        trigger_flags: str | None = None,
     ) -> None:
         super().__init__(prefix=prefix, bucket=bucket, evidence_mode=evidence_mode,
                          clips_bucket=clips_bucket, pre_frames=pre_frames,
                          post_frames=post_frames, fps=fps,
                          annotator=annotator, annotator_params=annotator_params,
-                         trigger_secs=trigger_secs)
+                         trigger_secs=trigger_secs, trigger_rules=trigger_rules,
+                         trigger_flags=trigger_flags)
         self.prefix = prefix
         self.bucket = bucket
         self.evidence_mode = evidence_mode.lower()
@@ -163,6 +187,12 @@ class SinkS3(Stage):
         self.fps = fps
         self.trigger_ms = max(0, int(trigger_secs * 1000))
         self._annotator = instantiate(annotator, annotator_params or {}) if annotator else None
+        self._rules = list(trigger_rules or [])
+        for rule in self._rules:
+            if "flag" not in rule:
+                raise ValueError(f"sink_s3 trigger rule is missing 'flag': {rule}")
+            _rule_active(rule, _ProbeItem())   # validate shape at setup time
+        self._flag_fn = load_object(trigger_flags) if trigger_flags else None
 
         # per-stream ring buffers — capped at (pre + post + overhead) frames
         # Each entry: (ts_ms, seq, image_np, alert_type_tag_or_None, item)
@@ -174,6 +204,14 @@ class SinkS3(Stage):
         self._alert_onset: dict[tuple[str, str], int] = {}
         # Tracks which (stream_id, alert_type) episodes already had a snapshot taken
         self._snapshot_taken: set[tuple[str, str]] = set()
+
+    def current_flags(self, item) -> set[str]:
+        if not self._rules and self._flag_fn is None:
+            return _flags_from_events(item)
+        flags = {str(rule["flag"]) for rule in self._rules if _rule_active(rule, item)}
+        if self._flag_fn is not None:
+            flags |= {str(f) for f in (self._flag_fn(item) or ())}
+        return flags
 
     async def process(self, item):
         # In live-streaming mode we explicitly skip *all* S3 work — the
@@ -190,9 +228,7 @@ class SinkS3(Stage):
         ts_ms = item.ts_ms or now_ms()
 
         # ── sustained-alert tracking ───────────────────────────────────────
-        # Derive current flag set directly from raw signals (not from throttled
-        # alert events) so the onset timer runs every frame.
-        current_flags = _current_alert_flags(item)
+        current_flags = self.current_flags(item)
 
         # Clear onset entries for flags that are no longer active
         stale = {
@@ -239,15 +275,12 @@ class SinkS3(Stage):
                 "results": [r.model_dump(mode="json") for r in item.results],
                 "alerts": alerts,
                 "fusion_events": item.payload.get("fusion_events", []),
+                "signals": item.payload.get("signals", {}),
             }),
             bucket=self.bucket,
             content_type="application/json",
         )
         uris.append(uri)
-
-        # Per-frame JPEG for alert frames is handled via _upload_snapshot
-        # at the trigger moment (above). Legacy per-alert-event images are
-        # skipped here to avoid double-saving.
 
         # Buffer frame for video clip assembly (mode: video or both)
         if self.evidence_mode in ("video", "both") and image_np is not None:
@@ -339,6 +372,14 @@ class SinkS3(Stage):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+class _ProbeItem:
+    """Empty item used to validate trigger rules when the stage is built."""
+
+    def __init__(self) -> None:
+        self.results: list = []
+        self.payload: dict = {}
+
 
 def _merge_windows(indices, alert_types_list, pre, post, total):
     """Merge overlapping [i-pre .. i+post] windows, collecting all alert types."""

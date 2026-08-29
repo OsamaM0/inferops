@@ -1,0 +1,31 @@
+# Core reference pipeline, active when no domain pack is selected.
+#
+# Runs the bundled tiny ONNX classifier through the real ONNX Runtime backend
+# so the API, dashboard, video upload, live WebSocket and evidence paths can be
+# exercised on any host with nothing downloaded. Domain packs replace this
+# directory with their own configs/pipelines/.
+name: tiny_classifier
+version: 1
+tags:
+  label: Tiny Classifier (core)
+
+source:
+  name: src
+  stage: source_rest
+
+stages:
+  - name: decode
+    stage: decode_any
+    params: { every_n: 1 }
+
+  - name: classify
+    stage: infer
+    params: { model: tiny_classifier }
+
+sinks:
+  - name: evidence
+    stage: sink_s3
+    params:
+      evidence_mode: json
+
+limits: { max_concurrency: 4, queue_size: 32 }

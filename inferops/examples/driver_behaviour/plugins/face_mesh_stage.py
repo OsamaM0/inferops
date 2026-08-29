@@ -462,11 +462,21 @@ class FaceMeshStage(Stage):
     YAML usage::
 
         - name: face_mesh
-          stage: examples.driver_behaviour.plugins.face_mesh_stage:FaceMeshStage
+          stage: .plugins.face_mesh_stage:FaceMeshStage
           params:
             model: face_mesh_onnx
             fallback_model: face_mesh_synth
+
+    Besides the raw ``payload`` keys the fusion DSL reads, the stage publishes
+    the dashboard-facing view through the generic ``payload["signals"]`` and
+    ``payload["overlay_boxes"]`` channels (see ``_publish_signals``).
     """
+
+    # Scalar payload keys mirrored into payload["signals"] for the dashboard.
+    SIGNAL_KEYS = (
+        "face_source", "face_mesh_confidence", "face_status_label",
+        "drowsy_ear", "distracted_score", "smoking_face_score", "eating_face_score",
+    )
 
     def __init__(
         self,
@@ -710,7 +720,35 @@ class FaceMeshStage(Stage):
             float(face_info.get("distracted_score", 0.0)),
         )
 
+    def _publish_signals(self, item: StageItem) -> None:
+        if "face_box" not in item.payload:
+            return
+        signals = item.payload.setdefault("signals", {})
+        for key in self.SIGNAL_KEYS:
+            value = item.payload.get(key)
+            if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+                signals[key] = round(value, 3) if isinstance(value, float) else value
+        pose = item.payload.get("face_pose") or {}
+        for axis in ("yaw", "pitch"):
+            value = pose.get(f"{axis}_deg", pose.get(axis))
+            if isinstance(value, (int, float)):
+                signals[f"head_{axis}_deg"] = round(float(value), 1)
+        label = str(item.payload.get("face_status_label") or "Face")
+        tone = "danger" if "Drowsy" in label else ("warn" if any(
+            k in label for k in ("Looking", "Eating", "Smoking")) else "ok")
+        item.payload["overlay_boxes"] = [{
+            "label": label,
+            "box": [float(v) for v in item.payload["face_box"]],
+            "tone": tone,
+        }]
+
     async def process(self, item: StageItem) -> StageItem:  # type: ignore[override]
+        try:
+            return await self._process(item)
+        finally:
+            self._publish_signals(item)
+
+    async def _process(self, item: StageItem) -> StageItem:
         img: np.ndarray | None = item.payload.get("image_np")
         if img is None:
             return item

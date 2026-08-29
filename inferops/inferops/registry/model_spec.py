@@ -66,7 +66,9 @@ class ModelSpec(BaseModel):
     name: str
     version: int = 1
     task: Task = Task.CUSTOM
-    backend: Literal["onnxruntime", "triton", "tensorrt", "synthetic", "synthetic_face_mesh"] = "onnxruntime"
+    # A built-in name (see inferops.runtimes.BUILTIN_BACKENDS) or a
+    # "module:Class" plugin reference to a domain-provided InferenceBackend.
+    backend: str = "onnxruntime"
     artifact: ArtifactSpec = Field(default_factory=ArtifactSpec)
     inputs: list[IOSpec]
     outputs: list[IOSpec] = Field(default_factory=list)

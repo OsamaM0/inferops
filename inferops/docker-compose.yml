@@ -63,7 +63,9 @@ services:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
-      - ./model_repository:/models:ro
+      # Point at the active domain pack's repository, e.g.
+      # INFEROPS_TRITON_MODEL_REPOSITORY=./examples/driver_behaviour/model_repository
+      - ${INFEROPS_TRITON_MODEL_REPOSITORY:-./model_repository}:/models:ro
     ports: ["8000:8000", "8001:8001", "8002:8002"]
     deploy:
       resources:
@@ -104,12 +106,15 @@ services:
       INFEROPS_PG_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/inferops
       INFEROPS_S3_ENDPOINT: http://minio:9000
       INFEROPS_OBS_LOG_JSON: "false"
-      INFEROPS_ACTIVE_DOMAIN: ${INFEROPS_ACTIVE_DOMAIN:-driver_behaviour}
+      # Empty = core only (tiny_classifier). Set to a pack name under examples/ or domains/.
+      INFEROPS_ACTIVE_DOMAIN: ${INFEROPS_ACTIVE_DOMAIN:-}
       INFEROPS_TRITON_URL: ${INFEROPS_TRITON_URL:-triton:8001}
       INFEROPS_TRITON_HTTP_URL: ${INFEROPS_TRITON_HTTP_URL:-http://triton:8000}
     volumes:
       - ./configs:/app/configs
       - ./model_repository:/app/model_repository
+      - ./examples:/app/examples
+      - ./domains:/app/domains
     ports: ["8080:8080"]
     depends_on:
       redpanda: { condition: service_healthy }

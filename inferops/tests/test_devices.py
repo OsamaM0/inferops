@@ -24,6 +24,7 @@ from inferops.core.devices import (
 from inferops.core.errors import BackendError
 from inferops.registry.model_spec import ModelSpec
 from inferops.runtimes import build_backend
+from inferops.runtimes.base import InferenceBackend
 from inferops.runtimes.onnxruntime_backend import OnnxRuntimeBackend
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -259,23 +260,65 @@ async def test_missing_artifact_lists_every_location_tried():
 
 
 @pytest.mark.asyncio
-async def test_synthetic_backends_need_no_device_or_weights():
+async def test_synthetic_backend_needs_no_device_or_weights():
     """The CPU/no-GPU demo path must work with nothing installed."""
     detector_spec = ModelSpec(name="synth", backend="synthetic", inputs=[],
-                              tags={"classes": "6", "queries": "20"})
+                              labels=["a", "b", "c", "d", "e", "f"],
+                              tags={"queries": "20", "emit": "d=1@0.5,0.5,0.2,0.2; b=3"})
     detector = build_backend(detector_spec)
     await detector.load(detector_spec)
     raw = await detector.infer({})
     assert raw["logits"].shape == (1, 20, 6)
     assert raw["boxes"].shape == (1, 20, 4)
+    # Frame 1: "d" fires every frame in slot 0; "b" (every 3rd) does not yet.
+    assert raw["logits"][0, 0].argmax() == 3
+    assert np.allclose(raw["boxes"][0, 0], [0.5, 0.5, 0.2, 0.2])
+    assert raw["logits"][0, 1].argmax() != 1
+    await detector.infer({})
+    raw3 = await detector.infer({})
+    assert raw3["logits"][0, 1].argmax() == 1
     await detector.close()
 
-    mesh_spec = ModelSpec(name="mesh", backend="synthetic_face_mesh", inputs=[])
-    mesh = build_backend(mesh_spec)
-    await mesh.load(mesh_spec)
-    mesh_raw = await mesh.infer({})
-    assert mesh_raw["output_mesh_landmarks"].size == 1404      # 468 landmarks x 3
-    await mesh.close()
+
+@pytest.mark.asyncio
+async def test_synthetic_backend_rejects_unknown_labels():
+    spec = ModelSpec(name="synth", backend="synthetic", inputs=[], labels=["a"],
+                     tags={"emit": "zzz=2"})
+    backend = build_backend(spec)
+    with pytest.raises(ValueError, match="zzz"):
+        await backend.load(spec)
+
+
+class _EchoBackend(InferenceBackend):
+    """Minimal plugin backend a domain pack might ship."""
+
+    async def load(self, spec: ModelSpec) -> None:
+        self.spec = spec
+        self.device = "cpu"
+        self.device_info = {"requested": spec.device.preferred, "effective": "cpu",
+                            "downgraded": False, "reason": "echo", "active_providers": []}
+
+    async def infer(self, inputs):
+        return {"echo": np.ones((1, 2), dtype=np.float32)}
+
+
+@pytest.mark.asyncio
+async def test_backend_can_be_a_plugin_reference():
+    """`backend:` accepts module:Class so packs add backends without editing core."""
+    spec = ModelSpec(name="plug", backend=f"{__name__}:_EchoBackend", inputs=[])
+    backend = build_backend(spec)
+    assert isinstance(backend, _EchoBackend)
+    await backend.load(spec)
+    assert (await backend.infer({}))["echo"].shape == (1, 2)
+
+
+def test_unknown_backend_names_fail_clearly():
+    from inferops.core.errors import BackendError
+
+    with pytest.raises(BackendError, match="unknown backend"):
+        build_backend(ModelSpec(name="x", backend="no_such_backend", inputs=[]))
+    with pytest.raises(BackendError, match="not an InferenceBackend"):
+        build_backend(ModelSpec(name="x", backend="inferops.core.types:Frame", inputs=[]))
 
 
 @pytest.mark.asyncio
@@ -332,7 +375,7 @@ async def test_all_backends_report_a_device():
     `device`/`device_info` now live on the base class so /v1/system/status can
     always answer "what is this model running on?".
     """
-    for backend_name in ("synthetic", "synthetic_face_mesh"):
+    for backend_name in ("synthetic",):
         spec = ModelSpec(name=f"probe_{backend_name}", backend=backend_name, inputs=[],
                          device={"preferred": "gpu"})
         backend = build_backend(spec)

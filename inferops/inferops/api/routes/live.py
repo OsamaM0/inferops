@@ -45,17 +45,16 @@ from inferops.obs import E2E_LATENCY, FRAMES_DROPPED, WS_CLIENTS, get_logger
 log = get_logger(__name__)
 router = APIRouter()
 
-# Face-mesh signal keys written to item.payload by FaceMeshStage.
-# Excluded: face_landmarks (468 × 3 floats ≈ 11 KB per frame).
-_FACE_KEYS = (
-    "face_mesh_confidence", "drowsy_ear", "distracted_score",
-    "face_pose", "face_box", "face_status_label", "face_source",
-    "smoking_face_score", "eating_face_score",
-)
-
-
 def _slim(item: StageItem) -> dict[str, Any]:
-    """Pre-build the JSON payload by hand so we never serialize numpy frames."""
+    """Pre-build the JSON payload by hand so we never serialize numpy frames.
+
+    Domain stages expose extra per-frame state through two generic payload
+    channels that the dashboard renders without knowing the domain:
+
+    - ``payload["signals"]``: flat ``{name: number | string}`` shown as chips
+    - ``payload["overlay_boxes"]``: ``[{"label", "box": [x1,y1,x2,y2], "tone"}]``
+      normalised boxes drawn on the preview in addition to detections
+    """
     out: dict[str, Any] = {
         "id": item.id,
         "stream_id": item.stream_id,
@@ -67,12 +66,9 @@ def _slim(item: StageItem) -> dict[str, Any]:
         "fusion_events": item.payload.get("fusion_events", []),
         "alerts": item.payload.get("alerts", []),
         "signals": item.payload.get("signals", {}),
+        "overlay_boxes": item.payload.get("overlay_boxes", []),
         "model_selection": item.payload.get("model_selection"),
     }
-    # Forward face-mesh signals if the FaceMeshStage ran.
-    face = {k: item.payload[k] for k in _FACE_KEYS if k in item.payload}
-    if face:
-        out["face_mesh"] = face
     last_latency = 0.0
     for r in item.results:
         out["results"].append({

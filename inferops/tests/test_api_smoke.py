@@ -1,4 +1,4 @@
-"""End-to-end smoke: driver_behaviour pipeline through /v1/infer and /v1/jobs."""
+"""End-to-end smoke: the core tiny_classifier pipeline through /v1/infer and /v1/jobs."""
 import asyncio
 import io
 
@@ -23,12 +23,12 @@ async def test_health_and_infer():
             r = await ac.get("/v1/models")
             assert r.status_code == 200
             names = [m["name"] for m in r.json()]
-            assert "rfdetr_driver_synth" in names
+            assert "tiny_classifier" in names
 
             # pipelines
             r = await ac.get("/v1/pipelines")
             assert r.status_code == 200
-            assert any(p["name"] == "driver_behaviour" for p in r.json())
+            assert any(p["name"] == "tiny_classifier" for p in r.json())
 
             # encode a 64x64 RGB blob as JPEG
             img = (np.random.rand(64, 64, 3) * 255).astype("uint8")
@@ -36,12 +36,16 @@ async def test_health_and_infer():
             assert ok
             files = {"image": ("img.jpg", io.BytesIO(buf.tobytes()), "image/jpeg")}
             data = {"stream_id": "test"}
-            r = await ac.post("/v1/infer/driver_behaviour", files=files, data=data)
+            r = await ac.post("/v1/infer/tiny_classifier", files=files, data=data)
             assert r.status_code == 200, r.text
             out = r.json()
             assert isinstance(out, list) and out
+            results = out[0]["results"]
+            assert results and results[0]["kind"] == "classifications"
+            assert results[0]["model"] == "tiny_classifier"
+            assert out[0]["payload"]["model_selection"]["used"] == "tiny_classifier"
 
-            r = await ac.post("/v1/jobs/driver_behaviour", json={"stream_id": "job-test"})
+            r = await ac.post("/v1/jobs/tiny_classifier", json={"stream_id": "job-test"})
             assert r.status_code == 200, r.text
             job_id = r.json()["job_id"]
             job = None

@@ -1,21 +1,58 @@
-"""Synthetic DETR-format backend for demos and tests without real weights.
+"""Synthetic DETR-format detector for demos and tests without real weights.
 
-Generates per-call (logits, boxes) tensors shaped (1, Q, C) and (1, Q, 4) in
-cxcywh-normalised form. A frame counter drives which class is "detected":
-phone every Nth call, cigarette occasionally, etc., so the fusion engine sees
-realistic time-varying signals when the video pipeline is exercised.
+Emits per-call ``logits`` (1, Q, C) and cxcywh-normalised ``boxes`` (1, Q, 4),
+so any DETR-style postprocessor (``inferops.plugins.builtin.detr_decode`` or a
+domain's own) decodes it exactly like a real export. Which classes fire, and
+how often, comes from the model spec so the backend knows nothing about any
+particular domain::
 
-Configure via ModelSpec.tags:
-    phone_every: int (default 3)
-    cig_every:   int (default 17)
-    seed:        int (default 0)
+    labels:
+      inline: [person, helmet, forklift]
+    tags:
+      # label=every_n_frames[@cx,cy,w,h]; ';'-separated. Frame 1 counts as 1.
+      emit: "helmet=2@0.5,0.3,0.2,0.2; forklift=7"
+      queries: "20"
+      seed: "0"
+
+A label without a box gets a deterministic box derived from its index. Labels
+not listed in ``emit`` never fire; an empty ``emit`` yields background only.
 """
 from __future__ import annotations
+
+import re
 
 import numpy as np
 
 from inferops.registry.model_spec import ModelSpec
 from inferops.runtimes.base import InferenceBackend
+
+_EMIT_RE = re.compile(r"^\s*([^=@;]+?)\s*=\s*(\d+)\s*(?:@\s*([0-9.,\s]+))?\s*$")
+_HOT_LOGIT = 3.5   # sigmoid -> ~0.97, softmax over cold (-3.0) rows -> ~0.99
+
+
+def _parse_emit(raw: str, labels: list[str]) -> list[tuple[int, int, np.ndarray]]:
+    """Return ``[(class_index, every_n, box_cxcywh)]`` from the ``emit`` tag."""
+    out: list[tuple[int, int, np.ndarray]] = []
+    for chunk in (part for part in raw.split(";") if part.strip()):
+        m = _EMIT_RE.match(chunk)
+        if not m:
+            raise ValueError(f"synthetic backend: cannot parse emit entry {chunk!r}")
+        label, every, box = m.group(1), int(m.group(2)), m.group(3)
+        if every <= 0:
+            continue
+        if label not in labels:
+            raise ValueError(f"synthetic backend: label {label!r} is not in the model's labels {labels}")
+        idx = labels.index(label)
+        if box:
+            vals = [float(v) for v in box.replace(" ", "").split(",") if v]
+            if len(vals) != 4:
+                raise ValueError(f"synthetic backend: box for {label!r} needs cx,cy,w,h")
+            arr = np.array(vals, dtype=np.float32)
+        else:
+            # Spread default boxes across the frame so per-class tracks stay distinct.
+            arr = np.array([0.2 + 0.15 * (idx % 5), 0.25 + 0.2 * (idx % 3), 0.2, 0.2], dtype=np.float32)
+        out.append((idx, every, arr))
+    return out
 
 
 class SyntheticDetectorBackend(InferenceBackend):
@@ -35,33 +72,23 @@ class SyntheticDetectorBackend(InferenceBackend):
             "active_providers": [],
         }
         tags = spec.tags or {}
-        self._phone_every = int(tags.get("phone_every", "3"))
-        self._cig_every = int(tags.get("cig_every", "17"))
-        self._driver_every = int(tags.get("driver_every", "0"))
-        self._classes = int(tags.get("classes", "6"))
+        labels = spec.label_list(self.base_dir)
+        self._classes = max(int(tags.get("classes", "0") or 0), len(labels), 1)
         self._queries = int(tags.get("queries", "20"))
+        self._emit = _parse_emit(tags.get("emit", ""), labels)
+        if len(self._emit) > self._queries:
+            raise ValueError("synthetic backend: more emit entries than queries")
         self._rng = np.random.default_rng(int(tags.get("seed", "0")))
 
     async def infer(self, inputs):
         self._n += 1
         Q, C = self._queries, self._classes
-        # base low-confidence logits
         logits = self._rng.normal(loc=-3.0, scale=0.3, size=(1, Q, C)).astype(np.float32)
         boxes = self._rng.uniform(0.05, 0.95, size=(1, Q, 4)).astype(np.float32)
-
-        # Phone class (index 3 in legacy mapping)
-        if self._n % self._phone_every == 0:
-            logits[0, 0, 3] = 3.5         # sigmoid -> ~0.97
-            boxes[0, 0] = [0.55, 0.55, 0.20, 0.18]
-        # Cigarette (index 1) occasionally
-        if self._n % self._cig_every == 0:
-            logits[0, 1, 1] = 3.0
-            boxes[0, 1] = [0.30, 0.60, 0.06, 0.06]
-        # DriverBehaviour (index 0) – enables face mesh when driver_every > 0
-        if self._driver_every > 0 and self._n % self._driver_every == 0:
-            logits[0, 2, 0] = 4.0         # strong DriverBehaviour signal
-            boxes[0, 2] = [0.50, 0.35, 0.40, 0.50]  # centred face/torso box
-
+        for slot, (cls_idx, every, box) in enumerate(self._emit):
+            if self._n % every == 0:
+                logits[0, slot, cls_idx] = _HOT_LOGIT
+                boxes[0, slot] = box
         return {"logits": logits, "boxes": boxes}
 
     async def close(self) -> None:
