@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InferOps · Project workspace</title>
+  <link rel="stylesheet" href="/ui/static/dashboard.css" />
+</head>
+<body>
+  <a class="skip-link" href="#execution">Skip to project controls</a>
+  <div class="shell">
+    <nav class="workspace-nav" aria-label="Workspace navigation">
+      <a class="wordmark" href="/ui/">InferOps <span>Workspace</span></a>
+      <div class="nav-links">
+        <a href="#interfaces">Services</a><a href="#overview">Overview</a>
+        <a href="#execution">Execution</a><a href="#activity">Activity</a>
+        <a href="#configuration">Configuration</a><a id="guideLink" href="/ui/guide">Documentation</a>
+      </div>
+    </nav>
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Project control center</p>
+        <h1>Run, inspect, and manage your project.</h1>
+        <p class="hero-text">
+          Run camera, image, video, and RTSP inputs. Inspect live results, review saved activity,
+          and manage the configuration for your selected project.
+        </p>
+        <div class="hero-strip">
+          <span class="chip">Core flow <span class="mono">source -&gt; decode -&gt; infer -&gt; fuse -&gt; alert</span></span>
+          <span class="chip">One workspace <span class="mono">project + services + API</span></span>
+        </div>
+      </div>
+
+      <section class="endpoint-panel">
+        <div>
+          <label for="apiBaseInput">API base</label>
+          <div class="endpoint-row">
+            <input id="apiBaseInput" type="text" placeholder="http://localhost:8080" />
+            <button class="btn" id="connectBtn">Connect</button>
+          </div>
+        </div>
+
+        <div class="inline-row">
+          <span class="status-pill status-info" id="apiConnectionBadge">Waiting</span>
+          <button class="ghost-btn is-muted" id="refreshBtn">Refresh snapshot</button>
+        </div>
+
+        <p class="note" id="dashboardNotice" role="status" aria-live="polite">
+          This workspace connects to the API serving this page. Use Connect to switch to another instance.
+        </p>
+
+        <div class="inline-row">
+          <a class="ghost-btn" id="docsLink" href="#" target="_blank" rel="noreferrer">API docs</a>
+          <a class="ghost-btn" id="evidenceLink" href="/v1/interfaces/minio" target="_blank" rel="noreferrer">MinIO Console ↗</a>
+          <a class="ghost-btn" id="healthLink" href="#" target="_blank" rel="noreferrer">Health</a>
+        </div>
+      </section>
+    </header>
+
+    <section id="interfaces" class="panel interface-panel" aria-labelledby="interfacesTitle">
+      <div class="panel-head">
+        <div><p class="eyebrow">Connected applications</p><h2 class="panel-title" id="interfacesTitle">Service interfaces</h2>
+        <p class="panel-subtitle">Open each service's original interface in a new tab.</p></div>
+        <a class="ghost-btn" href="/ui/guide">All pages &amp; ports</a>
+      </div>
+      <div class="interface-grid" id="interfaceGrid">
+        <a class="interface-card" href="/v1/interfaces/minio" target="_blank" rel="noopener noreferrer"><span class="app-icon minio-icon">M</span><strong>MinIO Console ↗</strong><span>Buckets, objects and storage administration</span></a>
+        <a class="interface-card" href="/v1/interfaces/grafana" target="_blank" rel="noopener noreferrer"><span class="app-icon grafana-icon">G</span><strong>Grafana ↗</strong><span>Metrics dashboards and exploration</span></a>
+        <a class="interface-card" href="/v1/interfaces/prometheus" target="_blank" rel="noopener noreferrer"><span class="app-icon prometheus-icon">P</span><strong>Prometheus ↗</strong><span>Metric queries and scrape targets</span></a>
+        <a class="interface-card" href="/docs" target="_blank" rel="noopener noreferrer"><span class="app-icon swagger-icon">{ }</span><strong>API reference ↗</strong><span>Explore endpoints and run API requests</span></a>
+      </div>
+      <p class="footnote">MinIO: minio / minio12345 · Grafana: admin / admin · Credentials can be changed in your environment settings.</p>
+    </section>
+
+    <section class="summary-grid" id="overview" aria-label="Project overview">
+      <article class="summary-card">
+        <div class="summary-head">
+          <div>
+            <h2 class="summary-title">Core services</h2>
+            <p class="summary-subtitle">Live health for the API, storage, and monitoring services.</p>
+          </div>
+          <span class="status-pill status-info" id="serviceBadge">Idle</span>
+        </div>
+        <div class="service-list" id="serviceGrid">
+          <div class="empty-state">Connect to the API to load service health.</div>
+        </div>
+      </article>
+
+      <article class="summary-card">
+        <div class="summary-head">
+          <div>
+            <h2 class="summary-title">Active project</h2>
+            <p class="summary-subtitle">Available pipelines from the selected project configuration.</p>
+          </div>
+          <button class="ghost-btn is-muted" id="reloadLiveConfigsBtn">Reload live configs</button>
+        </div>
+
+        <div class="field">
+          <label class="panel-label" for="domainSelect">Project pipeline</label>
+          <select id="domainSelect"></select>
+        </div>
+
+        <div class="metric-list">
+          <div class="metric-item">
+            <div class="metric-key">Pipeline</div>
+            <div class="metric-value mono" id="domainPipeline">-</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-key">Model / fusion / alerts</div>
+            <div class="metric-value" id="domainRefs">-</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel-label">Execution path</div>
+          <div class="domain-flow" id="domainFlow">
+            <span class="flow-pill">Waiting for domain metadata</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="summary-card">
+        <div class="summary-head">
+          <div>
+            <h2 class="summary-title">Runtime snapshot</h2>
+            <p class="summary-subtitle">Quick counts pulled from models, streams, alerts, events, and evidence.</p>
+          </div>
+          <span class="status-pill status-info" id="runtimeBadge">Standby</span>
+        </div>
+
+        <div class="metric-list" id="runtimeList">
+          <div class="metric-item">
+            <div class="metric-key" id="summaryModelsLabel">Loaded models</div>
+            <div class="metric-value" id="summaryModels">-</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-key">Active streams</div>
+            <div class="metric-value" id="summaryStreams">-</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-key">Recent alerts / events</div>
+            <div class="metric-value" id="summaryActivity">-</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-key">Evidence clips</div>
+            <div class="metric-value" id="summaryEvidence">-</div>
+          </div>
+        </div>
+        <p class="footnote" id="summaryModelStates">Model status loads with the dashboard.</p>
+      </article>
+    </section>
+
+    <section class="workspace-grid" id="execution" aria-label="Execution and results">
+      <article class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Run a pipeline</h2>
+            <p class="panel-subtitle">Choose an input for the selected pipeline. Live preview shows detections; full video analysis saves evidence.</p>
+          </div>
+          <span class="status-pill status-info" id="modeBadge">Camera</span>
+        </div>
+
+        <div class="mode-tabs" id="modeTabs">
+          <button class="mode-tab is-active" data-mode="camera">Camera</button>
+          <button class="mode-tab" data-mode="image">Image</button>
+          <button class="mode-tab" data-mode="video">Video</button>
+          <button class="mode-tab" data-mode="rtsp">RTSP</button>
+        </div>
+
+        <div class="mode-panels">
+          <section class="mode-panel is-active" id="mode-camera">
+            <div class="field-grid three">
+              <div class="field">
+                <label class="panel-label" for="cameraStreamIdInput">Stream id</label>
+                <input id="cameraStreamIdInput" type="text" value="dashboard-camera" />
+              </div>
+              <div class="field">
+                <label class="panel-label" for="cameraIntervalInput">Target FPS</label>
+                <input id="cameraIntervalInput" type="number" min="1" max="30" step="1" value="15" />
+              </div>
+              <div class="field">
+                <label class="panel-label">Camera actions</label>
+                <div class="stack-row">
+                  <button class="mini-btn" id="cameraStartBtn">Start camera</button>
+                  <button class="ghost-btn is-muted" id="cameraStopBtn">Stop camera</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="stack-row">
+              <button class="btn" id="cameraCaptureBtn">Analyze frame now</button>
+              <button class="ghost-btn is-muted" id="cameraLoopBtn">Start analysis loop</button>
+            </div>
+
+            <p class="note">Camera mode captures browser frames and sends them through the full pipeline one frame at a time. This is the cleanest browser-side path when you do not have a backend camera source stage.</p>
+          </section>
+
+          <section class="mode-panel" id="mode-image">
+            <div class="field-grid">
+              <div class="field">
+                <label class="panel-label" for="imageFileInput">Image file</label>
+                <input id="imageFileInput" type="file" accept="image/*" />
+              </div>
+              <div class="field">
+                <label class="panel-label" for="imageStreamIdInput">Stream id</label>
+                <input id="imageStreamIdInput" type="text" value="dashboard-image" />
+              </div>
+            </div>
+            <div class="stack-row">
+              <button class="btn" id="imageRunBtn">Run image through pipeline</button>
+            </div>
+            <p class="note">Image mode posts directly to the infer endpoint and renders the returned pipeline output summary.</p>
+          </section>
+
+          <section class="mode-panel" id="mode-video">
+            <div class="field-grid">
+              <div class="field">
+                <label class="panel-label" for="videoFileInput">Video file</label>
+                <input id="videoFileInput" type="file" accept="video/*" />
+              </div>
+              <div class="field">
+                <label class="panel-label" for="videoStreamIdInput">Stream id</label>
+                <input id="videoStreamIdInput" type="text" value="dashboard-video" />
+              </div>
+            </div>
+            <div class="stack-row">
+              <button class="btn" id="videoRunBtn">Stream and analyze video</button>
+              <button class="btn" id="videoUploadBtn">Analyze all frames and save evidence</button>
+            </div>
+            <p class="note">Video mode plays the file in-browser and streams frames through the live WS endpoint — bounding boxes and face signals update on the overlay in real time.</p>
+            <p class="note">Analyze all frames uploads the complete video and waits for alerts, JSON records, snapshots and triggered clips to be saved in MinIO.</p>
+            <p class="note" id="executionModeInfo">Connect to see the active CPU, CUDA, Triton or DeepStream mode.</p>
+          </section>
+
+          <section class="mode-panel" id="mode-rtsp">
+            <div class="field-grid">
+              <div class="field">
+                <label class="panel-label" for="rtspUrlInput">RTSP URL</label>
+                <input id="rtspUrlInput" type="text" placeholder="rtsp://user:pass@host:554/stream" />
+              </div>
+              <div class="field">
+                <label class="panel-label" for="rtspStreamIdInput">Stream id</label>
+                <input id="rtspStreamIdInput" type="text" placeholder="cam-001" />
+              </div>
+            </div>
+
+            <div class="field-grid">
+              <div class="field">
+                <label class="panel-label" for="rtspFpsInput">Requested fps</label>
+                <input id="rtspFpsInput" type="number" min="1" max="60" step="1" value="5" />
+              </div>
+              <div class="field">
+                <label class="panel-label">RTSP controls</label>
+                <div class="stack-row">
+                  <button class="btn" id="rtspStartBtn">Start live stream</button>
+                  <button class="ghost-btn is-danger" id="rtspStopBtn">Stop active stream</button>
+                </div>
+              </div>
+            </div>
+
+            <p class="note">RTSP runs as a long-lived backend stream. The dashboard shows status and events, but browser playback still depends on any separate restreaming component you choose to run.</p>
+          </section>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Stream id</th>
+                <th>Pipeline</th>
+                <th>Input</th>
+                <th>FPS</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="streamsBody">
+              <tr>
+                <td colspan="6"><div class="empty-state">No stream snapshot loaded yet.</div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Preview and result</h2>
+            <p class="panel-subtitle">Local preview where the browser has one, plus a normalized summary of the last pipeline response.</p>
+          </div>
+          <span class="status-pill status-info" id="resultBadge">No run yet</span>
+        </div>
+
+        <div class="preview-stage">
+          <video id="cameraPreview" class="hidden" autoplay muted playsinline></video>
+          <video id="videoPreview" class="hidden" controls playsinline></video>
+          <img id="imagePreview" class="hidden" alt="Selected preview" />
+          <div id="previewOverlay" class="preview-overlay hidden"></div>
+          <div class="preview-placeholder" id="previewPlaceholder">
+            <strong>Choose a source.</strong>
+            <span>Start the camera, select an image, upload a video, or launch an RTSP stream.</span>
+          </div>
+          <div class="preview-meta" id="previewMeta"></div>
+        </div>
+
+        <div class="result-grid">
+          <div class="result-stat">
+            <div class="metric-key">Frames</div>
+            <strong id="resultFrames">-</strong>
+          </div>
+          <div class="result-stat">
+            <div class="metric-key">Alerts</div>
+            <strong id="resultAlerts">-</strong>
+          </div>
+          <div class="result-stat">
+            <div class="metric-key">Events</div>
+            <strong id="resultEvents">-</strong>
+          </div>
+          <div class="result-stat">
+            <div class="metric-key">Detection classes</div>
+            <strong id="resultDetections">-</strong>
+          </div>
+        </div>
+
+        <div class="split-grid">
+          <section class="stack-card">
+            <h4>Alerts from last run</h4>
+            <div class="pill-list" id="resultAlertList">
+              <div class="empty-state">Run the pipeline to populate alert output.</div>
+            </div>
+          </section>
+
+          <section class="stack-card">
+            <h4>Detection classes</h4>
+            <div class="pill-list" id="resultDetectionList">
+              <div class="empty-state">Detection counts appear here after inference.</div>
+            </div>
+          </section>
+        </div>
+
+        <section class="stack-card" id="signalsSection" style="display:none">
+          <h4>Signals</h4>
+          <div class="pill-list" id="resultSignalsList">
+            <div class="empty-state">No signals in last run.</div>
+          </div>
+        </section>
+
+        <pre id="resultJson">Waiting for the first pipeline result.</pre>
+      </aside>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel" id="activity">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Recent activity</h2>
+            <p class="panel-subtitle">REST snapshots plus a stream-specific alert WebSocket when you pick a stream id.</p>
+          </div>
+          <button class="ghost-btn is-muted" id="activityRefreshBtn">Refresh activity</button>
+        </div>
+
+        <div class="split-grid">
+          <section class="stack-card">
+            <h4>Alerts</h4>
+            <div class="activity-list" id="alertsList">
+              <div class="empty-state">No alerts loaded yet.</div>
+            </div>
+          </section>
+
+          <section class="stack-card">
+            <h4>Events</h4>
+            <div class="activity-list" id="eventsList">
+              <div class="empty-state">No events loaded yet.</div>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <article class="panel" id="configuration">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title">Configuration</h2>
+            <p class="panel-subtitle">Edit the YAML that drives the selected project. Live sections reload immediately; project and platform changes require a restart; model source changes require preparation and restart.</p>
+          </div>
+          <span class="status-pill status-info" id="configBadge">Select a file</span>
+        </div>
+
+        <div class="config-shell">
+          <div class="config-column">
+            <section class="stack-card">
+              <h4>Pipeline configuration</h4>
+              <div class="config-quick-links" id="domainConfigLinks">
+                <div class="empty-state">Choose a pipeline to load its linked config files.</div>
+              </div>
+            </section>
+
+            <section class="stack-card">
+              <h4>All config files</h4>
+              <div class="config-list" id="configList">
+                <div class="empty-state">Connect to load the config index.</div>
+              </div>
+            </section>
+          </div>
+
+          <div class="config-column">
+            <section class="stack-card">
+              <div class="config-header">
+                <div>
+                  <div class="panel-label">Selected file</div>
+                  <h4 id="configTitle">Nothing loaded</h4>
+                  <div class="meta-row" id="configMeta">Pick a config entry from the left side.</div>
+                </div>
+                <div class="config-actions">
+                  <label class="checkbox"><input id="configReloadToggle" type="checkbox" checked /> Reload after save</label>
+                  <button class="btn" id="configSaveReloadBtn">Save config</button>
+                  <button class="ghost-btn is-muted" id="configReloadSectionBtn">Reload section</button>
+                  <button class="ghost-btn is-muted" id="configReloadAllBtn">Reload all live</button>
+                </div>
+              </div>
+
+              <textarea aria-label="YAML configuration content" id="configEditor" spellcheck="false" placeholder="Config content loads here."></textarea>
+              <p class="footnote" id="configStatus">The editor validates YAML before it is saved.</p>
+            </section>
+          </div>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <script src="/ui/static/dashboard.js" defer></script>
+</body>
+</html>

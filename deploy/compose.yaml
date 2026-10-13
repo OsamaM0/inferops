@@ -1,0 +1,257 @@
+# Reusable engine and selected project; runtime overlays are selected by .env.
+name: inferops
+services:
+  redpanda:
+    image: redpandadata/redpanda:v23.3.13
+    command:
+    - redpanda
+    - start
+    - --node-id=0
+    - --kafka-addr=PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+    - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,EXTERNAL://${INFEROPS_KAFKA_HOST:-localhost}:${INFEROPS_KAFKA_PORT:-19092}
+    - --pandaproxy-addr=0.0.0.0:8082
+    - --rpc-addr=0.0.0.0:33145
+    - --advertise-rpc-addr=redpanda:33145
+    - --check=false
+    - --smp=1
+    - --memory=512M
+    - --reserve-memory=0M
+    - --overprovisioned
+    ports:
+    - ${INFEROPS_KAFKA_PORT:-19092}:19092
+    healthcheck:
+      test:
+      - CMD
+      - rpk
+      - cluster
+      - info
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+    - redpanda-data:/var/lib/redpanda/data
+  redis:
+    image: redis:7-alpine
+    ports:
+    - ${INFEROPS_REDIS_PORT:-6379}:6379
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - PING
+    command:
+    - redis-server
+    - --appendonly
+    - 'yes'
+    volumes:
+    - redis-data:/data
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: inferops
+    ports:
+    - ${INFEROPS_PG_PORT:-5432}:5432
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U postgres
+      interval: 5s
+      retries: 10
+    volumes:
+    - postgres-data:/var/lib/postgresql/data
+  minio:
+    image: inferops-minio:console
+    build:
+      context: .
+      dockerfile: deploy/docker/minio.Dockerfile
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${INFEROPS_S3_ACCESS_KEY:-minio}
+      MINIO_ROOT_PASSWORD: ${INFEROPS_S3_SECRET_KEY:-minio12345}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
+    ports:
+    - ${INFEROPS_S3_PORT:-9000}:9000
+    - ${INFEROPS_MINIO_CONSOLE_PORT:-9001}:9001
+    volumes:
+    - minio-upstream-data:/data
+  triton:
+    profiles:
+    - triton
+    - deepstream
+    image: nvcr.io/nvidia/tritonserver:24.04-py3
+    command:
+    - tritonserver
+    - --model-repository=/models
+    - --strict-model-config=false
+    - --model-control-mode=poll
+    - --repository-poll-secs=5
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+    - type: bind
+      source: ${INFEROPS_PROJECT_ROOT:-./projects/driver_behaviour}/model_repository
+      target: /models
+      read_only: true
+      bind:
+        create_host_path: false
+    - triton-cache:/cache
+    ports:
+    - ${INFEROPS_TRITON_HTTP_PORT:-8000}:8000
+    - ${INFEROPS_TRITON_GRPC_PORT:-8001}:8001
+    - ${INFEROPS_TRITON_METRICS_PORT:-8002}:8002
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:8000/v2/health/ready >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+  prometheus:
+    extra_hosts:
+    - host.docker.internal:host-gateway
+    image: prom/prometheus:v2.51.2
+    volumes:
+    - ${INFEROPS_PROMETHEUS_CONFIG:-./deploy/observability/prometheus.yml}:/etc/prometheus/prometheus.yml:ro
+    ports:
+    - ${INFEROPS_PROMETHEUS_PORT:-9090}:9090
+  grafana:
+    image: grafana/grafana:10.4.2
+    volumes:
+    - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    - grafana-data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${INFEROPS_GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${INFEROPS_GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/inferops-overview.json
+    ports:
+    - ${INFEROPS_GRAFANA_PORT:-3000}:3000
+    depends_on:
+    - prometheus
+  api:
+    image: inferops-engine:local
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    environment:
+      INFEROPS_TRANSPORT_KIND: ${INFEROPS_TRANSPORT_KIND:-redpanda}
+      INFEROPS_TRANSPORT_BOOTSTRAP: ${INFEROPS_TRANSPORT_BOOTSTRAP:-redpanda:9092}
+      INFEROPS_REDIS_URL: ${INFEROPS_REDIS_URL:-redis://redis:6379/0}
+      INFEROPS_PG_URL: ${INFEROPS_PG_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/inferops}
+      INFEROPS_S3_ENDPOINT: ${INFEROPS_S3_ENDPOINT:-http://minio:9000}
+      INFEROPS_S3_PUBLIC_URL: ${INFEROPS_S3_PUBLIC_URL:-http://localhost:9000}
+      INFEROPS_OBS_LOG_JSON: ${INFEROPS_OBS_LOG_JSON:-false}
+      INFEROPS_EXECUTION_MODE: ${INFEROPS_EXECUTION_MODE:-cpu}
+      INFEROPS_MODEL_REPOSITORY: model_repository
+      INFEROPS_ACTIVE_DOMAIN: ''
+      INFEROPS_TRITON_URL: ${INFEROPS_TRITON_URL:-triton:8001}
+      INFEROPS_TRITON_HTTP_URL: ${INFEROPS_TRITON_HTTP_URL:-http://triton:8000}
+      INFEROPS_DOMAIN_ROOT: /project
+      INFEROPS_CONFIGS_DIR: /app/configs
+      INFEROPS_API_PORT: '8080'
+      INFEROPS_MINIO_CONSOLE_PORT: ${INFEROPS_MINIO_CONSOLE_PORT:-9001}
+      INFEROPS_MINIO_CONSOLE_INTERNAL_URL: http://minio:9001
+      INFEROPS_MINIO_CONSOLE_PUBLIC_URL: ${INFEROPS_MINIO_CONSOLE_PUBLIC_URL:-}
+      INFEROPS_GRAFANA_PORT: ${INFEROPS_GRAFANA_PORT:-3000}
+      INFEROPS_GRAFANA_PUBLIC_URL: ${INFEROPS_GRAFANA_PUBLIC_URL:-}
+      INFEROPS_GRAFANA_INTERNAL_URL: http://grafana:3000
+      INFEROPS_PROMETHEUS_PORT: ${INFEROPS_PROMETHEUS_PORT:-9090}
+      INFEROPS_PROMETHEUS_PUBLIC_URL: ${INFEROPS_PROMETHEUS_PUBLIC_URL:-}
+      INFEROPS_PROMETHEUS_INTERNAL_URL: http://prometheus:9090
+      INFEROPS_S3_ACCESS_KEY: ${INFEROPS_S3_ACCESS_KEY:-minio}
+      INFEROPS_S3_SECRET_KEY: ${INFEROPS_S3_SECRET_KEY:-minio12345}
+      INFEROPS_S3_BUCKET: ${INFEROPS_S3_BUCKET:-inferops}
+      INFEROPS_OBS_LOG_LEVEL: ${INFEROPS_OBS_LOG_LEVEL:-INFO}
+      INFEROPS_PREWARM_MODELS: null
+      INFEROPS_PREWARM_PIPELINES: null
+    volumes:
+    - &project_mount
+      type: bind
+      source: ${INFEROPS_PROJECT_ROOT:-./projects/driver_behaviour}
+      target: /project
+      bind:
+        create_host_path: false
+    - ./configs:/app/configs:ro
+    ports:
+    - ${INFEROPS_API_PORT:-8080}:8080
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      prepare:
+        condition: service_completed_successfully
+  minio-init:
+    image: python:3.11-slim
+    command:
+    - python
+    - -c
+    - |
+      import time
+      import urllib.request
+      for attempt in range(120):
+          try:
+              with urllib.request.urlopen('http://minio:9000/minio/health/ready', timeout=2):
+                  break
+          except Exception:
+              time.sleep(1)
+      else:
+          raise SystemExit('MinIO did not become ready')
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+  prepare:
+    image: inferops-engine:local
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    command:
+    - inferops
+    - project
+    - prepare
+    environment:
+      INFEROPS_DOMAIN_ROOT: /project
+      INFEROPS_ACTIVE_DOMAIN: ''
+      INFEROPS_CONFIGS_DIR: /app/configs
+      INFEROPS_MODEL_REPOSITORY: model_repository
+      INFEROPS_EXECUTION_MODE: ${INFEROPS_EXECUTION_MODE:-cpu}
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /cache/huggingface
+      INFEROPS_PREWARM_MODELS: null
+      INFEROPS_PREWARM_PIPELINES: null
+    volumes:
+    - *project_mount
+    - ./configs:/app/configs:ro
+    - hf-cache:/cache/huggingface
+    restart: 'no'
+    healthcheck:
+      disable: true
+volumes:
+  triton-cache: null
+  postgres-data: {}
+  redis-data: {}
+  redpanda-data: {}
+  minio-upstream-data: {}
+  hf-cache: {}
+  grafana-data: {}

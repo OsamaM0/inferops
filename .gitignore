@@ -1,14 +1,20 @@
-# Python
+# Python bytecode and local environments
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
+.venv-*/
+.tox/
+.nox/
+
+# Local settings; keep shareable examples
 .env
+.env.*
+!.env.example
+!.env.*.example
 
 # Models / artifacts
 *.plan
 *.engine
-triton/model_repository/*/[0-9]*/model.plan
 output_onnx/
 
 # Runtime directories (inside project)
@@ -19,17 +25,13 @@ output_onnx/
 # Git never descends into an excluded directory, so a later `!configs/models/**`
 # negation cannot bring them back; the pattern itself has to be anchored.
 /models/
-/inferops/models/
 /logs/
-/inferops/logs/
 /data/
-/inferops/data/
 .demo.db*
 # Anchored for the same reason as the directories above: a bare `screenshots/`
 # also matched `docs/screenshots/`, so committed documentation images would have
 # been silently dropped exactly the way the model specs were.
 /screenshots/
-/inferops/screenshots/
 
 # IDE
 .vscode/
@@ -37,24 +39,63 @@ output_onnx/
 
 # Tests
 .coverage
+.coverage.*
+coverage.xml
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.hypothesis/
 htmlcov/
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Downloaded tools/binaries
 .tools/
 
 # Models
 *.pth
+*.pt
+*.safetensors
 *.onnx
 
 *.meta
 *.ckpt
-*bkp
+
+# Editor backup and temporary files
+*.bkp
+*.bak
+*.swp
+*.swo
+*~
 
 .data/
 .run/
 .cache/
-*.db*
+.playwright-cli/
+*.log
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-journal
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Model preparation provenance and locks
+*.onnx.source.json
+*.onnx.lock
+.prepare-*/
+# Packaging output from the engine and independently built project adapters
+*.egg-info/
+/build/
+/dist/
+/projects/*/build/
+/projects/*/dist/

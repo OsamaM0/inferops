@@ -1,0 +1,7 @@
+# Run from this project directory: docker compose up -d --build.
+name: inferops
+include:
+  - path:
+      - ./deploy/compose.yaml
+      - ./deploy/compose/${INFEROPS_EXECUTION_MODE:-cpu}.yaml
+    project_directory: .

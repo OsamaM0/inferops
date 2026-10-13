@@ -1,0 +1,16 @@
+services:
+  api:
+    image: inferops-engine:cuda
+    build:
+      args:
+        INSTALL_CUDA: "true"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

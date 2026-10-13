@@ -1,0 +1,489 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Explore metrics",
+      "type": "link",
+      "url": "/explore",
+      "targetBlank": false
+    }
+  ],
+  "liveNow": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active streams",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(inferops_streams_active) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value"
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "WS clients",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(inferops_websocket_clients) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Active tracks",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(inferops_tracks_active) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "p95 E2E latency (s)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(inferops_e2e_latency_seconds_bucket[1m])))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3
+        }
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "API scrape health",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "up{job=\"inferops-api\"}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Down",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "Healthy",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Pipeline executions",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(inferops_pipeline_runs_total) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      },
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "E2E latency p50 / p95 / p99 by pipeline",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, pipeline) (rate(inferops_e2e_latency_seconds_bucket[1m])))",
+          "refId": "A",
+          "legendFormat": "p50 {{pipeline}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, pipeline) (rate(inferops_e2e_latency_seconds_bucket[1m])))",
+          "refId": "B",
+          "legendFormat": "p95 {{pipeline}}"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, pipeline) (rate(inferops_e2e_latency_seconds_bucket[1m])))",
+          "refId": "C",
+          "legendFormat": "p99 {{pipeline}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Stream FPS in / out",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (stream_id) (inferops_stream_fps_in)",
+          "refId": "A",
+          "legendFormat": "in {{stream_id}}"
+        },
+        {
+          "expr": "sum by (stream_id) (inferops_stream_fps_out)",
+          "refId": "B",
+          "legendFormat": "out {{stream_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "hertz"
+        }
+      },
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "Detections / sec by label",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (label) (rate(inferops_detections_total[1m]))",
+          "refId": "A",
+          "legendFormat": "{{label}}"
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "timeseries",
+      "title": "Classifications / sec by label",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (label) (rate(inferops_classifications_total[1m]))",
+          "refId": "A",
+          "legendFormat": "{{label}}"
+        }
+      ],
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Model inference latency (p95)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(inferops_infer_latency_seconds_bucket[1m])))",
+          "refId": "A",
+          "legendFormat": "p95 {{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      },
+      "id": 11
+    },
+    {
+      "type": "timeseries",
+      "title": "Triton compute / queue time",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(nv_inference_compute_infer_duration_us[1m]) / 1000",
+          "refId": "A",
+          "legendFormat": "compute {{model}}"
+        },
+        {
+          "expr": "rate(nv_inference_queue_duration_us[1m]) / 1000",
+          "refId": "B",
+          "legendFormat": "queue {{model}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "id": 12
+    },
+    {
+      "type": "timeseries",
+      "title": "Tracks active / started / closed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (pipeline) (inferops_tracks_active)",
+          "refId": "A",
+          "legendFormat": "active {{pipeline}}"
+        },
+        {
+          "expr": "sum by (pipeline) (rate(inferops_tracks_started_total[1m]))",
+          "refId": "B",
+          "legendFormat": "started/s {{pipeline}}"
+        },
+        {
+          "expr": "sum by (pipeline) (rate(inferops_tracks_closed_total[1m]))",
+          "refId": "C",
+          "legendFormat": "closed/s {{pipeline}}"
+        }
+      ],
+      "id": 13
+    },
+    {
+      "type": "timeseries",
+      "title": "Alerts emitted by type",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(inferops_alerts_total[1m]))",
+          "refId": "A",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "id": 14
+    },
+    {
+      "type": "timeseries",
+      "title": "Frames dropped (back-pressure)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (pipeline, reason) (rate(inferops_frames_dropped_total[1m]))",
+          "refId": "A",
+          "legendFormat": "{{pipeline}} / {{reason}}"
+        }
+      ],
+      "id": 15
+    },
+    {
+      "type": "timeseries",
+      "title": "Evidence uploads",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (kind, result) (rate(inferops_evidence_uploads_total[1m]))",
+          "refId": "A",
+          "legendFormat": "{{kind}}/{{result}}"
+        }
+      ],
+      "id": 16
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": [
+    "inferops"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "InferOps Overview",
+  "uid": "inferops-overview",
+  "version": 2,
+  "weekStart": "",
+  "description": "InferOps API, pipeline, evidence and optional Triton metrics. Open Prometheus targets to inspect unavailable scrape jobs."
+}

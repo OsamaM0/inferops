@@ -1,0 +1,66 @@
+# Shared contract. Dictionaries merge; variant lists replace defaults.
+name: face_mesh
+defaults:
+  version: 1
+  task: landmarks
+  device:
+    preferred: gpu
+    gpu_id: 0
+  inputs:
+  - name: input_12
+    shape:
+    - 1
+    - 3
+    - 256
+    - 256
+    dtype: float32
+    layout: NCHW
+    color: RGB
+  outputs:
+  - name: Identity
+    shape:
+    - 1
+    - 1
+    - 1
+    - 1434
+    dtype: float32
+    layout: ND
+    color: NONE
+  - name: Identity_1
+    shape:
+    - 1
+    - 1
+    - 1
+    - 1
+    dtype: float32
+    layout: ND
+    color: NONE
+  - name: Identity_2
+    shape:
+    - 1
+    - 1
+    dtype: float32
+    layout: ND
+    color: NONE
+  batching:
+    enabled: false
+    max_batch_size: 1
+  artifact:
+    path: model_repository/face_mesh_onnx/1/model.onnx
+    source:
+      kind: url
+      url: https://s3.ap-northeast-2.wasabisys.com/pinto-model-zoo/410_FaceMeshV2/resources.tar.gz
+      archive_member: face_landmarks_detector_1x3x256x256.onnx
+variants:
+  onnx:
+    warmup:
+      iterations: 1
+    backend: onnxruntime
+  tensorrt:
+    backend: tensorrt
+    warmup:
+      iterations: 1
+  triton:
+    backend: triton
+    artifact:
+      triton_model_name: face_mesh_onnx

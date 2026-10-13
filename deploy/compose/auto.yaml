@@ -1,0 +1,2 @@
+# auto is a CPU alias; configured real weights are required.
+services: {}

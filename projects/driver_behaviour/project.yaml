@@ -1,0 +1,19 @@
+# Project entry point. Model weights and sources live in models/*/model.yaml.
+name: driver_behaviour
+label: Driver Behaviour
+description: 'In-cab driver monitoring: RF-DETR object detection (phone, cigarette,
+  food, seatbelt, wheel) fused with MediaPipe face-mesh drowsiness and head-pose signals
+  into alerts with evidence clips.'
+version: 1
+python_extras:
+- triton
+prewarm_pipelines:
+- driver_behaviour
+prewarm_models: []
+scenario:
+  pipeline: driver_behaviour
+  sample_video: ../../research/driver_training/test.mp4
+  expect_alert: true
+pipelines:
+- driver_behaviour
+- driver_video

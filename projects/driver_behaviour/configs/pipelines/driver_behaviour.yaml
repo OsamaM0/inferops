@@ -1,0 +1,71 @@
+name: driver_behaviour
+version: 1
+tags:
+  label: Driver Behaviour
+
+source:
+  name: src
+  stage: source_rest
+
+stages:
+  - name: decode
+    stage: decode_any
+    params: { every_n: 1 }
+
+  - name: detect
+    stage: infer
+    params:
+      model: rfdetr_driver
+
+  # Pack-relative plugin reference: resolved against this domain's package.
+  - name: face_mesh
+    stage: .models.face_mesh.adapter:FaceMeshStage
+    params:
+      model: face_mesh
+      crop_padding: 0.25
+      face_confidence_threshold: 0.5
+      # In live mode (15 fps camera) only re-infer face mesh every 200 ms;
+      # intermediate frames reuse the cached landmarks → halves CPU load.
+      min_infer_interval_ms: 200
+
+  - name: fuse
+    stage: fuse
+    params: { fusion: driver_fusion }
+
+  - name: alert
+    stage: alert
+    params: { alerts: driver_alerts }
+
+sinks:
+  - name: evidence
+    stage: sink_s3
+    params:
+      evidence_mode: both
+      capture_emitted_alerts: true  # every emitted incident gets a snapshot and clip
+      trigger_secs: 5.0     # save evidence only after 5 s of continuous alert
+      pre_frames: 125       # ~5 s pre-trigger buffer at 25 fps
+      post_frames: 125      # ~5 s post-trigger buffer at 25 fps
+      annotator: .plugins.frame_annotator:DriverAnnotator
+      # Per-frame conditions that keep the sustained-alert timer running.
+      # Evaluated on raw signals, so alert dedupe/cooldown cannot hide them.
+      trigger_rules:
+        - { flag: phone_use,       class: phone,     min_score: 0.45 }
+        - { flag: smoking,         signal: smoking_face_score, min: 0.15 }
+        - { flag: smoking,         class: cigarette, min_score: 0.60 }
+        - { flag: eating,          signal: eating_face_score,  min: 0.40 }
+        - { flag: drowsiness,      signal: drowsy_ear,         min: 0.5 }
+        - { flag: distraction,     signal: distracted_score,   min: 0.5 }
+        - { flag: no_seatbelt,     class: seatbelt,  max_score: 0.40 }
+        - { flag: hands_off_wheel, signal: hand_on_wheel, max: 0.5, default: 1.0 }
+
+limits: { max_concurrency: 2, queue_size: 64 }
+
+tracking:
+  enabled: true
+  algorithm: iou_kalman
+  by: stream_id
+  max_age: 30
+  min_hits: 3
+  iou_threshold: 0.3
+  per_class: true
+  model_filter: [rfdetr_driver]
