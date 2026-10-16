@@ -1,0 +1,27 @@
+flowchart TB
+    subgraph owner["Single active application owner"]
+        pipeline["Shared pipeline services<br/>session decisions"]
+        transaction["SQL transaction<br/>events + incidents + evidence + outbox<br/>broker input: inbox reservation too"]
+        relay["Outbox relay<br/>short lease, owner generation<br/>network calls outside transaction"]
+        capture["Evidence service<br/>committed request → persistent spool → MinIO<br/>capture does not wait for broker"]
+        delivery["ServerDelivery<br/>JSON + stable event_id<br/>producer idempotence and acknowledgment"]
+        topicworker["Optional topic worker entry point<br/>one frame per input<br/>generated session per mapped input key"]
+    end
+    subgraph broker["Redpanda · Kafka-compatible durable log"]
+        incoming["Configured input topic<br/>topic / partition / offset identity"]
+        incidents["incident.accepted<br/>key = internal session ID"]
+        evidence["evidence.updated<br/>key = evidence ID; payload revision"]
+        outputs["Project events / configured output topics"]
+    end
+    external["External integration consumers<br/>own groups and offsets<br/>transactional inbox + durable effects"]
+    hints["WebSocket hints / webhook / plugin actions<br/>webhook Idempotency-Key = event_id<br/>later action failure can repeat earlier delivery"]
+    pipeline --> transaction
+    transaction --> capture
+    transaction -->|committed rows| relay --> delivery
+    delivery --> incidents & evidence & outputs
+    delivery --> hints
+    delivery -->|success: acknowledge SQL row| transaction
+    incidents & evidence & outputs --> external
+    incoming -->|manual auto-commit disabled| topicworker --> pipeline
+    transaction -. "durable success before offset + 1 commit" .-> incoming
+    crash["Crash after publish, before SQL acknowledgment<br/>retry may publish same event_id again<br/>at least once across SQL / broker boundary"] -.-> relay

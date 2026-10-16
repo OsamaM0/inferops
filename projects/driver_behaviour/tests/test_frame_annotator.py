@@ -2,7 +2,7 @@
 
 import pytest
 
-from inferops.core.types import StageItem
+from inferops.domain.types import StageItem
 from projects.driver_behaviour.plugins.frame_annotator import _danger_classes
 
 

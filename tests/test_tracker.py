@@ -1,8 +1,8 @@
 """Tests for the IoU + Kalman object tracker."""
 from __future__ import annotations
 
-from inferops.core.tracking import IoUKalmanTracker
-from inferops.core.types import Detection
+from inferops.domain.tracking import IoUKalmanTracker
+from inferops.domain.types import Detection
 
 
 def _det(label: str, score: float, box):

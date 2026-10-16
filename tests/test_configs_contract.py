@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from inferops.alerts.spec import AlertSpec
-from inferops.core.yaml_loader import load_yaml
-from inferops.fusion.spec import FusionSpec
-from inferops.pipeline.spec import PipelineSpec
-from inferops.registry.loader import load_model_variants, model_config_files
+from inferops.adapters.outbound.projects.models import load_model_variants, model_config_files
+from inferops.adapters.outbound.projects.yaml import load_yaml
+from inferops.domain.fusion.spec import FusionSpec
+from inferops.domain.incident_spec import AlertSpec
+from inferops.domain.pipeline import PipelineSpec
 
 ROOT = Path(__file__).resolve().parents[1]
 

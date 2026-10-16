@@ -7,10 +7,9 @@ import zipfile
 
 import pytest
 
-from inferops.core.config import ConfigStack
-from inferops.core.domain import load_domain_manifest, scaffold_domain
-from inferops.core.errors import ConfigError
-from inferops.core.preparation import (
+from inferops.adapters.outbound.projects.manifest import load_domain_manifest, scaffold_domain
+from inferops.adapters.outbound.projects.models import load_model_file
+from inferops.adapters.outbound.projects.preparation import (
     download_url,
     fetch_source,
     generate_triton_config,
@@ -21,16 +20,17 @@ from inferops.core.preparation import (
     sha256,
     validate_onnx,
 )
-from inferops.pipeline.spec import PipelineSpec
-from inferops.registry.loader import load_model_file
-from inferops.registry.model_spec import ArtifactSource
-from inferops.registry.resolver import ModelResolver
-from inferops.testing import PROJECT_ROOT
+from inferops.adapters.outbound.projects.resolver import ModelResolver
+from inferops.adapters.outbound.projects.settings import ConfigStack
+from inferops.domain.errors import ConfigError
+from inferops.domain.models import ArtifactSource
+from inferops.domain.pipeline import PipelineSpec
+from inferops.testing import PROJECT_ROOT, TINY_MODEL_PATH
 
 
 @pytest.fixture
 def weights():
-    return PROJECT_ROOT / "model_repository/tiny_classifier/1/model.onnx"
+    return TINY_MODEL_PATH
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def test_cache_reuses_offline_and_refreshes_changed_source(tmp_path, weights, sp
     def fetch(source, staged, root):
         calls.append(source.url)
         staged.write_bytes(weights.read_bytes())
-    monkeypatch.setattr("inferops.core.preparation.fetch_source", fetch)
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.fetch_source", fetch)
     prepare_artifact(spec, target, tmp_path)
     assert len(calls) == 1
     prepare_artifact(spec, target, tmp_path)
@@ -125,7 +125,7 @@ def test_interrupted_download_preserves_previous_weights(tmp_path, weights, spec
     def interrupted(source, staged, root):
         staged.write_bytes(b"partial download")
         raise OSError("connection interrupted")
-    monkeypatch.setattr("inferops.core.preparation.fetch_source", interrupted)
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.fetch_source", interrupted)
     with pytest.raises(OSError, match="interrupted"):
         prepare_artifact(spec, target, tmp_path, force=True)
     assert sha256(target) == original
@@ -139,7 +139,7 @@ def test_interrupted_source_record_recovers_offline(tmp_path, weights, spec, mon
     metadata.write_text('{"source":')
     def offline(*args):
         raise OSError("offline")
-    monkeypatch.setattr("inferops.core.preparation.fetch_source", offline)
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.fetch_source", offline)
     prepare_artifact(spec, target, tmp_path)
     import json
 
@@ -177,7 +177,7 @@ def test_invalid_fresh_download_keeps_valid_weights(tmp_path, weights, spec, mon
     target.write_bytes(weights.read_bytes())
     def invalid(source, staged, root):
         staged.write_bytes(b"invalid downloaded graph")
-    monkeypatch.setattr("inferops.core.preparation.fetch_source", invalid)
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.fetch_source", invalid)
     with pytest.raises(ConfigError, match="invalid ONNX"):
         prepare_artifact(spec, target, tmp_path, force=True)
     assert target.read_bytes() == weights.read_bytes()
@@ -211,7 +211,7 @@ def test_url_archive_extracts_only_selected_regular_member(tmp_path, weights, mo
         archive.addfile(dangerous, io.BytesIO(b"x"))
     def download(url, target):
         target.write_bytes(archive_path.read_bytes())
-    monkeypatch.setattr("inferops.core.preparation.download_url", download)
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.download_url", download)
     target = tmp_path / "model.onnx"
     fetch_source(ArtifactSource(kind="url", url="https://example.test/weights.tar.gz",
                                 archive_member="weights/model.onnx"), target, tmp_path)
@@ -224,7 +224,7 @@ def test_zip_archive_extracts_selected_member(tmp_path, weights, monkeypatch):
     with zipfile.ZipFile(archive_path, "w") as archive:
         archive.writestr("weights/model.onnx", weights.read_bytes())
         archive.writestr("../../escaped", b"x")
-    monkeypatch.setattr("inferops.core.preparation.download_url",
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.download_url",
                         lambda url, target: target.write_bytes(archive_path.read_bytes()))
     target = tmp_path / "model.onnx"
     fetch_source(ArtifactSource(kind="url", url="https://example.test/weights.zip",
@@ -239,7 +239,7 @@ def test_archive_link_is_rejected(tmp_path, monkeypatch):
         info.type = tarfile.SYMTYPE
         info.linkname = "/etc/passwd"
         archive.addfile(info)
-    monkeypatch.setattr("inferops.core.preparation.download_url",
+    monkeypatch.setattr("inferops.adapters.outbound.projects.preparation.download_url",
                         lambda url, target: target.write_bytes(archive_path.read_bytes()))
     with pytest.raises(ConfigError, match="regular model file"):
         fetch_source(ArtifactSource(kind="url", url="https://example.test/weights.tar",
@@ -259,7 +259,7 @@ def test_custom_installer_receives_temporary_output(tmp_path, weights, spec):
 
 def test_custom_module_installer_receives_target(tmp_path, monkeypatch):
     called = []
-    monkeypatch.setattr("inferops.core.plugins.load_object", lambda ref: lambda target: called.append((ref, target)))
+    monkeypatch.setattr("inferops.adapters.outbound.projects.plugins.load_object", lambda ref: lambda target: called.append((ref, target)))
     target = tmp_path / "model.onnx"
     run_installer("project.install:download", target, tmp_path)
     assert called == [("project.install:download", target)]

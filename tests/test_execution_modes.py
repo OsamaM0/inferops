@@ -4,13 +4,14 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from inferops.api.main import create_app
-from inferops.core.config import ConfigStack, settings
-from inferops.core.errors import BackendError
-from inferops.pipeline.store import PipelineStore
-from inferops.registry.model_spec import ModelSpec
-from inferops.registry.store import ModelRegistry
-from inferops.runtimes.onnxruntime_backend import OnnxRuntimeBackend
+from inferops.adapters.inbound.http.main import create_app
+from inferops.adapters.outbound.inference.onnxruntime_backend import OnnxRuntimeBackend
+from inferops.adapters.outbound.projects.loader import ProjectLoader
+from inferops.adapters.outbound.projects.settings import ConfigStack, settings
+from inferops.application.models import ModelPool
+from inferops.domain.errors import BackendError
+from inferops.domain.models import ModelSpec
+from inferops.testing import TINY_MODEL_PATH
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,15 +27,13 @@ ROOT = Path(__file__).resolve().parents[1]
 async def test_production_modes_do_not_fall_back_to_synthetic(monkeypatch, mode, model, face):
     monkeypatch.setattr(settings, "execution_mode", mode)
     stack = ConfigStack(ROOT / "configs", active_domain="driver_behaviour")
-    store = PipelineStore()
-    await store.reload_from(stack.spec_dir("pipelines"))
-    stages = {s.name: s for s in store.get("driver_behaviour").stages}
+    definition = ProjectLoader(stack.domain_root, mode=mode).load()
+    stages = {s.name: s for s in definition.pipelines["driver_behaviour"].stages}
     assert stages["detect"].params["model"] == model
     assert stages["face_mesh"].params["model"] == face
     assert stages["detect"].params["fallback_model"] is None
     assert stages["face_mesh"].params["fallback_model"] is None
-    registry = ModelRegistry()
-    await registry.reload_from(stack.spec_dir("models"))
+    registry = ModelPool(definition)
     if mode in {"cpu", "cuda"}:
         assert registry.get_spec(model).device.preferred == ("cpu" if mode == "cpu" else "gpu")
 
@@ -53,7 +52,7 @@ async def test_cuda_mode_rejects_a_cpu_session(monkeypatch):
     monkeypatch.setattr(settings, "execution_mode", "cuda")
     monkeypatch.setenv("INFEROPS_FORCE_CPU", "1")
     spec = ModelSpec(name="cuda_required", backend="onnxruntime", device={"preferred": "gpu"},
-                     artifact={"path": str(ROOT / "model_repository/tiny_classifier/1/model.onnx")},
+                     artifact={"path": str(TINY_MODEL_PATH)},
                      inputs=[{"name": "input", "shape": [1, 3, 32, 32]}])
     with pytest.raises(BackendError, match="requires an active CUDA"):
         await OnnxRuntimeBackend().load(spec)
@@ -61,11 +60,10 @@ async def test_cuda_mode_rejects_a_cpu_session(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_explicit_mode_prewarms_the_active_pipeline_without_driver_names(monkeypatch):
-    from inferops.registry import get_registry
     monkeypatch.setattr(settings, "execution_mode", "cpu")
     monkeypatch.delenv("INFEROPS_PREWARM_MODELS", raising=False)
     app = create_app()
     async with app.router.lifespan_context(app):
-        models = get_registry().loaded_backends()
+        models = app.state.engine.application.models.loaded_backends()
         assert set(models) == {"tiny_classifier"}
         assert models["tiny_classifier"].device == "cpu"

@@ -60,7 +60,7 @@ A package containing only a model integration can use a minimal project manifest
 with `pipelines: []` and one model port. Another project can import its public
 plugin classes using absolute `module:Class` references. It does not need to
 modify the InferOps backend factory: custom backends subclass
-`inferops.runtimes.base.InferenceBackend` and set `backend: 'module:Class'`.
+`inferops.ports.inference.InferenceBackend` and set `backend: 'module:Class'`.
 
 Build and verify separately:
 

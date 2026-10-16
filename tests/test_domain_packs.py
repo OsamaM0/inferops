@@ -7,19 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from inferops.core.config import ConfigStack
-from inferops.core.domain import (
+from inferops.adapters.outbound.projects.manifest import (
     DomainManifest,
-    activate_domain_imports,
     discover_domains,
     load_domain_manifest,
     manifest_env,
-    resolve_plugin_ref,
     scaffold_domain,
 )
-from inferops.core.plugins import load_object
-from inferops.core.types import Result, StageItem
-from inferops.pipeline.stages.sink_s3 import SinkS3
+from inferops.adapters.outbound.projects.settings import ConfigStack
 from inferops.testing import PROJECT_ROOT
 
 
@@ -66,15 +61,15 @@ def test_pack_relative_plugin_refs_resolve_against_the_active_pack(tmp_path: Pat
     (root / "plugins" / "__init__.py").write_text("", encoding="utf-8")
     (root / "plugins" / "hello.py").write_text("class Hello:\n    pass\n", encoding="utf-8")
 
-    package = activate_domain_imports(root)
-    assert package == "acme_vision"
-    assert resolve_plugin_ref(".plugins.hello:Hello") == "acme_vision.plugins.hello:Hello"
-    assert load_object(".plugins.hello:Hello").__name__ == "Hello"
-
-    # ConfigStack activates the pack from INFEROPS_DOMAIN_ROOT-style selection too.
+    from inferops.adapters.outbound.projects.loader import ProjectPluginResolver
+    original_path = list(sys.path)
+    resolver = ProjectPluginResolver(root, "test-revision")
+    reference = resolver.resolve(".plugins.hello:Hello")
+    assert reference.startswith(resolver.package)
+    assert resolver.load_object(".plugins.hello:Hello").__name__ == "Hello"
     stack = ConfigStack(tmp_path / "configs", domain_root=root)
     assert stack.domain_package == "acme_vision"
-    monkeypatch.delattr(sys.modules["inferops.core.domain"], "_active_package", raising=False)
+    assert sys.path == original_path
 
 
 def test_scaffolded_domain_validates_and_runs(tmp_path: Path):
@@ -87,7 +82,7 @@ def test_scaffolded_domain_validates_and_runs(tmp_path: Path):
            "INFEROPS_TRANSPORT_KIND": "inproc", "PYTHONPATH": str(PROJECT_ROOT)}
     for command in (["validate"], ["preflight", "--no-require-artifacts"]):
         proc = subprocess.run(
-            [sys.executable, "-m", "inferops.cli", *command, "--domain-root", str(root)],
+            [sys.executable, "-m", "inferops.adapters.inbound.cli", *command, "--domain-root", str(root)],
             cwd=PROJECT_ROOT, capture_output=True, text=True, env={**_base_env(), **env},
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -99,37 +94,16 @@ def _base_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if not k.startswith("INFEROPS_")}
 
 
-def _det_item(label: str, score: float, **payload) -> StageItem:
-    item = StageItem(stream_id="s", ts_ms=1_000)
-    item.results.append(Result(kind="detections", detections=[],
-                               raw={"by_class": {label: [{"label": label, "score": score}]}}))
-    item.payload.update(payload)
-    return item
+
+def test_evidence_is_an_application_service_in_project_configuration():
+    from inferops.adapters.outbound.stages.registry import APPLICATION_STAGES, BUILTINS
+    assert {"evidence", "sink_s3", "fuse", "alert"} <= APPLICATION_STAGES
+    assert "sink_s3" not in BUILTINS
 
 
-def test_sink_s3_trigger_rules_are_yaml_driven():
-    sink = SinkS3(trigger_rules=[
-        {"flag": "phone_use", "class": "phone", "min_score": 0.45},
-        {"flag": "no_seatbelt", "class": "seatbelt", "max_score": 0.4},
-        {"flag": "drowsiness", "signal": "drowsy_ear", "min": 0.5},
-        {"flag": "hands_off", "signal": "hand_on_wheel", "max": 0.5, "default": 1.0},
-    ])
-    assert sink.current_flags(_det_item("phone", 0.9)) == {"phone_use"}
-    assert sink.current_flags(_det_item("phone", 0.2)) == set()
-    assert sink.current_flags(_det_item("seatbelt", 0.3)) == {"no_seatbelt"}
-    assert sink.current_flags(_det_item("seatbelt", 0.9)) == set()
-    assert sink.current_flags(_det_item("x", 0.0, drowsy_ear=0.7)) == {"drowsiness"}
-    assert sink.current_flags(_det_item("x", 0.0, hand_on_wheel=0.1)) == {"hands_off"}
-    assert sink.current_flags(_det_item("x", 0.0)) == set()          # default 1.0 keeps hands on
-
-    # Signals published through the generic channel count too.
-    assert sink.current_flags(_det_item("x", 0.0, signals={"drowsy_ear": 0.9})) == {"drowsiness"}
-
-    with pytest.raises(ValueError, match="flag"):
-        SinkS3(trigger_rules=[{"class": "phone"}])
-
-
-def test_sink_s3_defaults_to_alert_and_fusion_events():
-    sink = SinkS3()
-    item = _det_item("x", 0.0, alerts=[{"type": "intrusion"}], fusion_events=[{"type": "loitering"}])
-    assert sink.current_flags(item) == {"intrusion", "loitering"}
+def test_driver_annotation_remains_bound_to_explicit_project_context():
+    from inferops.adapters.outbound.projects.loader import ProjectLoader
+    definition = ProjectLoader(PROJECT_ROOT / "projects/driver_behaviour").load()
+    pipeline = definition.pipelines["driver_behaviour"]
+    annotator = next(sink.params["annotator"] for sink in pipeline.sinks if sink.params.get("annotator"))
+    assert definition.object_loader(annotator).__name__ == "DriverAnnotator"

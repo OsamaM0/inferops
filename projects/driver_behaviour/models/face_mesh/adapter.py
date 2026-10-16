@@ -28,9 +28,9 @@ from typing import Any
 import cv2
 import numpy as np
 
-from inferops.core.types import StageItem
-from inferops.obs import get_logger
-from inferops.pipeline.stage import Stage
+from inferops.adapters.outbound.observability import get_logger
+from inferops.adapters.outbound.stages.base import Stage
+from inferops.domain.types import StageItem
 
 from .features import (
     DISTRACT_PITCH_DEG,

@@ -13,6 +13,39 @@ runtime installation and multi-model examples, and [adapter authoring](docs/adap
 for independent project packages. Driver behaviour is an optional adapter:
 `pip install -e projects/driver_behaviour` from this directory.
 
+Start the [documentation tour](docs/README.md) for the complete system:
+[Hexagonal architecture and ports/adapters](docs/architecture.md),
+[startup-to-shutdown lifecycle](docs/lifecycle.md),
+[Redpanda, outbox and consumer workflows](docs/messaging.md), and the
+[offline diagram gallery](docs/architecture/index.html). The
+[package structure guide](docs/structure.md) maps the source modules.
+
+The default server now uses the shared hexagonal engine. See the
+[redesign and migration guide](docs/redesign.md) for application boundaries,
+generated sessions, recoverable evidence and rollback. Python and HTTP call the
+same pipeline services; PostgreSQL, MinIO, Redis, Redpanda, Prometheus and Grafana
+remain the default server stack. A persistent capture spool is mounted separately
+from completed evidence storage.
+
+```python
+from inferops import Engine
+
+async def run_project():
+    async with Engine.from_project("projects/driver_behaviour", runtime="cpu") as engine:
+        summary = await engine.run("driver_behaviour", "clip.mp4")
+        print(summary)
+```
+
+This embedded example uses in-memory persistence and evidence disabled. The
+[Python guide](docs/python-library.md#shared-pipeline-engine) shows explicit
+durable adapters and processing sessions. Server startup enables incident
+capture and uses PostgreSQL/MinIO by default. There is one execution engine.
+Rollback uses a designated previous release artifact; preserve database, object
+and spool volumes when changing releases.
+The [verification report](docs/cleanup-verification.md) records recovery and
+rollback checks plus evidence-enabled CPU measurements. Capacity defaults are
+provisional; production cutover remains gated on deployment-host benchmarks.
+
 
 InferOps runs a project's models, pipelines, rules, alerts and evidence storage.
 This directory is the project root: setup, development and Docker commands run
@@ -37,19 +70,15 @@ for their own models, input resolution, sampled FPS and concurrent jobs.
 
 CPU mode is useful for evaluation and workloads that tolerate slower inference.
 For sustained video processing, start by evaluating CUDA; choose Triton for
-separate model serving, or DeepStream for its GPU video-file decoder. DeepStream
-also starts Triton. The shipped Triton configuration loads two RF-DETR GPU
+separate model serving. DeepStream also starts Triton. The shared engine uses
+incremental PyAV decoding in every runtime mode. The shipped Triton configuration loads two RF-DETR GPU
 instances and one FaceMesh instance on GPU 0, with TensorRT workspace limits of
 2 GiB and 1 GiB respectively. Leave additional VRAM for weights, activations
 and engine building; the workspace limits are not total memory requirements.
 
-**Video uploads can dominate system RAM.** Both the OpenCV and DeepStream file
-decoders currently collect all sampled BGR frames before processing them.
-Approximate frame memory is `width × height × 3 × sampled frame count` bytes.
-A one-minute 1080p clip sampled at 30 FPS alone needs about **10.4 GiB** of RAM,
-before models, services and processing overhead. Longer or concurrent uploads
-need more RAM, shorter clips, or a larger `every_n` sampling interval in the
-pipeline's `decode_any` stage.
+**The shared engine decodes video incrementally.** Its memory depends on bounded
+processing/evidence buffers rather than the full clip duration. Benchmark the
+actual models, concurrency and evidence workload when sizing the server.
 
 The SSD estimates cover an initial allowance for images, build cache, weights
 and service data. Add capacity for uploaded media, evidence retention, database
@@ -228,11 +257,14 @@ README.md, pyproject.toml       Project documentation and Python package metadat
 Makefile, compose.yaml          Development commands and Compose entry point
 .dockerignore                  Build context exclusions
 inferops/                      Importable Python engine
-  api/
-    ui.py                      UI routes, service links and built-in interface guide
-    templates/dashboard.html   Main project interface
-    static/                    Packaged CSS and JavaScript
-    routes/                    HTTP and WebSocket APIs
+  __init__.py, public.py        Stable Engine, Model and InferenceSession API
+  domain/                      Models, frames, tracking, fusion and incident/evidence policies
+  application/                 Execution, sessions, model pool, incidents, evidence, jobs and revisions
+  ports/                       Inference, media, persistence, delivery and extension contracts
+  adapters/inbound/            HTTP/WebSocket + packaged UI, CLI, source and broker workers
+  adapters/outbound/           Inference/plugins, stages, media, projects, storage and observability
+  bootstrap.py                 Explicit resource construction
+  sdk/                         Remote HTTP client
   testing/                     Test configurations and tiny model generator
 projects/                      Self-contained projects, adapters, rules and weights
 configs/                       Shared platform defaults
@@ -246,7 +278,15 @@ research/                      Training notebooks and sample media
 This directory is also the Git repository root: `.git/`, `.gitignore`, this
 README, `pyproject.toml` and launch configuration all belong here. The child
 `inferops/` directory is the importable Python package. `.venv/` stores installed
-dependencies; `.run/` stores runtime reports and verification output.
+dependencies; `.run/` stores runtime reports and verification output. Pytest and
+Ruff caches live under `.run/cache/`. Test-only models use process-owned system
+temporary directories and do not create a root `model_repository/`. Real project
+weights remain under `projects/<project>/model_repository/`.
+
+`inferops.egg-info/` is generated installation metadata from the editable Python
+install; it contains package information and entry points, not another source
+implementation. Build output and tool caches are generated too and can be
+recreated.
 
 ### Generated files and cleanup
 

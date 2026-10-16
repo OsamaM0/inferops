@@ -1,0 +1,25 @@
+stateDiagram-v2
+    direction LR
+    [*] --> Pending: incident acceptance commits
+    Pending --> Pending: capture / encode / upload / transient retry
+    Pending --> Saved: artifacts verified and full sampled window committed
+    Pending --> Incomplete: usable artifacts with missing coverage or capture error
+    Pending --> Failed: no usable artifacts or admission failure
+    Incomplete --> Pending: explicit retry with retained material
+    Failed --> Pending: explicit retry with retained material
+    Saved --> Tombstone: manual deletion
+    Incomplete --> Tombstone: manual deletion
+    Failed --> Tombstone: manual deletion
+    Tombstone --> Tombstone: retry interrupted object and spool cleanup
+    note right of Saved
+        Remove spool after SQL completion commit.
+        Keep completed objects until manual deletion.
+    end note
+    note right of Incomplete
+        Retain actual coverage and reason codes.
+        Missing footage cannot be invented by retry.
+    end note
+    note right of Tombstone
+        Audit record and cleanup progress remain.
+        Deletion is separate from capture outcome.
+    end note

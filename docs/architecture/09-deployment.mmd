@@ -1,0 +1,26 @@
+flowchart LR
+    CLIENT["Browser / SDK<br/>host port 8080"] --> API
+    subgraph STACK["Docker Compose network"]
+        PREP["prepare: one-shot artifact preparation"] -. "startup gate" .-> API["api: FastAPI + pipeline execution<br/>container port 8080"]
+        MININIT["minio-init: readiness wait"] -. "startup gate" .-> API
+        API --> RP["Redpanda<br/>internal Kafka 9092<br/>host Kafka 19092"]
+        API -. "startup health gate; reserved cache service" .-> REDIS["Redis<br/>6379<br/>not used for current session/evidence state"]
+        API --> PG["PostgreSQL<br/>5432"]
+        API --> MINIO["MinIO<br/>S3 9000 / console 9001"]
+        API -->|"triton / deepstream modes only"| TRITON["Triton<br/>HTTP 8000 / gRPC 8001 / metrics 8002"]
+        PREP --> MODELS["Bind-mounted project<br/>manifest + YAML + plugins + model_repository"]
+        MODELS -. "read-only model repository" .-> TRITON
+        MODELS -. "project mounted read/write" .-> API
+        PROM["Prometheus<br/>9090"] -->|"scrape /metrics"| API
+        PROM -->|"scrape metrics"| TRITON
+        PROM -->|"scrape cluster metrics"| MINIO
+        PROM -->|"scrape public_metrics on 9644"| RP
+        GRAF["Grafana<br/>3000"] -->|"query metrics"| PROM
+        VOL["Named volumes<br/>broker / Redis / PostgreSQL / MinIO / Grafana<br/>persistent capture spool / Hugging Face cache / Triton cache"]
+    end
+    ADMIN["Browser service tabs"] --> GRAF
+    ADMIN --> MINIO
+    ADMIN --> PROM
+    API -. "cpu/cuda: local runtime" .-> HW["Host CPU / GPU"]
+    TRITON --> HW
+    API -. "configured tracing export" .-> OTEL["Optional external OTLP collector<br/>not included in Compose"]

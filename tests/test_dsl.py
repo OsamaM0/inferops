@@ -1,7 +1,7 @@
 """Validate the safe expression DSL allows/forbids the right things."""
 import pytest
 
-from inferops.fusion.dsl import safe_eval
+from inferops.domain.fusion.dsl import safe_eval
 
 
 def test_basic_arith():

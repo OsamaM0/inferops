@@ -7,27 +7,24 @@ that matter on both GPU and CPU hosts.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-from inferops.core import devices
-from inferops.core.devices import (
+from inferops.adapters.outbound.inference import build_backend, devices
+from inferops.adapters.outbound.inference.devices import (
     available_providers,
     cuda_execution_provider_available,
     describe_runtime,
     resolve_onnx_providers,
 )
-from inferops.core.errors import BackendError
-from inferops.registry.model_spec import ModelSpec
-from inferops.runtimes import build_backend
-from inferops.runtimes.base import InferenceBackend
-from inferops.runtimes.onnxruntime_backend import OnnxRuntimeBackend
+from inferops.adapters.outbound.inference.onnxruntime_backend import OnnxRuntimeBackend
+from inferops.domain.errors import BackendError
+from inferops.domain.models import ModelSpec
+from inferops.ports.inference import InferenceBackend
+from inferops.testing import TINY_MODEL_PATH
 from inferops.testing.make_tiny_model import build_model
 
-ROOT = Path(__file__).resolve().parents[1]
-TINY = ROOT / "model_repository" / "tiny_classifier" / "1" / "model.onnx"
+TINY = TINY_MODEL_PATH
 
 HAS_CUDA = cuda_execution_provider_available()
 
@@ -312,12 +309,12 @@ async def test_backend_can_be_a_plugin_reference():
 
 
 def test_unknown_backend_names_fail_clearly():
-    from inferops.core.errors import BackendError
+    from inferops.domain.errors import BackendError
 
     with pytest.raises(BackendError, match="unknown backend"):
         build_backend(ModelSpec(name="x", backend="no_such_backend", inputs=[]))
     with pytest.raises(BackendError, match="not an InferenceBackend"):
-        build_backend(ModelSpec(name="x", backend="inferops.core.types:Frame", inputs=[]))
+        build_backend(ModelSpec(name="x", backend="inferops.domain.types:Frame", inputs=[]))
 
 
 @pytest.mark.asyncio
@@ -341,7 +338,7 @@ async def test_system_status_exposes_the_effective_device():
     """A GPU spec silently degrading to CPU used to be invisible to operators."""
     from httpx import ASGITransport, AsyncClient
 
-    from inferops.api.main import create_app
+    from inferops.adapters.inbound.http.main import create_app
 
     app = create_app()
     transport = ASGITransport(app=app)
@@ -393,7 +390,7 @@ async def test_all_backends_report_a_device():
 
 def test_base_backend_defaults_are_not_shared_mutable_state():
     """A shared dict default would leak one model's device info into another."""
-    from inferops.runtimes.base import InferenceBackend
+    from inferops.ports.inference import InferenceBackend
 
     assert InferenceBackend.device == "cpu"
     assert InferenceBackend.device_info == {}
@@ -402,7 +399,7 @@ def test_base_backend_defaults_are_not_shared_mutable_state():
 @pytest.mark.asyncio
 async def test_system_status_runtime_block_shape():
     """Pins the contract the README documents."""
-    from inferops.api.routes.system import _runtime_info
+    from inferops.adapters.inbound.http.system import _runtime_info
 
     info = _runtime_info()
     assert set(info) >= {

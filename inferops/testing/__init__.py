@@ -3,7 +3,7 @@
 Settings are computed once per process from the environment, so a pytest
 session runs either domain-free (core suite) or with exactly one domain pack
 active. Call :func:`configure_test_env` at the very top of a ``conftest.py``,
-before anything imports ``inferops.core.config``::
+before anything imports ``inferops.adapters.outbound.projects.settings``::
 
     from inferops.testing import configure_test_env
     configure_test_env(domain="my_domain")        # or domain=None for core
@@ -19,6 +19,8 @@ from tempfile import TemporaryDirectory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]   # inferops/ (contains configs/, tests/)
 _test_storage = TemporaryDirectory(prefix="inferops-tests-")
+TEST_MODEL_REPOSITORY = Path(_test_storage.name) / "models"
+TINY_MODEL_PATH = TEST_MODEL_REPOSITORY / "tiny_classifier" / "1" / "model.onnx"
 
 
 def _unused_port() -> int:
@@ -47,9 +49,11 @@ def configure_test_env(domain: str | None = None, *, domain_root: str | Path | N
         PROJECT_ROOT / "configs" if domain or domain_root else PROJECT_ROOT / "inferops/testing/configs"
     )
     os.environ["INFEROPS_EXECUTION_MODE"] = "auto"
-    os.environ["INFEROPS_MODEL_REPOSITORY"] = "model_repository" if domain or domain_root else str(PROJECT_ROOT / "model_repository")
+    os.environ["INFEROPS_MODEL_REPOSITORY"] = "model_repository" if domain or domain_root else str(TEST_MODEL_REPOSITORY)
 
     os.environ.setdefault("APP_ENV", "dev")
+    # Isolate server tests from deployment configuration and persistent resources.
+    os.environ["INFEROPS_SPOOL_PATH"] = str(Path(_test_storage.name) / "spool")
     os.environ.setdefault("INFEROPS_TRANSPORT_KIND", "inproc")
     os.environ["INFEROPS_PG_URL"] = os.environ.get(
         "INFEROPS_TEST_PG_URL", f"sqlite+aiosqlite:///{_test_storage.name}/test.db"
@@ -64,7 +68,7 @@ def configure_test_env(domain: str | None = None, *, domain_root: str | Path | N
     os.environ.setdefault("INFEROPS_PREWARM_MODELS", "")
     os.environ.setdefault("INFEROPS_PREWARM_PIPELINES", "")
 
-    os.chdir(PROJECT_ROOT)   # so configs/, model_repository/ resolve
+    os.chdir(PROJECT_ROOT)   # Resolve workspace configurations consistently.
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
     return port

@@ -1,0 +1,23 @@
+name: Python and architecture contracts
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -e '.[server,cpu,video,dev]'
+      - name: Reject inward infrastructure dependencies
+        run: python -m pytest tests/test_hexagonal_boundaries.py
+      - run: python -m ruff check inferops tests scripts projects/driver_behaviour
+      - run: python -m pytest tests

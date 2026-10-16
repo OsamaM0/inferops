@@ -1,7 +1,7 @@
 """Layered configuration semantics."""
 from pathlib import Path
 
-from inferops.core.config import ConfigStack, get_settings, resolve_domain_root
+from inferops.adapters.outbound.projects.settings import ConfigStack, get_settings, resolve_domain_root
 
 
 def test_config_stack_merges_platform_and_tenant(tmp_path: Path):

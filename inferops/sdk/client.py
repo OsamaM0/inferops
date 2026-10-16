@@ -25,11 +25,26 @@ class Client:
         return (await self._c.get("/v1/pipelines")).json()
 
     async def infer(self, pipeline: str, image: str | bytes | Path,
-                    stream_id: str = "sdk") -> list[dict]:
+                    stream_id: str = "sdk", *, session_id: str | None = None,
+                    capability: str | None = None, media_time_ns: int | None = None,
+                    seq: int | None = None) -> list[dict]:
         if isinstance(image, (str, Path)):
             image = Path(image).read_bytes()
         files = {"image": ("input.jpg", image, "image/jpeg")}
         data = {"stream_id": stream_id}
-        r = await self._c.post(f"/v1/infer/{pipeline}", files=files, data=data)
+        data.update({name: str(value) for name, value in
+                     (("session_id", session_id), ("media_time_ns", media_time_ns), ("seq", seq)) if value is not None})
+        headers = {"X-Session-Capability": capability} if capability else {}
+        r = await self._c.post(f"/v1/infer/{pipeline}", files=files, data=data, headers=headers)
         r.raise_for_status()
         return r.json()
+
+    async def open_session(self, pipeline: str, stream_id: str = "sdk") -> dict:
+        response = await self._c.post("/v1/sessions", json={"pipeline": pipeline, "stream_id": stream_id})
+        response.raise_for_status()
+        return response.json()
+
+    async def close_session(self, session_id: str, capability: str) -> dict:
+        response = await self._c.delete(f"/v1/sessions/{session_id}", headers={"X-Session-Capability": capability})
+        response.raise_for_status()
+        return response.json()

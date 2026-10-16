@@ -16,8 +16,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from inferops.core.types import StageItem
-from inferops.plugins.base import FrameAnnotator
+from inferops.domain.types import StageItem
+from inferops.ports.extensions import FrameAnnotator
 
 # ── Base detection class colours (BGR) ────────────────────────────────────
 # Orange  → suspicious / dangerous items that need monitoring

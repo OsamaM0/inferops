@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from inferops.testing import PROJECT_ROOT
+from inferops.testing import PROJECT_ROOT, TINY_MODEL_PATH
 from inferops.testing.make_tiny_model import build_model
 
 __all__ = ["find_sample_video", "moto_s3_server", "tiny_model"]
@@ -61,18 +61,16 @@ def moto_s3_server():
 
 @pytest.fixture(scope="session", autouse=True)
 def tiny_model():
-    """Make sure the tiny ONNX exists for tests that need it."""
-    out = PROJECT_ROOT / "model_repository" / "tiny_classifier" / "1" / "model.onnx"
-    created = not out.exists()
-    if created:
-        build_model(out)
+    """Create one model in process-owned temporary storage, never the checkout."""
+    out = TINY_MODEL_PATH
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not out.exists():
+        with tempfile.TemporaryDirectory(dir=out.parent) as directory:
+            staged = Path(directory) / "model.onnx"
+            build_model(staged)
+            os.replace(staged, out)
+    # The bootstrap's TemporaryDirectory owns cleanup after this process exits.
     yield
-    if created:
-        out.unlink(missing_ok=True)
-        # Remove only empty directories created for this test artifact.
-        for directory in (out.parent, out.parent.parent, out.parent.parent.parent):
-            with suppress(OSError):
-                directory.rmdir()
 
 
 def find_sample_video(*candidates: str | Path) -> Path | None:

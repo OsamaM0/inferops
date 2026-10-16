@@ -3,9 +3,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from inferops.core.types import StageItem
-from inferops.pipeline.stage import StageContext
-from inferops.pipeline.stages.infer import Infer
+from inferops.adapters.outbound.stages.base import StageContext
+from inferops.adapters.outbound.stages.infer import Infer
+from inferops.domain.types import StageItem
 
 
 class FakeBackend:

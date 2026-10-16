@@ -1,0 +1,22 @@
+flowchart TB
+    input["Decoded frame + media PTS + sequence"] --> observe["Observe evidence before inference admission<br/>byte-bounded look-behind + processing-lag history"]
+    observe --> schedule["Offline: backpressure<br/>Live: processing frame + latest pending frame<br/>count replaced frames"]
+    schedule --> process["Session-owned models / tracking / fusion / rules<br/>independent model groups merge in declared order"]
+    process --> decision["Severity / dedupe / temporal cooldown<br/>media time within one timeline"]
+    decision --> tx["One PostgreSQL acceptance transaction<br/>event + incident + Pending evidence + stable outbox IDs<br/>broker input also reserves inbox identity"]
+    tx --> accepted["Report acceptance only after commit"]
+    tx --> capture["Capture requested after SQL commit<br/>startup reconciles persisted requests<br/>broker availability does not gate capture"]
+    capture --> spool["Bounded persistent spool<br/>checksummed frame chunks and manifests<br/>fsync files, atomic rename, fsync directory"]
+    spool --> encoding["Finalize media window or record interruption<br/>encode snapshot + clip asynchronously"]
+    encoding --> upload["Deterministic MinIO keys<br/>verify artifact bytes and manifest checksums"]
+    upload --> commit["Commit artifact references and explicit coverage<br/>Saved / Incomplete / Failed + reasons + retry availability"]
+    commit --> cleanup["Remove successful spool only after commit<br/>completed evidence retained until manual deletion"]
+    tx --> relay["Short outbox lease + generation<br/>publish, await acknowledgment, mark delivered"]
+    commit --> relay
+    relay --> broker["Redpanda / webhook / plugin delivery<br/>stable IDs, at-least-once effects<br/>consumer inbox / receiver idempotency"]
+    relay --> notify["WebSocket hints<br/>query durable state after missed notifications"]
+    crash["Startup reconciliation"] --> spool
+    crash --> upload
+    crash --> relay
+    limits["Quota, source loss, discontinuity, encoding failure<br/>preserve usable material; expose Incomplete / Failed<br/>never invent missing frames"] --> commit
+    clocks["Media time: temporal decisions + coverage<br/>Monotonic: local deadlines + latency<br/>Database UTC: audit + leases + retry scheduling"] -. governs .-> capture

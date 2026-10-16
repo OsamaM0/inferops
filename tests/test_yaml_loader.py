@@ -1,6 +1,6 @@
 """YAML env interpolation."""
 
-from inferops.core.yaml_loader import _interp
+from inferops.adapters.outbound.projects.yaml import _interp
 
 
 def test_env_default(monkeypatch):

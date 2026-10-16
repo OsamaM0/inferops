@@ -1,0 +1,22 @@
+flowchart TB
+    public["public.py + __init__.py<br/>Engine / Model / InferenceSession"]
+    bootstrap["bootstrap.py<br/>explicit construction and resource wiring"]
+    subgraph inward["Inward layers: no concrete infrastructure imports"]
+        app["application/<br/>projects · models · execution · sessions<br/>incidents · evidence · jobs · delivery · engine"]
+        domain["domain/<br/>models · types · processing · pipeline<br/>tracking · fusion · incident/evidence decisions"]
+        ports["ports/<br/>inference · media · persistence · storage<br/>messaging · projects · extensions"]
+        app --> domain
+        app --> ports
+        ports --> domain
+    end
+    subgraph adapters["Adapters"]
+        inbound["adapters/inbound/<br/>HTTP + packaged UI · CLI · workers · sources"]
+        outbound["adapters/outbound/<br/>inference + plugins · stages · media<br/>persistence · storage · messaging<br/>projects · observability"]
+    end
+    public --> app
+    inbound --> app
+    outbound -. implements .-> ports
+    bootstrap --> public
+    bootstrap --> adapters
+    sdk["sdk/<br/>remote HTTP client"] --> inbound
+    testing["testing/<br/>contract fixtures and test utilities"] -. verifies .-> inward

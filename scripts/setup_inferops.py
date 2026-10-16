@@ -102,15 +102,15 @@ def _setup_domain_assets(repo: Path, *, domain: str | None, force: bool, domain_
     if not domain and not domain_root:
         return
     selection = ["--domain-root", domain_root] if domain_root else ["--domain", domain]
-    cmd = [sys.executable, "-m", "inferops.cli", "domain", "setup-assets", *selection]
+    cmd = [sys.executable, "-m", "inferops.adapters.inbound.cli", "domain", "setup-assets", *selection]
     if force:
         cmd.append("--force")
     _run(cmd, cwd=repo)
 
 
 def _validate(repo: Path, *, domain: str | None, domain_root: str | None = None) -> None:
-    validate_cmd = [sys.executable, "-m", "inferops.cli", "validate"]
-    preflight_cmd = [sys.executable, "-m", "inferops.cli", "preflight"]
+    validate_cmd = [sys.executable, "-m", "inferops.adapters.inbound.cli", "validate"]
+    preflight_cmd = [sys.executable, "-m", "inferops.adapters.inbound.cli", "preflight"]
     if domain or domain_root:
         selection = ["--domain-root", domain_root] if domain_root else ["--domain", domain]
         validate_cmd.extend(selection)

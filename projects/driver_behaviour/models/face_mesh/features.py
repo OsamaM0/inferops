@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from inferops.pipeline.stage import Stage
+from inferops.adapters.outbound.stages.base import Stage
 
 LEFT_EYE = (33, 160, 158, 133, 153, 144)
 RIGHT_EYE = (362, 385, 387, 263, 373, 380)

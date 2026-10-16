@@ -23,7 +23,7 @@ def stop_native_api(*, port: int | None = None) -> bool:
         pid = int(PID_FILE.read_text())
         process = Path(f"/proc/{pid}")
         command = process.joinpath("cmdline").read_bytes().split(b"\0")
-        owned = process.joinpath("cwd").resolve() == APP and b"inferops.api.main:app" in command
+        owned = process.joinpath("cwd").resolve() == APP and b"inferops.adapters.inbound.http.main:app" in command
         if not owned:
             return False
         if port is not None and (b"--port" not in command or command[command.index(b"--port") + 1] != str(port).encode()):
@@ -69,7 +69,7 @@ def runtime_environment(
 ) -> dict[str, str]:
     """Resolve all project paths once; no project-specific names in the launcher."""
     sys.path.insert(0, str(APP))
-    from inferops.core.config import ConfigStack, settings
+    from inferops.adapters.outbound.projects.settings import ConfigStack, settings
 
     selected_root = domain_root or (None if domain else settings.domain_root)
     selected_name = domain or settings.active_domain
@@ -137,8 +137,8 @@ def main() -> None:
     # Container preparation belongs in Docker, so host Python needs no model dependencies.
     if not args.container and args.mode != "deepstream":
         if "INFEROPS_PROJECT_ROOT" in env:
-            subprocess.run([sys.executable, "-m", "inferops.cli", "project", "prepare"], cwd=APP, env=env, check=True)
-        subprocess.run([sys.executable, "-m", "inferops.cli", "preflight"], cwd=APP, env=env, check=True)
+            subprocess.run([sys.executable, "-m", "inferops.adapters.inbound.cli", "project", "prepare"], cwd=APP, env=env, check=True)
+        subprocess.run([sys.executable, "-m", "inferops.adapters.inbound.cli", "preflight"], cwd=APP, env=env, check=True)
     if args.mode in {"triton", "deepstream"} or (args.container and args.mode == "cuda"):
         runtimes = subprocess.check_output(
             ["docker", "info", "--format", "{{range $name, $runtime := .Runtimes}}{{$name}} {{end}}"], text=True
@@ -176,7 +176,7 @@ def main() -> None:
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     PID_FILE.write_text(str(os.getpid()))
     print(f"{args.mode.upper()} workspace: http://localhost:{args.port}/ui/", flush=True)
-    os.execvpe(sys.executable, [sys.executable, "-m", "uvicorn", "inferops.api.main:app",
+    os.execvpe(sys.executable, [sys.executable, "-m", "uvicorn", "inferops.adapters.inbound.http.main:app",
                               "--host", "0.0.0.0", "--port", str(args.port)], env)
 
 

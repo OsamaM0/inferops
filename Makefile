@@ -35,28 +35,28 @@ install: ## Install dependencies only (GPU=1 selects ONNX Runtime CUDA)
 dev-install: install
 
 setup-models: ## Install missing assets declared by the selected project
-	cd $(APP_DIR) && $(PY) -m inferops.cli project setup-assets $(SELECT)
+	cd $(APP_DIR) && $(PY) -m inferops.adapters.inbound.cli project setup-assets $(SELECT)
 
 projects: ## List available project blocks
-	cd $(APP_DIR) && $(PY) -m inferops.cli project list
+	cd $(APP_DIR) && $(PY) -m inferops.adapters.inbound.cli project list
 
 domains: projects
 
 new-project: ## Create a project: NAME=ppe_site LABELS=person,helmet,vest
 	@test -n "$(NAME)" || { echo "Provide NAME=<identifier>"; exit 1; }
-	cd $(APP_DIR) && $(PY) -m inferops.cli project init "$(NAME)" --labels "$(LABELS)"
+	cd $(APP_DIR) && $(PY) -m inferops.adapters.inbound.cli project init "$(NAME)" --labels "$(LABELS)"
 
 new-domain: new-project
 
 new-model: ## Add a model port: PROJECT=ppe_site NAME=detector FORMAT=yolo|detr LABELS=person,helmet
 	@test -n "$(NAME)" || { echo "Provide NAME=<identifier>"; exit 1; }
-	cd $(APP_DIR) && $(PY) -m inferops.cli models init "$(NAME)" $(SELECT) --format "$(FORMAT)" --labels "$(LABELS)"
+	cd $(APP_DIR) && $(PY) -m inferops.adapters.inbound.cli models init "$(NAME)" $(SELECT) --format "$(FORMAT)" --labels "$(LABELS)"
 
 validate: ## Validate YAML and references between models, pipelines, fusion and alerts
-	cd $(APP_DIR) && $(PY) -m inferops.cli validate $(SELECT)
+	cd $(APP_DIR) && $(PY) -m inferops.adapters.inbound.cli validate $(SELECT)
 
 preflight: ## Check configuration, plugins, dependencies and artifacts for MODE
-	cd $(APP_DIR) && INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.cli preflight $(SELECT)
+	cd $(APP_DIR) && INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli preflight $(SELECT)
 
 run: ## Start the native API and Docker storage; MODE=auto|cpu|cuda|triton|deepstream
 	$(LAUNCH) $(RUN_ARGS)
@@ -100,7 +100,7 @@ test-project: ## Run the selected project's tests
 	@if [[ -z "$(PROJECT)$(PROJECT_ROOT)" ]]; then \
 		echo "No project selected; skipping project tests"; \
 	else \
-		cd $(APP_DIR) && $(SELECT_ENV) $(PY) -c 'from inferops.core.config import get_config_stack; import subprocess,sys; root=get_config_stack().domain_root; tests=root/"tests"; sys.exit(subprocess.call([sys.executable,"-m","pytest","-q",str(tests)]) if tests.is_dir() else 0)'; \
+		cd $(APP_DIR) && $(SELECT_ENV) $(PY) -c 'from inferops.adapters.outbound.projects.settings import get_config_stack; import subprocess,sys; root=get_config_stack().domain_root; tests=root/"tests"; sys.exit(subprocess.call([sys.executable,"-m","pytest","-q",str(tests)]) if tests.is_dir() else 0)'; \
 	fi
 
 test-domain: test-project
@@ -119,10 +119,10 @@ fmt: ## Format Python code
 	cd $(APP_DIR) && $(PY) -m ruff format .
 
 worker-pipeline: ## Run a source-driven worker: PIPELINE=<name>
-	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.cli worker pipeline "$(PIPELINE)"
+	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli worker pipeline "$(PIPELINE)"
 
 worker-topic: ## Run a topic worker: PIPELINE=<name> INPUT=<topic> OUTPUT=<topic>
-	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.cli worker topic "$(PIPELINE)" --input-topic "$(INPUT)" --output-topic "$(OUTPUT)"
+	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli worker topic "$(PIPELINE)" --input-topic "$(INPUT)" --output-topic "$(OUTPUT)"
 
 scenario: ## Exercise the dashboard in a browser and save screenshots
 	cd $(APP_DIR) && $(PY) tests/scenarios/e2e_dashboard_scenario.py --api "$(INFEROPS_API_URL)" --out "$(CURDIR)/$(APP_DIR)/.run/scenario" $(SCENARIO_ARGS)

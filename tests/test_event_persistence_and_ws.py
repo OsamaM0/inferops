@@ -1,128 +1,103 @@
-"""Regressions for defects found by driving the dashboard in a real browser.
-
-1. Fusion events were emitted but never stored, so GET /v1/events was
-   permanently empty and the dashboard's Events panel could never populate —
-   while alerts persisted automatically. Events are now stored symmetrically,
-   under the *pipeline* name the endpoint filters on.
-2. The server fans out binary WebSocket frames, but the dashboard's alert
-   socket parsed `event.data` as text, so every pushed alert was dropped with
-   only a console warning.
-"""
-from __future__ import annotations
+"""Persistence is owned by application transactions, never domain decisions."""
 
 import re
 from pathlib import Path
 
-import pytest
+import numpy as np
+import yaml
 
-from inferops.alerts.engine import AlertEngine
-from inferops.core.types import StageItem
-from inferops.fusion.engine import FusionEngine
-from inferops.fusion.spec import FusionSpec
+from inferops import Engine
+from inferops.adapters.outbound.messaging.delivery import DeliveryHub
+from inferops.adapters.outbound.persistence.sql import SqlRepository
+from inferops.domain.fusion import FusionEngine
+from inferops.domain.fusion.spec import FusionSpec
+from inferops.domain.processing import MediaFrame
+from inferops.domain.types import StageItem
+from tests.test_redesign_engine import project
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DASHBOARD = REPO_ROOT / "inferops/api/static/dashboard.js"
+DASHBOARD = REPO_ROOT / "inferops/adapters/inbound/http/static/dashboard.js"
 
 
-def _fusion_spec(**overrides) -> FusionSpec:
-    data = {
-        "name": "unit_fusion",
-        "signals": ["score"],
-        "windows": {"score": {"kind": "rolling_time", "duration_ms": 5000,
-                              "reducers": ["latest", "max"]}},
-        "extract": {"score": "payload.get('score')"},
-        "rules": [{"name": "hot", "when": "score.latest() > 0.5",
-                   "emit": {"type": "hot"}}],
-    }
-    data.update(overrides)
-    return FusionSpec(**data)
+def _fusion_spec():
+    return FusionSpec(
+        name="unit_fusion",
+        signals=["score"],
+        extract={"score": "payload.get('score')"},
+        windows={"score": {"kind": "rolling_time", "duration_ms": 5000, "reducers": ["latest"]}},
+        rules=[{"name": "hot", "when": "score.latest() > 0.5", "emit": {"type": "hot"}}],
+    )
 
 
-@pytest.mark.asyncio
-async def test_fusion_events_are_persisted_under_the_pipeline_name():
-    from inferops.adapters.postgres_dao import init_schema, list_events
-
-    await init_schema()
-    engine = FusionEngine(_fusion_spec())
-    engine.spec.outputs.events_topic = None
-
-    item = StageItem(stream_id="veh-1", ts_ms=9_000_000, payload={"score": 0.9})
-    events = await engine.ingest_item(item, pipeline="my_pipeline")
-    assert events, "fusion rule should have fired"
-
-    stored = await list_events("my_pipeline", 50)
-    types = {row["type"] for row in stored}
-    assert "hot" in types, f"event was not persisted; got {types}"
-
-    # The endpoint filters on the pipeline name, not the fusion spec name.
-    row = next(r for r in stored if r["type"] == "hot")
-    assert row["pipeline"] == "my_pipeline"
-    assert row["entity_id"] == "veh-1"
-    assert row["id"], "events need a stable id to be stored and de-duplicated"
+def application(tmp_path):
+    root = project(tmp_path)
+    folder = root / "configs/fusion"
+    folder.mkdir()
+    (folder / "unit.yaml").write_text(yaml.safe_dump(_fusion_spec().model_dump(mode="json")))
+    path = root / "configs/pipelines/test.yaml"
+    data = yaml.safe_load(path.read_text())
+    data["stages"].insert(1, {"name": "fusion", "stage": "fuse", "params": {"fusion": "unit_fusion"}})
+    path.write_text(yaml.safe_dump(data))
+    return Engine.from_project(
+        root, repository=SqlRepository(f"sqlite+aiosqlite:///{tmp_path}/events.sqlite")
+    )
 
 
-@pytest.mark.asyncio
-async def test_fusion_persistence_can_be_disabled():
-    from inferops.adapters.postgres_dao import init_schema, list_events
-
-    await init_schema()
-    engine = FusionEngine(_fusion_spec(name="quiet_fusion", persistence_enabled=False))
-    engine.spec.outputs.events_topic = None
-
-    item = StageItem(stream_id="veh-2", ts_ms=9_100_000, payload={"score": 0.9})
-    events = await engine.ingest_item(item, pipeline="quiet_pipeline")
-    assert events, "rule should still fire"
-    assert await list_events("quiet_pipeline", 50) == []
+async def test_fusion_events_are_persisted_under_the_pipeline_name(tmp_path):
+    selected = application(tmp_path)
+    async with selected:
+        session = await selected.open_session("test", stream_name="veh-1")
+        await session.process(MediaFrame(np.zeros((8, 8, 3), np.uint8), 0, 0, payload={"score": 0.9}))
+        rows = await selected.application.repository.list_events("test")
+        assert len(rows) == 1 and rows[0]["type"] == "hot"
+        assert rows[0]["pipeline"] == "test" and rows[0]["entity_id"] == session.id
+        assert rows[0]["id"] and rows[0]["payload"]["stream_name"] == "veh-1"
 
 
-@pytest.mark.asyncio
-async def test_fusion_persistence_failure_never_breaks_the_pipeline(monkeypatch):
-    """A database outage must degrade to a warning, not drop the frame."""
-    engine = FusionEngine(_fusion_spec(name="failing_fusion"))
-    engine.spec.outputs.events_topic = None
-
-    async def boom(_row):
-        raise RuntimeError("database is down")
-
-    import inferops.adapters.postgres_dao as dao
-
-    monkeypatch.setattr(dao, "insert_event", boom)
-    FusionEngine._persist_warned = False
-
-    item = StageItem(stream_id="veh-3", ts_ms=9_200_000, payload={"score": 0.9})
-    events = await engine.ingest_item(item, pipeline="failing_pipeline")
-    assert events, "events must still reach the caller when persistence fails"
-    assert FusionEngine._persist_warned, "silent data loss: nothing was logged"
+async def test_domain_fusion_has_no_persistence_side_effects():
+    fusion = FusionEngine(_fusion_spec())
+    events = await fusion.ingest_item(StageItem(stream_id="veh", ts_ms=0, payload={"score": 0.9}))
+    assert events and events[0].type == "hot"
+    assert not hasattr(fusion, "repository")
 
 
-@pytest.mark.asyncio
-async def test_alert_persistence_failure_warns_rather_than_hiding(monkeypatch):
-    """This was log.debug, so a dead database lost every alert silently."""
-    import inferops.adapters.postgres_dao as dao
+async def test_persistence_failure_preserves_calculations_but_is_visible(tmp_path, monkeypatch):
+    selected = application(tmp_path)
+    async with selected:
+        session = await selected.open_session("test")
 
-    async def boom(_row):
-        raise RuntimeError("database is down")
+        async def failed(*args, **kwargs):
+            raise OSError("database is down")
 
-    monkeypatch.setattr(dao, "insert_alert", boom)
-    AlertEngine._persist_warned = False
+        monkeypatch.setattr(selected.application.repository, "accept", failed)
+        out = (
+            await session.process(MediaFrame(np.zeros((8, 8, 3), np.uint8), 0, 0, payload={"score": 0.9}))
+        )[0]
+        assert out.payload["fusion_events"]
+        assert out.payload["incident_error"]["code"] == "persistence_unavailable"
+        assert out.payload["alerts"] == []
 
-    from inferops.alerts.spec import AlertSpec
 
-    engine = AlertEngine(AlertSpec(
-        name="unit_alerts",
-        severity={"levels": [{"name": "low", "rank": 1}], "default": "low"},
-        sinks=[],
-    ))
-    item = StageItem(stream_id="veh-4", ts_ms=9_300_000)
-    item.payload["fusion_events"] = [
-        {"type": "hot", "entity_id": "veh-4", "ts_ms": 9_300_000, "payload": {}}
-    ]
-    alerts = await engine.ingest_item(item)
-    assert alerts, "alerts must still reach sinks when persistence fails"
-    assert AlertEngine._persist_warned, "silent data loss: nothing was logged"
+async def test_failed_incident_acceptance_can_be_retried_without_duplicate_effects(tmp_path, monkeypatch):
+    selected = application(tmp_path)
+    async with selected:
+        session = await selected.open_session("test")
+        original = selected.application.repository.accept
+
+        async def failed(*args, **kwargs):
+            raise OSError("database is down")
+
+        monkeypatch.setattr(selected.application.repository, "accept", failed)
+        frame = MediaFrame(np.zeros((8, 8, 3), np.uint8), 0, 0, payload={"score": 0.9})
+        assert not (await session.process(frame))[0].payload["alerts"]
+        monkeypatch.setattr(selected.application.repository, "accept", original)
+        assert (await session.process(frame))[0].payload["alerts"]
+        await session.process(frame)
+        assert len(await selected.application.repository.list_incidents()) == 1
 
 
 # ── dashboard WebSocket contract ─────────────────────────────────────────────
+
 
 def test_every_dashboard_socket_handles_binary_frames():
     """sink_ws always calls send_bytes, so a text-only reader drops messages."""
@@ -145,10 +120,14 @@ def test_every_dashboard_socket_handles_binary_frames():
     assert "JSON.parse(event.data)" not in html
 
 
-def test_ws_hub_sends_binary_frames():
-    """Pins the server side of the contract the dashboard test above assumes."""
-    from inferops.pipeline.stages import sink_ws
+async def test_ws_hub_bounds_notifications_and_unsubscribes():
+    import asyncio
 
-    source = Path(sink_ws.__file__).read_text(encoding="utf-8")
-    assert "send_bytes" in source
-    assert "send_text" not in source
+    hub = DeliveryHub()
+    queue = asyncio.Queue(maxsize=1)
+    hub.subscribe("alerts.session", queue)
+    await hub.publish("alerts.session", {"id": "first"})
+    await hub.publish("alerts.session", {"id": "latest"})
+    assert queue.qsize() == 1 and (await queue.get())["id"] == "latest"
+    hub.unsubscribe("alerts.session", queue)
+    assert not hub.subscribers

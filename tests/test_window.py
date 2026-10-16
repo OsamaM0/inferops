@@ -1,6 +1,6 @@
 """Rolling-time window reducers."""
-from inferops.fusion.spec import WindowSpec
-from inferops.fusion.window import Window
+from inferops.domain.fusion.spec import WindowSpec
+from inferops.domain.fusion.window import Window
 
 
 def test_rolling_time_prune_and_reducers():

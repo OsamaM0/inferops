@@ -18,6 +18,13 @@ def clean(root: Path, *, dry_run: bool = False) -> int:
         package_root = (Path(current) / "pyproject.toml").is_file()
         for name in list(directories):
             path = Path(current) / name
+            if name == ".run" and not path.is_symlink():
+                cache = path / "cache"
+                if cache.is_dir() and not cache.is_symlink():
+                    print(f"{'Would remove' if dry_run else 'Removed'} {cache.relative_to(root)}")
+                    if not dry_run:
+                        shutil.rmtree(cache)
+                    count += 1
             if path.is_symlink() or name in PRESERVE:
                 directories.remove(name)
             elif name in CACHES or (

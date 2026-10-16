@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "inferops"
 version = "0.1.0"
-description = "Model-agnostic ONNX inference platform: registry + pipeline DAG + fusion + alerts"
+description = "Model inference and ordered pipelines with isolated sessions and recoverable evidence"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -43,7 +43,7 @@ dev = [
 ]
 
 [project.scripts]
-inferops = "inferops.cli.__main__:app"
+inferops = "inferops.adapters.inbound.cli.__main__:app"
 
 # Only the platform is packaged. Project blocks (projects/<name>,
 # or any directory given through INFEROPS_DOMAIN_ROOT) are loaded from disk at
@@ -54,9 +54,10 @@ include = ["inferops*"]
 
 [tool.setuptools.package-data]
 "inferops.testing" = ["*.py", "configs/**/*.yaml"]
-"inferops.api" = ["templates/*.html", "static/*.css", "static/*.js"]
+"inferops.adapters.inbound.http" = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.ruff]
+cache-dir = ".run/cache/ruff"
 line-length = 110
 target-version = "py310"
 [tool.ruff.lint]
@@ -64,6 +65,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
+cache_dir = ".run/cache/pytest"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra -q"

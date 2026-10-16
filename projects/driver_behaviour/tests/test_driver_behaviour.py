@@ -10,17 +10,18 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from inferops.alerts.engine import AlertEngine
-from inferops.alerts.spec import AlertSpec
-from inferops.core.config import get_spec_dir
-from inferops.core.plugins import load_object
-from inferops.core.types import Frame, Result, StageItem
-from inferops.core.yaml_loader import load_yaml
-from inferops.fusion.engine import FusionEngine
-from inferops.fusion.spec import FusionSpec
-from inferops.registry.model_spec import ModelSpec
+from inferops.adapters.outbound.projects.loader import ProjectPluginResolver
+from inferops.adapters.outbound.projects.settings import get_spec_dir
+from inferops.adapters.outbound.projects.yaml import load_yaml
+from inferops.domain.fusion import FusionEngine
+from inferops.domain.fusion.spec import FusionSpec
+from inferops.domain.incident_spec import AlertSpec
+from inferops.domain.incidents import IncidentPolicy as AlertEngine
+from inferops.domain.models import ModelSpec
+from inferops.domain.types import Frame, Result, StageItem
 
 DOMAIN_ROOT = Path(__file__).resolve().parents[1]
+load_object = ProjectPluginResolver(DOMAIN_ROOT, "driver-tests").load_object
 DB = get_spec_dir("fusion").parent
 RFDetrPostprocess = load_object(".models.rfdetr_driver.adapter:RFDetrPostprocess")
 
@@ -70,7 +71,7 @@ async def test_driver_alerts_dedupe_and_severity():
     for i in range(8):
         evs = await fusion.ingest_item(_item("cam9", ts + i * 250, item_payload))
         for ev in evs:
-            from inferops.alerts.engine import AlertCandidate
+            from inferops.domain.incident_spec import AlertCandidate
             a = await alerts.submit(AlertCandidate(
                 type=ev.type, entity_id=ev.entity_id, ts_ms=ev.ts_ms, payload=ev.payload))
             if a:
@@ -80,7 +81,7 @@ async def test_driver_alerts_dedupe_and_severity():
     assert any(a.type == "phone_use" and a.severity == "medium" for a in first_alerts)
 
     # Immediately re-submitting the same candidate is deduped (same key, within window).
-    from inferops.alerts.engine import AlertCandidate
+    from inferops.domain.incident_spec import AlertCandidate
     dup = await alerts.submit(AlertCandidate(type="phone_use", entity_id="cam9",
                                              ts_ms=ts + 8 * 250, payload={}))
     assert dup is None

@@ -4,8 +4,8 @@ import types
 import numpy as np
 import pytest
 
-from inferops.registry.model_spec import ModelSpec
-from inferops.runtimes.triton_backend import TritonBackend
+from inferops.adapters.outbound.inference.triton_backend import TritonBackend
+from inferops.domain.models import ModelSpec
 
 
 @pytest.mark.asyncio

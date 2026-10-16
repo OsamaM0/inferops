@@ -4,8 +4,7 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from inferops.api.main import create_app
-from inferops.pipeline import get_pipeline_store
+from inferops.adapters.inbound.http.main import create_app
 
 PIPELINE = "tiny_classifier"
 
@@ -30,8 +29,7 @@ async def test_config_routes_round_trip_and_reload_reset_cached_runners():
         original = response.json()["content"]
         updated = original.rstrip() + "\n# dashboard-config-test\n"
 
-        store = get_pipeline_store()
-        runner_before = await store.get_runner(PIPELINE)
+        session_before = await app.state.engine.open_session(PIPELINE)
 
         try:
             response = await ac.put(
@@ -45,8 +43,12 @@ async def test_config_routes_round_trip_and_reload_reset_cached_runners():
             assert response.status_code == 200, response.text
             assert "# dashboard-config-test" in response.json()["content"]
 
-            runner_after = await store.get_runner(PIPELINE)
-            assert runner_after is not runner_before
+            session_after = await app.state.engine.open_session(PIPELINE)
+            assert session_after is not session_before
+            assert session_after.models is not session_before.models
+            assert not session_before.models._closed
+            await session_before.close()
+            await session_after.close()
 
             response = await ac.put(
                 f"/v1/configs/pipelines/{PIPELINE}",

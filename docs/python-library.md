@@ -1,5 +1,9 @@
 # InferOps Python library
 
+See the [architecture](architecture.md) for ports and adapters,
+[lifecycle](lifecycle.md) for execution modes and resource ownership, and
+[documentation index](README.md) for the complete tour.
+
 InferOps separates inference mechanics from application logic. The core owns model
 contracts, runtime backends, image transforms, pipelines, tracking and fusion.
 A project adapter owns its models, labels, domain plugins, pipelines and rules.
@@ -117,8 +121,101 @@ session from a dictionary of `Model` objects, including models from different
 projects. Models get separate frame metadata so different input transforms do
 not interfere. Sequential execution is the default; `parallel=True` submits
 independent predictions concurrently and waits for all before reporting errors.
-This returns predictions keyed by model name; domain fusion belongs in the
-existing pipeline stages and rules.
+This returns predictions keyed by model name; complete tracking/fusion/incident
+workflows use the shared `Engine` pipeline services below.
+
+## Shared pipeline engine
+
+`Engine` runs the same application services used by HTTP, without starting a web
+server. Embedded construction uses in-memory records and evidence disabled unless
+you explicitly supply durable adapters. Project loading is instance-scoped: two
+projects with the same external name can coexist without changing global settings
+or relative-plugin resolution.
+
+```python
+import asyncio
+import cv2
+from inferops import Engine
+
+async def main():
+    async with Engine.from_project('./my_project', runtime='cpu') as engine:
+        image = cv2.imread('frame.jpg')
+        result = await engine.predict('detector', image)
+        summary = await engine.run('inspection', 'clip.mp4', stream_name='camera-1')
+        print(result.model_dump())
+        print(summary['session_id'], summary['frames'])
+
+asyncio.run(main())
+```
+
+Every run gets a generated session identity. `stream_name` is descriptive metadata;
+reusing it does not reuse state. Files decode incrementally using media PTS. A
+summary contains counts, models, events/incidents and evidence references, rather
+than all decoded frames.
+
+For repeated processing, create an explicit session and close it when the source
+ends. Temporal state lives inside that session. Pass media capture timestamps in
+nanoseconds and increasing sequences; `0` is a valid media timestamp.
+
+```python
+from inferops.domain.processing import MediaFrame
+
+async def process_camera(engine, captured_frames):
+    session = await engine.open_session('inspection', stream_name='camera-1')
+    try:
+        async for sequence, media_time_ns, image in captured_frames:
+            outputs = await session.process(MediaFrame(
+                image=image, media_time_ns=media_time_ns, sequence=sequence,
+                timestamp_provenance='source',
+            ))
+            print(outputs)
+    finally:
+        await session.close()
+```
+
+The production persistence bundle can also be used by a Python process. It reads
+the server configuration explicitly and starts owned resources on context entry:
+
+```python
+from inferops.bootstrap import build_server_engine
+
+async def durable_run():
+    engine, _notifications = build_server_engine()
+    async with engine:
+        return await engine.run('driver_video', 'clip.mp4')
+```
+
+This requires the `server` extra, PostgreSQL, MinIO and the configured delivery
+transport. It enables snapshot/clip capture for accepted incidents and uses the
+persistent spool. The supported server deployment has one application owner; do
+not start this as an additional owner against a running API's live records.
+
+For a development run with SQLite and filesystem artifacts, install the `server`
+and `dev` extras and construct those adapters explicitly:
+
+```python
+from pathlib import Path
+from inferops import Engine
+from inferops.adapters.outbound.persistence.sql import SqlRepository
+from inferops.adapters.outbound.storage.filesystem import FilesystemStorage
+
+async def development_run():
+    Path('.run/dev').mkdir(parents=True, exist_ok=True)
+    async with Engine.from_project(
+        './my_project',
+        repository=SqlRepository('sqlite+aiosqlite:///.run/dev/records.db'),
+        storage=FilesystemStorage('.run/dev/artifacts'),
+        evidence=True,
+        spool_path='.run/dev/spool',
+    ) as engine:
+        return await engine.run('inspection', 'clip.mp4')
+```
+
+The spool retains recoverable material separately from completed artifacts.
+`Model`, `InferenceSession` and `Model.from_yaml()` remain supported, including
+raw tensor inference and async cleanup. Relative project plugins require explicit
+project loading rather than a process-global active project. See the
+[migration guide](redesign.md) for states, retries, ownership and rollout checks.
 
 A pipeline can chain multiple `infer` stages on a frame, then `track`, `fuse` and
 `alert`. Each infer stage appends its result, allowing fusion rules to combine
@@ -134,7 +231,7 @@ signals from all preceding models. See [project blocks](project-blocks.md) and
 | RF-DETR ONNX with sigmoid logits | `resize_normalize:ResizeNormalize`, `normalize: true` | `rfdetr_decode:RFDetrDecode` |
 | Any ONNX tensor contract | Custom plugin or raw feeds | Custom plugin or raw results |
 
-Plugin modules above are prefixed with `inferops.plugins.builtin.`. Match the
+Plugin modules above are prefixed with `inferops.adapters.outbound.inference.plugins.`. Match the
 export's actual tensor names, input size, label order, box format and background
 slot. RF-DETR defaults to outputs `dets` and `labels`; override `boxes_out` and
 `logits_out` for other exports. Set `background_index` explicitly if your export
@@ -175,13 +272,14 @@ Sources: [ONNX Runtime installation](https://onnxruntime.ai/docs/install/),
 
 ```text
 inferops/                  reusable Python package
-  library.py               Model + InferenceSession public API
-  project_adapters.py      installed adapter discovery/workspace copies
-  registry/                model contracts and runtime variants
-  runtimes/                execution backends
-  plugins/builtin/         reusable preprocessing and decoding
-  pipeline/ fusion/ alerts/ reusable orchestration
-  api/ workers/ adapters/  optional service layer and infrastructure connectors
+  public.py                Engine, Model and InferenceSession facades
+  domain/                  schemas, tracking, fusion and evidence/incident policies
+  application/             model pool, execution, sessions, incidents, evidence, jobs and revisions
+  ports/                   external capability and extension contracts
+  adapters/inbound/        HTTP/UI, CLI, media sources and workers
+  adapters/outbound/       inference/plugins, stages, project loading, storage and observability
+  bootstrap.py             explicit resource construction
+  sdk/ testing/            remote client and reusable testing utilities
 projects/<adapter>/        independent application packages
   pyproject.toml           adapter dependencies and entry point
   project.yaml             enabled pipelines and application metadata
@@ -191,6 +289,6 @@ projects/<adapter>/        independent application packages
 ```
 
 The existing `inferops.adapters` directory contains infrastructure connectors;
-installed *project adapters* are managed by `inferops.project_adapters`. This keeps
-existing imports compatible. See [adapter authoring](adapters.md) to package your
+installed *project adapters* are managed by `inferops.adapters.outbound.projects.packages`. Import public Python handles from `inferops`; use the documented canonical
+paths when authoring plugins. See [adapter authoring](adapters.md) to package your
 own project or a reusable model integration.

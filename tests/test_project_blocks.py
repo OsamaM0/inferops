@@ -9,12 +9,11 @@ import sys
 import pytest
 import yaml
 
-from inferops.core.config import ConfigStack
-from inferops.core.domain import resolve_plugin_ref, scaffold_domain
-from inferops.core.errors import ConfigError
-from inferops.core.plugins import load_object
-from inferops.core.validation import validate_config_stack
-from inferops.pipeline.spec import PipelineSpec
+from inferops.adapters.outbound.projects.manifest import resolve_plugin_ref, scaffold_domain
+from inferops.adapters.outbound.projects.settings import ConfigStack
+from inferops.adapters.outbound.projects.validation import validate_config_stack
+from inferops.domain.errors import ConfigError
+from inferops.domain.pipeline import PipelineSpec
 from inferops.testing import PROJECT_ROOT
 
 
@@ -77,9 +76,11 @@ def test_driver_plugins_survive_a_relocated_and_renamed_pack(tmp_path):
     specs = validate_config_stack(stack)
     plugin = specs["models"]["rfdetr_driver_onnx"].postprocess.plugin
     assert plugin.startswith(".models.")
-    assert load_object(plugin).__name__ == "RFDetrPostprocess"
+    from inferops.adapters.outbound.projects.loader import ProjectPluginResolver
+    resolver = ProjectPluginResolver(relocated, "test")
+    assert resolver.load_object(plugin).__name__ == "RFDetrPostprocess"
     stage = specs["pipelines"]["driver_behaviour"].stages[2].stage
-    assert load_object(stage).__name__ == "FaceMeshStage"
+    assert resolver.load_object(stage).__name__ == "FaceMeshStage"
     assert stack.active_domain == "driver_behaviour"
     ConfigStack(PROJECT_ROOT / "configs")
 
@@ -93,7 +94,7 @@ def test_external_project_runs_inference_rules_alerts_and_custom_action(tmp_path
     (mounted / "plugins/record_alert.py").write_text(
         "import json\n"
         "from pathlib import Path\n"
-        "from inferops.alerts.sinks import AlertSink\n"
+        "from inferops.ports.extensions import AlertSink\n"
         "class RecordAlert(AlertSink):\n"
         "    async def emit(self, alert):\n"
         "        with Path(self.spec.params['path']).open('a') as output:\n"
@@ -129,7 +130,7 @@ import cv2
 import numpy as np
 import yaml
 from httpx import ASGITransport, AsyncClient
-from inferops.api.main import create_app
+from inferops.adapters.inbound.http.main import create_app
 async def run():
     app = create_app()
     async with app.router.lifespan_context(app), AsyncClient(
@@ -227,7 +228,7 @@ def test_empty_project_opens_dashboard_without_inference(tmp_path):
     script = """
 import asyncio
 from httpx import ASGITransport, AsyncClient
-from inferops.api.main import create_app
+from inferops.adapters.inbound.http.main import create_app
 async def run():
     app = create_app()
     async with app.router.lifespan_context(app), AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
@@ -246,7 +247,7 @@ def _configured_project(root, name, labels):
     import onnx
     from onnx import TensorProto, helper, numpy_helper
 
-    from inferops.registry.scaffold import scaffold_model_port
+    from inferops.adapters.outbound.projects.model_scaffold import scaffold_model_port
 
     scaffold_domain(root, name, labels)
     port = f"{name}_detector"

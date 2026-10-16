@@ -1,8 +1,7 @@
 """Alert dedupe & cooldown semantics."""
 import pytest
 
-from inferops.alerts.engine import AlertEngine
-from inferops.alerts.spec import (
+from inferops.domain.incident_spec import (
     AlertCandidate,
     AlertSpec,
     CooldownSpec,
@@ -11,7 +10,8 @@ from inferops.alerts.spec import (
     SeverityMapSpec,
     SinkSpec,
 )
-from inferops.core.types import StageItem
+from inferops.domain.incidents import IncidentPolicy as AlertEngine
+from inferops.domain.types import StageItem
 
 
 def _spec():

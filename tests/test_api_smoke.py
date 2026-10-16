@@ -1,5 +1,6 @@
 """End-to-end smoke: the core tiny_classifier pipeline through /v1/infer and /v1/jobs."""
 import asyncio
+import base64
 import io
 
 import cv2
@@ -7,7 +8,7 @@ import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from inferops.api.main import create_app
+from inferops.adapters.inbound.http.main import create_app
 
 
 @pytest.mark.asyncio
@@ -50,7 +51,7 @@ async def test_health_and_infer():
             logical = (await ac.get("/v1/models?view=logical")).json()
             assert logical[0]["loaded_variants"] == ["tiny_classifier"]
 
-            r = await ac.post("/v1/jobs/tiny_classifier", json={"stream_id": "job-test"})
+            r = await ac.post("/v1/jobs/tiny_classifier", json={"stream_id": "job-test", "image_base64": base64.b64encode(buf.tobytes()).decode()})
             assert r.status_code == 200, r.text
             job_id = r.json()["job_id"]
             job = None

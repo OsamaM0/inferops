@@ -13,6 +13,7 @@ def test_cleanup_preserves_source_environment_and_runtime_assets(tmp_path, dry_r
     (project / "pyproject.toml").write_text("[project]\nname = 'example'\n")
     generated = [
         tmp_path / ".ruff_cache",
+        project / ".run" / "cache",
         project / "build" / "lib" / "example",
         project / "dist",
         project / "example.egg-info",

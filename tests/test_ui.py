@@ -2,7 +2,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from inferops.api.main import create_app
+from inferops.adapters.inbound.http.main import create_app
 
 
 @pytest.mark.asyncio

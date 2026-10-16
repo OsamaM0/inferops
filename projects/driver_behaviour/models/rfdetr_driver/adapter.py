@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from inferops.core.types import Detection, Frame, Result
-from inferops.plugins.base import Postprocessor
-from inferops.registry.model_spec import ModelSpec
+from inferops.domain.models import ModelSpec
+from inferops.domain.types import Detection, Frame, Result
+from inferops.ports.extensions import Postprocessor
 
 # Keep the serialized labels compatible with the original driver model output.
 CLASS_NAMES = ("DriverBehaviour", "cigarette", "foodItem", "phone", "seatbelt", "wheel")

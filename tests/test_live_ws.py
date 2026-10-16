@@ -2,12 +2,11 @@
 
 import cv2
 import numpy as np
-import orjson
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from inferops.api.main import create_app
+from inferops.adapters.inbound.http.main import create_app
 
 
 @pytest.mark.asyncio
@@ -24,10 +23,9 @@ async def test_live_ws_roundtrip():
         ws.send_bytes(buf.tobytes())
 
         # Server replies with binary orjson payload.
-        data = ws.receive_bytes()
-        msg = orjson.loads(data)
+        msg = ws.receive_json()
         assert msg["stream_id"] == "t"
-        assert msg["seq"] == 1
+        assert msg["seq"] == 0
         assert "latency_ms" in msg
         assert isinstance(msg["detections"], list)
         assert msg["classifications"], "classifier pipeline should return top-k classes"

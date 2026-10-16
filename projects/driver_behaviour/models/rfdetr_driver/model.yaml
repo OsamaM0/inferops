@@ -42,7 +42,7 @@ defaults:
     - seatbelt
     - wheel
   preprocess:
-    plugin: inferops.plugins.builtin.resize_normalize:ResizeNormalize
+    plugin: inferops.adapters.outbound.inference.plugins.resize_normalize:ResizeNormalize
     params:
       normalize: true
   postprocess:

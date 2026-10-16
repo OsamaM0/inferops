@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 
 from inferops import InferenceSession, Model, ModelSpec
-from inferops.core.types import Frame
-from inferops.plugins.builtin.rfdetr_decode import RFDetrDecode
-from inferops.plugins.builtin.yolo_decode import YoloDecode
-from inferops.project_adapters import adapter_root, create_project
-from inferops.runtimes.base import InferenceBackend
+from inferops.adapters.outbound.inference.plugins.rfdetr_decode import RFDetrDecode
+from inferops.adapters.outbound.inference.plugins.yolo_decode import YoloDecode
+from inferops.adapters.outbound.projects.packages import adapter_root, create_project
+from inferops.domain.types import Frame
+from inferops.ports.inference import InferenceBackend
 
 
 class IdentityBackend(InferenceBackend):
@@ -30,7 +30,7 @@ class IdentityBackend(InferenceBackend):
 
 def model_spec(name="identity"):
     return ModelSpec(name=name, backend=f"{__name__}:IdentityBackend", inputs=[{"name": "images"}],
-                     preprocess={"plugin": "inferops.plugins.builtin.resize_normalize:ResizeNormalize",
+                     preprocess={"plugin": "inferops.adapters.outbound.inference.plugins.resize_normalize:ResizeNormalize",
                                  "params": {"size": 2}})
 
 
@@ -49,7 +49,7 @@ async def test_session_runs_models_and_releases_resources():
 async def test_project_model_selection_and_plugin_scope(tmp_path):
     import yaml
 
-    from inferops.core.domain import active_package
+    from inferops.adapters.outbound.projects import manifest as domain
     root = tmp_path / "sample_adapter"
     folder = root / "models" / "detector"
     folder.mkdir(parents=True)
@@ -58,15 +58,14 @@ async def test_project_model_selection_and_plugin_scope(tmp_path):
     spec.pop("name")
     (folder / "model.yaml").write_text(yaml.safe_dump({"name": "detector", "defaults": spec,
                                                          "variants": {"local": {}}}))
-    previous = active_package()
     async with InferenceSession.from_project(root, models=["detector_local"]) as session:
         result = await session.predict(np.zeros((4, 4, 3), dtype=np.uint8))
         assert result["detector_local"].model == "detector_local"
-    assert active_package() == previous
+    assert not hasattr(domain, "_active_package")
 
 
 def test_installed_adapter_discovery_and_workspace_copy(tmp_path, monkeypatch):
-    import inferops.project_adapters as adapters
+    import inferops.adapters.outbound.projects.packages as adapters
     root = tmp_path / "adapter"
     root.mkdir()
     (root / "project.yaml").write_text("name: adapter\n")
@@ -122,14 +121,14 @@ async def test_real_onnx_inference(tmp_path):
 
 
 async def test_relative_backend_is_bound_to_its_project(tmp_path):
-    from inferops.core.domain import active_package
+    from inferops.adapters.outbound.projects import manifest as domain
 
     root = tmp_path / "backend_adapter"
     root.mkdir()
     (root / "__init__.py").write_text("")
     (root / "project.yaml").write_text("name: backend_adapter\n")
     (root / "backend.py").write_text(
-        "from inferops.runtimes.base import InferenceBackend\n"
+        "from inferops.ports.inference import InferenceBackend\n"
         "class Backend(InferenceBackend):\n"
         "    async def load(self, spec): self.spec = spec\n"
         "    async def infer(self, inputs): return inputs\n")
@@ -137,18 +136,65 @@ async def test_relative_backend_is_bound_to_its_project(tmp_path):
     models.mkdir()
     (models / "identity.yaml").write_text(
         "name: identity\nbackend: .backend:Backend\ninputs: [{name: x}]\n")
-    previous = active_package()
     async with InferenceSession.from_project(root) as session:
-        assert active_package() == previous
-        assert session.models["identity"].spec.backend == "backend_adapter.backend:Backend"
+        assert not hasattr(domain, "_active_package")
+        assert session.models["identity"].spec.backend.startswith("_inferops_project_")
+        assert session.models["identity"].spec.backend.endswith(".backend:Backend")
         x = np.ones((1, 2), dtype=np.float32)
         np.testing.assert_array_equal((await session.models["identity"].infer({"x": x}))["x"], x)
 
 
 def test_tensorrt_requires_provider(monkeypatch):
-    from inferops.core.errors import BackendError
-    from inferops.runtimes import tensorrt_backend
+    from inferops.adapters.outbound.inference import tensorrt_backend
+    from inferops.domain.errors import BackendError
 
     monkeypatch.setattr(tensorrt_backend, "available_providers", lambda: ("CPUExecutionProvider",))
     with pytest.raises(BackendError, match="TensorRT EP unavailable"):
         tensorrt_backend.TensorRTBackend()._provider_resolution(model_spec())
+
+
+async def test_project_handles_share_one_backend_for_logical_and_variant_names(tmp_path):
+    import yaml
+
+    root = tmp_path / "shared"
+    (root / "models").mkdir(parents=True)
+    (root / "project.yaml").write_text("name: shared\n")
+    defaults = model_spec().model_dump(mode="json")
+    defaults.pop("name")
+    (root / "models/identity.yaml").write_text(yaml.safe_dump({
+        "name": "identity", "defaults": defaults, "variants": {"onnx": {}}}))
+    IdentityBackend.loads = IdentityBackend.closes = 0
+    async with InferenceSession.from_project(root, models=["identity", "identity_onnx"]) as session:
+        results = await session.predict(np.ones((4, 4, 3), dtype=np.uint8), parallel=True)
+        assert list(results) == ["identity", "identity_onnx"]
+        assert {result.model for result in results.values()} == {"identity_onnx"}
+        assert IdentityBackend.loads == 1
+    assert IdentityBackend.closes == 1
+
+
+async def test_public_model_close_waits_for_inflight_inference():
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class BlockingBackend(IdentityBackend):
+        closed = False
+
+        async def infer(self, inputs):
+            entered.set()
+            await release.wait()
+            assert not self.closed
+            return inputs
+
+        async def close(self):
+            self.closed = True
+
+    backend = BlockingBackend()
+    model = Model(model_spec(), backend_factory=lambda spec, base: backend)
+    prediction = asyncio.create_task(model.infer({"images": np.zeros(1)}))
+    await entered.wait()
+    closing = asyncio.create_task(model.close())
+    await asyncio.sleep(0)
+    assert not closing.done() and not backend.closed
+    release.set()
+    await prediction
+    await closing
+    assert backend.closed

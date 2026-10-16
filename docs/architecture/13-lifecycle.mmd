@@ -1,0 +1,22 @@
+flowchart TB
+    setup["1. Select project and runtime<br/>install dependencies, prepare real weights"]
+    boot["2. Explicit bootstrap<br/>pin project revision, wire ports and adapters"]
+    recover["3. Start and reconcile<br/>SQL schema / interrupted sessions and jobs<br/>spool recovery / outbox relay / model prewarm"]
+    input["4. Input adapters<br/>Python / HTTP / live camera / CLI / worker"]
+    session["5. Generated processing session<br/>capability, owner generation, pinned revision<br/>one timeline and serialized mutable state"]
+    frame["6. Acquire frame and media time<br/>offline backpressure / bounded latest live frame<br/>sample evidence before inference replacement"]
+    compute["7. Shared model pool and ordered stages<br/>tracking / FaceMesh / fusion / incident policy"]
+    tx["8. SQL acceptance transaction<br/>events + incidents + Pending evidence + outbox<br/>broker input reserves inbox in the same commit"]
+    capture["9a. Capture and artifacts<br/>fsynced spool generations → encode → verify MinIO<br/>commit coverage and explicit evidence state"]
+    delivery["9b. Durable distribution<br/>claim outbox → publish/actions → acknowledge<br/>stable IDs and idempotent consumers"]
+    inspect["10. Query state and inspect metrics<br/>notifications are hints<br/>retries depend on retained material"]
+    close["11. Close sessions and jobs<br/>finalize captures; bounded drain<br/>close delivery, models, transport, storage and SQL"]
+    restart["Restart / supported release switch<br/>preserve SQL, spool, objects and project artifacts<br/>new sessions; no temporal-state reconstruction"]
+    setup --> boot --> recover --> input --> session --> frame --> compute --> tx
+    tx --> capture --> inspect
+    tx --> delivery --> inspect
+    inspect -->|next frame| frame
+    inspect -->|source ends / stop| close --> restart --> recover
+    clocks["Three clocks<br/>media: temporal decisions and coverage<br/>monotonic: deadlines and latency<br/>database UTC: audit and durable scheduling"] -. governs .-> session
+    standalone["Direct Model / InferenceSession prediction<br/>shared model pool, no pipeline session<br/>no incidents/evidence/server dependencies"]
+    setup --> standalone

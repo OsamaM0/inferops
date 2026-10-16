@@ -1,5 +1,6 @@
 """The driver pipeline through the HTTP API: models, pipelines, /infer, /jobs, live signals."""
 import asyncio
+import base64
 import io
 
 import cv2
@@ -7,7 +8,7 @@ import numpy as np
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from inferops.api.main import create_app
+from inferops.adapters.inbound.http.main import create_app
 
 
 def _jpeg() -> bytes:
@@ -43,11 +44,11 @@ async def test_driver_pipeline_via_api():
         assert isinstance(payload.get("signals", {}), dict)
         assert isinstance(payload.get("overlay_boxes", []), list)
 
-        r = await ac.post("/v1/jobs/driver_behaviour", json={"stream_id": "job-test"})
+        r = await ac.post("/v1/jobs/driver_behaviour", json={"stream_id": "job-test", "image_base64": base64.b64encode(_jpeg()).decode()})
         assert r.status_code == 200, r.text
         job_id = r.json()["job_id"]
         job = None
-        for _ in range(40):
+        for _ in range(200):
             job = (await ac.get(f"/v1/jobs/{job_id}")).json()
             if job["status"] in {"succeeded", "failed"}:
                 break

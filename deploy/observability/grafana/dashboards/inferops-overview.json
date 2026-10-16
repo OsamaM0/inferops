@@ -465,6 +465,138 @@
         }
       ],
       "id": 16
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Evidence states",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "inferops_evidence_records",
+          "refId": "A",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Evidence capture queue",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "inferops_evidence_queued_captures",
+          "refId": "A",
+          "legendFormat": "queued captures"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Spool usage / capacity",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "inferops_evidence_spool_bytes / inferops_evidence_spool_capacity_bytes",
+          "refId": "A",
+          "legendFormat": "fraction used"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Outbox pending and delivery failures",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "inferops_pending_outbox or inferops_outbox_failures",
+          "refId": "A",
+          "legendFormat": "{{__name__}}"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Oldest pending delivery age",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "inferops_oldest_outbox_age_seconds",
+          "refId": "A",
+          "legendFormat": "seconds"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Evidence capture drops",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(inferops_evidence_frames_dropped[1m])",
+          "refId": "A",
+          "legendFormat": "frames / second"
+        }
+      ]
     }
   ],
   "refresh": "5s",
@@ -483,7 +615,7 @@
   "timezone": "",
   "title": "InferOps Overview",
   "uid": "inferops-overview",
-  "version": 2,
+  "version": 3,
   "weekStart": "",
   "description": "InferOps API, pipeline, evidence and optional Triton metrics. Open Prometheus targets to inspect unavailable scrape jobs."
 }

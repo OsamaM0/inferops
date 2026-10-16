@@ -1,0 +1,21 @@
+{
+  "startOnLoad": false,
+  "securityLevel": "strict",
+  "htmlLabels": false,
+  "theme": "base",
+  "fontFamily": "Arial, sans-serif",
+  "flowchart": {
+    "htmlLabels": false,
+    "curve": "basis",
+    "padding": 18
+  },
+  "themeVariables": {
+    "primaryColor": "#e0f2fe",
+    "primaryTextColor": "#172554",
+    "primaryBorderColor": "#0369a1",
+    "lineColor": "#475569",
+    "secondaryColor": "#ede9fe",
+    "tertiaryColor": "#f8fafc",
+    "fontSize": "16px"
+  }
+}

@@ -3,8 +3,8 @@ import asyncio
 
 import pytest
 
-from inferops.adapters.transport.inproc import InProcTransport
-from inferops.core.errors import PayloadTooLarge
+from inferops.adapters.outbound.messaging.inproc import InProcTransport
+from inferops.domain.errors import PayloadTooLarge
 
 
 @pytest.mark.asyncio
