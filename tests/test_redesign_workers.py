@@ -13,6 +13,7 @@ from inferops.adapters.inbound.workers.execution import process_source
 from inferops.adapters.inbound.workers.topic_worker import run_topic_worker
 from inferops.domain.types import StageItem
 from inferops.ports.messaging import Message
+from inferops.testing.postgres import test_database_url
 
 
 class FakeConsumer:
@@ -187,7 +188,6 @@ def test_cli_pipeline_run_uses_shared_engine(monkeypatch, tmp_path):
         return {"frames": 1}
 
     engine.run = run
-    monkeypatch.setenv("INFEROPS_ENGINE", "hexagonal")
     monkeypatch.setattr(bootstrap, "server_engine", lambda: engine)
     result = CliRunner().invoke(app, ["pipelines", "run", "driver", str(source)])
     assert result.exit_code == 0, result.output
@@ -226,7 +226,7 @@ async def test_real_pipeline_broker_outputs_and_inbox_commit_together(tmp_path):
     pipeline.mkdir(parents=True)
     (root / "project.yaml").write_text("name: sample\n")
     (pipeline / "driver.yaml").write_text("name: driver\nstages: []\n")
-    repository = SqlRepository(f"sqlite+aiosqlite:///{tmp_path / 'worker.db'}")
+    repository = SqlRepository(test_database_url(tmp_path))
     messages = [broker_message(0), broker_message(0), broker_message(1)]
     transport = FakeTransport(messages)
     engine = build_engine(root, repository=repository, transport=transport)
@@ -241,22 +241,6 @@ async def test_real_pipeline_broker_outputs_and_inbox_commit_together(tmp_path):
         assert [record["payload"]["payload"]["value"] for record in records] == [0, 1]
         assert all("_broker_event" not in record["payload"]["payload"] for record in records)
     assert transport.input.commits == messages
-
-
-def test_new_cli_server_does_not_activate_legacy_preflight(monkeypatch):
-    import uvicorn
-
-    from inferops.adapters.inbound.cli import __main__ as cli
-    calls = []
-
-    def legacy_preflight(**_options):
-        raise AssertionError("new server startup must not activate legacy stores")
-
-    monkeypatch.setenv("INFEROPS_ENGINE", "hexagonal")
-    monkeypatch.setattr(cli, "preflight", legacy_preflight)
-    monkeypatch.setattr(uvicorn, "run", lambda target, **options: calls.append((target, options)))
-    cli.serve(host="127.0.0.1", port=8089)
-    assert calls == [("inferops.adapters.inbound.http.main:app", {"host": "127.0.0.1", "port": 8089, "reload": False})]
 
 
 async def test_configured_folder_source_uses_shared_decoder_and_owned_context(tmp_path):

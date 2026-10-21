@@ -1,0 +1,5127 @@
+{
+  "date": "2026-10-19",
+  "timezone": "Africa/Cairo",
+  "scope": "Short local repeated-video measurements; not certified maximum camera capacity",
+  "raw_reports": {
+    "cpu": ".run/capacity/20261019-121907/report.json",
+    "cuda": ".run/capacity/20261019-122128/report.json",
+    "triton": ".run/capacity/20261019-121716/report.json"
+  },
+  "reports": {
+    "cpu": {
+      "schema_version": 1,
+      "created_at": 1792412347.7338521,
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 12.0,
+            "free_mib": 7794.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "data_path": "/mnt/L/Work/SandBox/inferops/.run/capacity/20261019-121907",
+      "runtime": "cpu",
+      "pipeline": "driver_behaviour",
+      "opencv_threads": 1,
+      "project": "/mnt/L/Work/SandBox/inferops/projects/driver_behaviour",
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "workload_fingerprint": "d7ea22643391b8dfe9306ac30e2a5e589d39b5888abf487cf38b6e86125c9916",
+      "software_fingerprint": "0e29d68faf4910f34ec3ebc134efcdc09fc0b9c917fe5482640689c7e8b4ea67",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "triton_url": null,
+      "evidence_enabled": true,
+      "evidence_policy": {
+        "pre_seconds": 5.0,
+        "post_seconds": 5.0,
+        "sample_fps": 10.0,
+        "processing_lag_seconds": 5.0,
+        "per_session_bytes": 67108864,
+        "global_bytes": 268435456,
+        "max_active_captures": 64,
+        "workers": 2,
+        "max_spool_bytes": 10737418240,
+        "disk_reserve_bytes": 1073741824,
+        "retry_delays": [
+          1.0,
+          5.0,
+          30.0
+        ],
+        "capture_timeout_seconds": 60.0,
+        "shutdown_timeout_seconds": 30.0
+      },
+      "preview_enabled": true,
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-1080p-15.mp4",
+        "sha256": "f4161fbc8b8a04ca60049a20a16494a103e76f6181485053c74811d095f83dda",
+        "provenance": "Scaled/pillarboxed repository driver sample, H264 15 FPS; not native 1080p footage; final capacity-identity verification"
+      },
+      "source_kind": "paced_local_video",
+      "completed": true,
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 1.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.067
+          ],
+          "total_fps": 1.067,
+          "p95_ms": 704.2,
+          "p99_ms": 916.4,
+          "gpu_used_peak_mib": 114.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 839.1796875,
+          "decoded": 556,
+          "errors": [],
+          "cpu_core_seconds": 157.518955184,
+          "model_calls": {
+            "rfdetr_driver_onnx": 37,
+            "face_mesh_onnx": 37
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 1.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.067,
+            1.067
+          ],
+          "total_fps": 2.134,
+          "p95_ms": 1049.8,
+          "p99_ms": 1393.2,
+          "gpu_used_peak_mib": 114.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1271.73828125,
+          "decoded": 1112,
+          "errors": [],
+          "cpu_core_seconds": 231.276833162,
+          "model_calls": {
+            "rfdetr_driver_onnx": 74,
+            "face_mesh_onnx": 74
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": false
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.0
+          ],
+          "total_fps": 2.0,
+          "p95_ms": 921.0,
+          "p99_ms": 993.6,
+          "gpu_used_peak_mib": 114.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1308.953125,
+          "decoded": 541,
+          "errors": [],
+          "cpu_core_seconds": 246.26346980300002,
+          "model_calls": {
+            "rfdetr_driver_onnx": 70,
+            "face_mesh_onnx": 69
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            2
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.667,
+            1.633
+          ],
+          "total_fps": 3.3,
+          "p95_ms": 1112.0,
+          "p99_ms": 1177.8,
+          "gpu_used_peak_mib": 114.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1377.421875,
+          "decoded": 1082,
+          "errors": [],
+          "cpu_core_seconds": 284.6707825540001,
+          "model_calls": {
+            "rfdetr_driver_onnx": 115,
+            "face_mesh_onnx": 113
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            14,
+            14
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": false
+        }
+      ]
+    },
+    "cuda": {
+      "schema_version": 1,
+      "created_at": 1792412491.5267062,
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 322.0,
+            "free_mib": 7484.0,
+            "utilization_percent": 11.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "data_path": "/mnt/L/Work/SandBox/inferops/.run/capacity/20261019-122128",
+      "runtime": "cuda",
+      "pipeline": "driver_behaviour",
+      "opencv_threads": 1,
+      "project": "/mnt/L/Work/SandBox/inferops/projects/driver_behaviour",
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "workload_fingerprint": "01c187c935dcbe27d205ec939a410b7f1553db9654e58b32b2432eee571ddd3a",
+      "software_fingerprint": "0e29d68faf4910f34ec3ebc134efcdc09fc0b9c917fe5482640689c7e8b4ea67",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "gpu",
+          "effective": "gpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "CUDAExecutionProvider available",
+          "active_providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "gpu",
+          "effective": "gpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "CUDAExecutionProvider available",
+          "active_providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "triton_url": null,
+      "evidence_enabled": true,
+      "evidence_policy": {
+        "pre_seconds": 5.0,
+        "post_seconds": 5.0,
+        "sample_fps": 10.0,
+        "processing_lag_seconds": 5.0,
+        "per_session_bytes": 67108864,
+        "global_bytes": 268435456,
+        "max_active_captures": 64,
+        "workers": 2,
+        "max_spool_bytes": 10737418240,
+        "disk_reserve_bytes": 1073741824,
+        "retry_delays": [
+          1.0,
+          5.0,
+          30.0
+        ],
+        "capture_timeout_seconds": 60.0,
+        "shutdown_timeout_seconds": 30.0
+      },
+      "preview_enabled": true,
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-1080p-15.mp4",
+        "sha256": "f4161fbc8b8a04ca60049a20a16494a103e76f6181485053c74811d095f83dda",
+        "provenance": "Scaled/pillarboxed repository driver sample, H264 15 FPS; not native 1080p footage; final capacity-identity verification"
+      },
+      "source_kind": "paced_local_video",
+      "completed": true,
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.067
+          ],
+          "total_fps": 4.134,
+          "p95_ms": 291.4,
+          "p99_ms": 323.9,
+          "gpu_used_peak_mib": 5609.0,
+          "gpu_utilization_mean": 10.82857142857143,
+          "rss_peak_mib": 1967.66796875,
+          "decoded": 1082,
+          "errors": [],
+          "cpu_core_seconds": 35.203400207,
+          "model_calls": {
+            "rfdetr_driver_onnx": 144,
+            "face_mesh_onnx": 144
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 4,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.067,
+            2.067,
+            2.067
+          ],
+          "total_fps": 8.268,
+          "p95_ms": 353.1,
+          "p99_ms": 406.9,
+          "gpu_used_peak_mib": 5611.0,
+          "gpu_utilization_mean": 15.2,
+          "rss_peak_mib": 2207.1015625,
+          "decoded": 2164,
+          "errors": [],
+          "cpu_core_seconds": 71.30093614900001,
+          "model_calls": {
+            "rfdetr_driver_onnx": 288,
+            "face_mesh_onnx": 288
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            5.033,
+            5.0
+          ],
+          "total_fps": 10.033,
+          "p95_ms": 373.3,
+          "p99_ms": 418.1,
+          "gpu_used_peak_mib": 5611.0,
+          "gpu_utilization_mean": 15.771428571428572,
+          "rss_peak_mib": 2249.52734375,
+          "decoded": 1064,
+          "errors": [],
+          "cpu_core_seconds": 74.128742304,
+          "model_calls": {
+            "rfdetr_driver_onnx": 346,
+            "face_mesh_onnx": 191
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            4,
+            4
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "cameras": 4,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            4.5,
+            4.5,
+            4.5,
+            4.5
+          ],
+          "total_fps": 18.0,
+          "p95_ms": 575.0,
+          "p99_ms": 775.2,
+          "gpu_used_peak_mib": 5611.0,
+          "gpu_utilization_mean": 31.285714285714285,
+          "rss_peak_mib": 2405.77734375,
+          "decoded": 2134,
+          "errors": [],
+          "cpu_core_seconds": 148.631447092,
+          "model_calls": {
+            "rfdetr_driver_onnx": 610,
+            "face_mesh_onnx": 357
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            24,
+            24,
+            25,
+            25
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "passed": false
+        }
+      ]
+    },
+    "triton": {
+      "schema_version": 1,
+      "created_at": 1792412236.870838,
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 624.0,
+            "free_mib": 7182.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "data_path": "/mnt/L/Work/SandBox/inferops/.run/capacity/20261019-121716",
+      "runtime": "triton",
+      "pipeline": "driver_behaviour",
+      "opencv_threads": 1,
+      "project": "/mnt/L/Work/SandBox/inferops/projects/driver_behaviour",
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "workload_fingerprint": "fb6b683098a1cb7b4e0e62e62da5ed975fec12623d0fe501f8ee058cd0606a94",
+      "software_fingerprint": "0e29d68faf4910f34ec3ebc134efcdc09fc0b9c917fe5482640689c7e8b4ea67",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "triton_configurations": {
+          "face_mesh_triton": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "rfdetr_driver_triton": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee"
+        },
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "providers": {
+        "face_mesh_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "face_mesh_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        },
+        "rfdetr_driver_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "rfdetr_driver_behaviour_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        }
+      },
+      "triton_url": "127.0.0.1:8001",
+      "evidence_enabled": true,
+      "evidence_policy": {
+        "pre_seconds": 5.0,
+        "post_seconds": 5.0,
+        "sample_fps": 10.0,
+        "processing_lag_seconds": 5.0,
+        "per_session_bytes": 67108864,
+        "global_bytes": 268435456,
+        "max_active_captures": 64,
+        "workers": 2,
+        "max_spool_bytes": 10737418240,
+        "disk_reserve_bytes": 1073741824,
+        "retry_delays": [
+          1.0,
+          5.0,
+          30.0
+        ],
+        "capture_timeout_seconds": 60.0,
+        "shutdown_timeout_seconds": 30.0
+      },
+      "preview_enabled": true,
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-1080p-15.mp4",
+        "sha256": "f4161fbc8b8a04ca60049a20a16494a103e76f6181485053c74811d095f83dda",
+        "provenance": "Scaled/pillarboxed repository driver sample, H264 15 FPS; not native 1080p footage; final capacity-identity verification"
+      },
+      "source_kind": "paced_local_video",
+      "completed": true,
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067
+          ],
+          "total_fps": 2.067,
+          "p95_ms": 265.1,
+          "p99_ms": 336.6,
+          "gpu_used_peak_mib": 723.0,
+          "gpu_utilization_mean": 0.34285714285714286,
+          "rss_peak_mib": 432.51171875,
+          "decoded": 541,
+          "errors": [],
+          "cpu_core_seconds": 17.518513592999998,
+          "model_calls": {
+            "rfdetr_driver_triton": 72,
+            "face_mesh_triton": 72
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 4,
+                  "execution_count": 4,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1236265"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "543640124"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "100752"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "4",
+                      "ns": "552127752"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "4",
+                      "ns": "6825415"
+                    },
+                    "compute_input": {
+                      "count": "4",
+                      "ns": "1236265"
+                    },
+                    "compute_infer": {
+                      "count": "4",
+                      "ns": "543640124"
+                    },
+                    "compute_output": {
+                      "count": "4",
+                      "ns": "100752"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 4,
+                  "execution_count": 4,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "10050558"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "178236323"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "100329"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "4",
+                      "ns": "195282063"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "4",
+                      "ns": "6555017"
+                    },
+                    "compute_input": {
+                      "count": "4",
+                      "ns": "10050558"
+                    },
+                    "compute_infer": {
+                      "count": "4",
+                      "ns": "178236323"
+                    },
+                    "compute_output": {
+                      "count": "4",
+                      "ns": "100329"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 76,
+                  "execution_count": 76,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "76",
+                        "ns": "8553145"
+                      },
+                      "compute_infer": {
+                        "count": "76",
+                        "ns": "701099443"
+                      },
+                      "compute_output": {
+                        "count": "76",
+                        "ns": "1095925"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "76",
+                      "ns": "884075005"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "76",
+                      "ns": "166890792"
+                    },
+                    "compute_input": {
+                      "count": "76",
+                      "ns": "8553145"
+                    },
+                    "compute_infer": {
+                      "count": "76",
+                      "ns": "701099443"
+                    },
+                    "compute_output": {
+                      "count": "76",
+                      "ns": "1095925"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 76,
+                  "execution_count": 76,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "76",
+                        "ns": "54583957"
+                      },
+                      "compute_infer": {
+                        "count": "76",
+                        "ns": "1700865710"
+                      },
+                      "compute_output": {
+                        "count": "76",
+                        "ns": "1485319"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "76",
+                      "ns": "1930257150"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "76",
+                      "ns": "163212312"
+                    },
+                    "compute_input": {
+                      "count": "76",
+                      "ns": "54583957"
+                    },
+                    "compute_infer": {
+                      "count": "76",
+                      "ns": "1700865710"
+                    },
+                    "compute_output": {
+                      "count": "76",
+                      "ns": "1485319"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.067
+          ],
+          "total_fps": 4.134,
+          "p95_ms": 313.3,
+          "p99_ms": 358.4,
+          "gpu_used_peak_mib": 723.0,
+          "gpu_utilization_mean": 0.14285714285714285,
+          "rss_peak_mib": 975.09375,
+          "decoded": 1082,
+          "errors": [],
+          "cpu_core_seconds": 33.861633235999996,
+          "model_calls": {
+            "rfdetr_driver_triton": 144,
+            "face_mesh_triton": 144
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 76,
+                  "execution_count": 76,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "76",
+                        "ns": "8553145"
+                      },
+                      "compute_infer": {
+                        "count": "76",
+                        "ns": "701099443"
+                      },
+                      "compute_output": {
+                        "count": "76",
+                        "ns": "1095925"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "76",
+                      "ns": "884075005"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "76",
+                      "ns": "166890792"
+                    },
+                    "compute_input": {
+                      "count": "76",
+                      "ns": "8553145"
+                    },
+                    "compute_infer": {
+                      "count": "76",
+                      "ns": "701099443"
+                    },
+                    "compute_output": {
+                      "count": "76",
+                      "ns": "1095925"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 76,
+                  "execution_count": 76,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "76",
+                        "ns": "54583957"
+                      },
+                      "compute_infer": {
+                        "count": "76",
+                        "ns": "1700865710"
+                      },
+                      "compute_output": {
+                        "count": "76",
+                        "ns": "1485319"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "76",
+                      "ns": "1930257150"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "76",
+                      "ns": "163212312"
+                    },
+                    "compute_input": {
+                      "count": "76",
+                      "ns": "54583957"
+                    },
+                    "compute_infer": {
+                      "count": "76",
+                      "ns": "1700865710"
+                    },
+                    "compute_output": {
+                      "count": "76",
+                      "ns": "1485319"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 220,
+                  "execution_count": 220,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "220",
+                        "ns": "23033799"
+                      },
+                      "compute_infer": {
+                        "count": "220",
+                        "ns": "1016238285"
+                      },
+                      "compute_output": {
+                        "count": "220",
+                        "ns": "3156556"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "220",
+                      "ns": "1548599306"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "220",
+                      "ns": "487536201"
+                    },
+                    "compute_input": {
+                      "count": "220",
+                      "ns": "23033799"
+                    },
+                    "compute_infer": {
+                      "count": "220",
+                      "ns": "1016238285"
+                    },
+                    "compute_output": {
+                      "count": "220",
+                      "ns": "3156556"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 220,
+                  "execution_count": 220,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "220",
+                        "ns": "125546978"
+                      },
+                      "compute_infer": {
+                        "count": "220",
+                        "ns": "4744790935"
+                      },
+                      "compute_output": {
+                        "count": "220",
+                        "ns": "4701336"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "220",
+                      "ns": "5394111397"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "220",
+                      "ns": "489862839"
+                    },
+                    "compute_input": {
+                      "count": "220",
+                      "ns": "125546978"
+                    },
+                    "compute_infer": {
+                      "count": "220",
+                      "ns": "4744790935"
+                    },
+                    "compute_output": {
+                      "count": "220",
+                      "ns": "4701336"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 4,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.067,
+            2.033,
+            2.033
+          ],
+          "total_fps": 8.2,
+          "p95_ms": 428.4,
+          "p99_ms": 471.5,
+          "gpu_used_peak_mib": 981.0,
+          "gpu_utilization_mean": 2.6857142857142855,
+          "rss_peak_mib": 1211.9921875,
+          "decoded": 2164,
+          "errors": [],
+          "cpu_core_seconds": 69.70184296000001,
+          "model_calls": {
+            "rfdetr_driver_triton": 288,
+            "face_mesh_triton": 287
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 220,
+                  "execution_count": 220,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "220",
+                        "ns": "23033799"
+                      },
+                      "compute_infer": {
+                        "count": "220",
+                        "ns": "1016238285"
+                      },
+                      "compute_output": {
+                        "count": "220",
+                        "ns": "3156556"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "220",
+                      "ns": "1548599306"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "220",
+                      "ns": "487536201"
+                    },
+                    "compute_input": {
+                      "count": "220",
+                      "ns": "23033799"
+                    },
+                    "compute_infer": {
+                      "count": "220",
+                      "ns": "1016238285"
+                    },
+                    "compute_output": {
+                      "count": "220",
+                      "ns": "3156556"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 220,
+                  "execution_count": 220,
+                  "average_execution_batch_size": 1.0,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "220",
+                        "ns": "125546978"
+                      },
+                      "compute_infer": {
+                        "count": "220",
+                        "ns": "4744790935"
+                      },
+                      "compute_output": {
+                        "count": "220",
+                        "ns": "4701336"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "220",
+                      "ns": "5394111397"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "220",
+                      "ns": "489862839"
+                    },
+                    "compute_input": {
+                      "count": "220",
+                      "ns": "125546978"
+                    },
+                    "compute_infer": {
+                      "count": "220",
+                      "ns": "4744790935"
+                    },
+                    "compute_output": {
+                      "count": "220",
+                      "ns": "4701336"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 507,
+                  "execution_count": 505,
+                  "average_execution_batch_size": 1.003960396039604,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "503",
+                        "ns": "51714946"
+                      },
+                      "compute_infer": {
+                        "count": "503",
+                        "ns": "1753180088"
+                      },
+                      "compute_output": {
+                        "count": "503",
+                        "ns": "7496145"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "2",
+                        "ns": "672985"
+                      },
+                      "compute_infer": {
+                        "count": "2",
+                        "ns": "129936609"
+                      },
+                      "compute_output": {
+                        "count": "2",
+                        "ns": "40345"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "507",
+                      "ns": "3414984630"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "507",
+                      "ns": "1296546106"
+                    },
+                    "compute_input": {
+                      "count": "507",
+                      "ns": "53060916"
+                    },
+                    "compute_infer": {
+                      "count": "507",
+                      "ns": "2013053306"
+                    },
+                    "compute_output": {
+                      "count": "507",
+                      "ns": "7576835"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 508,
+                  "execution_count": 507,
+                  "average_execution_batch_size": 1.0019723865877712,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "506",
+                        "ns": "254485445"
+                      },
+                      "compute_infer": {
+                        "count": "506",
+                        "ns": "10708274658"
+                      },
+                      "compute_output": {
+                        "count": "506",
+                        "ns": "10686809"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2057840"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "41938182"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "20924"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "508",
+                      "ns": "12372685777"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "508",
+                      "ns": "1242779352"
+                    },
+                    "compute_input": {
+                      "count": "508",
+                      "ns": "258601125"
+                    },
+                    "compute_infer": {
+                      "count": "508",
+                      "ns": "10792151022"
+                    },
+                    "compute_output": {
+                      "count": "508",
+                      "ns": "10728657"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "passed": true
+        }
+      ]
+    }
+  },
+  "checkpoint_export": {
+    "adapter": "rfdetr",
+    "architecture": "medium",
+    "strict_weights": true,
+    "initialized_nonlearned_buffers": [
+      "_kp_active_mask"
+    ],
+    "checkpoint_sha256": "5ccae46347aea447078e75f2029c713514d74714a3000ae6c2c09592edfa0fef",
+    "onnx_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+    "class_names": [
+      "DriverBeauvoir",
+      "cigarette",
+      "foodItem",
+      "phone",
+      "seatbelt",
+      "wheel"
+    ],
+    "classes": 6,
+    "inputs": [
+      {
+        "name": "input",
+        "shape": [
+          "batch",
+          3,
+          576,
+          576
+        ],
+        "dtype": "tensor(float)"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "dets",
+        "shape": [
+          "batch",
+          300,
+          4
+        ],
+        "dtype": "tensor(float)"
+      },
+      {
+        "name": "labels",
+        "shape": [
+          "batch",
+          300,
+          7
+        ],
+        "dtype": "tensor(float)"
+      }
+    ],
+    "max_batch_size": 4,
+    "checks": [
+      {
+        "batch": 1,
+        "foreground_pytorch_parity": true,
+        "raw_pytorch_parity": true,
+        "foreground_counts": [
+          0
+        ],
+        "independent_samples_match": true
+      },
+      {
+        "batch": 2,
+        "foreground_pytorch_parity": true,
+        "raw_pytorch_parity": false,
+        "foreground_counts": [
+          0,
+          0
+        ],
+        "independent_samples_match": true
+      },
+      {
+        "batch": 4,
+        "foreground_pytorch_parity": true,
+        "raw_pytorch_parity": false,
+        "foreground_counts": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "independent_samples_match": true
+      }
+    ],
+    "rtol": 0.001,
+    "atol": 0.0001,
+    "pytorch_reference": "Independent ordinary single-image forwards, without export transformations",
+    "foreground_threshold": 0.35,
+    "validation_scope": "Synthetic inputs: strict ONNX batch separation; PyTorch foreground detection parity. Raw proposal parity is reported separately. Representative footage and task accuracy require separate validation.",
+    "versions": {
+      "torch": "2.10.0+cpu",
+      "rfdetr": "1.11.2",
+      "onnx": "1.23.2",
+      "onnxruntime": "1.26.0"
+    },
+    "status": "validated"
+  },
+  "gpu_qualification": {
+    "source": "/mnt/L/Work/SandBox/inferops/.run/triton/checkpoint-source",
+    "models": [
+      {
+        "model": "face_mesh_onnx",
+        "original_sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+        "max_batch_size": 4,
+        "qualification": {
+          "providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ],
+          "checks": [
+            {
+              "batch": 1,
+              "independent_samples_match": true
+            },
+            {
+              "batch": 2,
+              "independent_samples_match": true
+            },
+            {
+              "batch": 4,
+              "independent_samples_match": true
+            }
+          ],
+          "rtol": 0.001,
+          "atol": 0.0001,
+          "output_shapes": {
+            "Identity": [
+              1,
+              1,
+              1,
+              1434
+            ],
+            "Identity_1": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "Identity_2": [
+              1,
+              1
+            ]
+          },
+          "comparison": "raw tensors",
+          "provider_options": [
+            [
+              "CUDAExecutionProvider",
+              {
+                "arena_extend_strategy": "kSameAsRequested",
+                "use_tf32": 0,
+                "cudnn_conv_use_max_workspace": 0
+              }
+            ],
+            "CPUExecutionProvider"
+          ]
+        },
+        "serving_sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162"
+      },
+      {
+        "model": "rfdetr_driver_behaviour_onnx",
+        "original_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+        "max_batch_size": 4,
+        "qualification": {
+          "providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ],
+          "checks": [
+            {
+              "batch": 1,
+              "independent_samples_match": true,
+              "raw_tensor_parity": true,
+              "foreground_counts": [
+                1
+              ]
+            },
+            {
+              "batch": 2,
+              "independent_samples_match": true,
+              "raw_tensor_parity": true,
+              "foreground_counts": [
+                1,
+                1
+              ]
+            },
+            {
+              "batch": 4,
+              "independent_samples_match": true,
+              "raw_tensor_parity": true,
+              "foreground_counts": [
+                1,
+                1,
+                1,
+                2
+              ]
+            }
+          ],
+          "rtol": 0.001,
+          "atol": 0.0001,
+          "output_shapes": {
+            "dets": [
+              1,
+              300,
+              4
+            ],
+            "labels": [
+              1,
+              300,
+              7
+            ]
+          },
+          "comparison": "RF-DETR foreground detections at 0.35; raw parity reported separately",
+          "provider_options": [
+            [
+              "CUDAExecutionProvider",
+              {
+                "arena_extend_strategy": "kSameAsRequested",
+                "use_tf32": 0,
+                "cudnn_conv_use_max_workspace": 0
+              }
+            ],
+            "CPUExecutionProvider"
+          ]
+        },
+        "serving_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3"
+      }
+    ],
+    "server_image": "nvcr.io/nvidia/tritonserver:26.09-py3"
+  },
+  "live_triton_verification": {
+    "at": 1792369193.7372894,
+    "server": {
+      "name": "triton",
+      "version": "2.73.0",
+      "extensions": [
+        "classification",
+        "sequence",
+        "model_repository",
+        "model_repository(unload_dependents)",
+        "schedule_policy",
+        "model_configuration",
+        "system_shared_memory",
+        "cuda_shared_memory",
+        "binary_tensor_data",
+        "parameters",
+        "statistics",
+        "trace",
+        "logging"
+      ]
+    },
+    "models": [
+      {
+        "model": "face_mesh",
+        "reference_cpu_parity": true,
+        "comparison": "Raw tensors",
+        "raw_reference_parity": true,
+        "foreground_counts": [],
+        "reference_path": ".run/triton/checkpoint-models/face_mesh_onnx/1/model.onnx",
+        "per_request_postprocessor": false,
+        "concurrent_response_isolation": true,
+        "inference_count": 32,
+        "execution_count": 9,
+        "average_execution_batch_size": 3.5555555555555554,
+        "max_batch_size": 4,
+        "device_info": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "face_mesh_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        }
+      },
+      {
+        "model": "rfdetr_driver",
+        "reference_cpu_parity": true,
+        "comparison": "Foreground detections at 0.35",
+        "raw_reference_parity": false,
+        "foreground_counts": [
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "reference_path": ".run/triton/checkpoint-models/rfdetr_driver_behaviour_onnx/1/model.onnx",
+        "per_request_postprocessor": true,
+        "concurrent_response_isolation": true,
+        "inference_count": 32,
+        "execution_count": 12,
+        "average_execution_batch_size": 2.6666666666666665,
+        "max_batch_size": 4,
+        "device_info": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "rfdetr_driver_behaviour_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        }
+      }
+    ],
+    "passed": true
+  },
+  "verification": {
+    "core_passed": 345,
+    "production_integration_passed": 8,
+    "project_passed": 16,
+    "total_unique_passed": 369,
+    "production_storage": "Disposable real PostgreSQL; local mock S3, not an actual MinIO load test",
+    "capacity_api": {
+      "status": "measured_local_video",
+      "tested_passing_cameras": 4,
+      "suggested_cameras_with_20_percent_headroom": 3,
+      "maximum_cameras": null
+    }
+  },
+  "previous_raw_reports": {
+    "cpu": ".run/capacity/20261019-002742/report.json",
+    "cuda": ".run/capacity/20261019-003004/report.json",
+    "triton": ".run/capacity/20261019-002035/report.json"
+  },
+  "previous_reports": {
+    "cpu": {
+      "schema_version": 1,
+      "created_at": 1792369662.8047597,
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948357632,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 13.0,
+            "free_mib": 7794.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "data_path": "/mnt/L/Work/SandBox/inferops/.run/capacity/20261019-002742",
+      "runtime": "cpu",
+      "pipeline": "driver_behaviour",
+      "opencv_threads": 1,
+      "project": "/mnt/L/Work/SandBox/inferops/projects/driver_behaviour",
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "workload_fingerprint": "d7ea22643391b8dfe9306ac30e2a5e589d39b5888abf487cf38b6e86125c9916",
+      "software_fingerprint": "e165685545580650c0d210058d63d5ac91636a77441f020dbc9a871c29aaad1c",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "triton_url": null,
+      "evidence_enabled": true,
+      "evidence_policy": {
+        "pre_seconds": 5.0,
+        "post_seconds": 5.0,
+        "sample_fps": 10.0,
+        "processing_lag_seconds": 5.0,
+        "per_session_bytes": 67108864,
+        "global_bytes": 268435456,
+        "max_active_captures": 64,
+        "workers": 2,
+        "max_spool_bytes": 10737418240,
+        "disk_reserve_bytes": 1073741824,
+        "retry_delays": [
+          1.0,
+          5.0,
+          30.0
+        ],
+        "capture_timeout_seconds": 60.0,
+        "shutdown_timeout_seconds": 30.0
+      },
+      "preview_enabled": true,
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-1080p-15.mp4",
+        "sha256": "f4161fbc8b8a04ca60049a20a16494a103e76f6181485053c74811d095f83dda",
+        "provenance": "Scaled/pillarboxed repository driver sample, H264 15 FPS; not native 1080p footage; isolated native runtime verification"
+      },
+      "source_kind": "paced_local_video",
+      "completed": true,
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 1.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.067
+          ],
+          "total_fps": 1.067,
+          "p95_ms": 714.9,
+          "p99_ms": 857.0,
+          "gpu_used_peak_mib": 115.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 787.71484375,
+          "decoded": 556,
+          "errors": [],
+          "cpu_core_seconds": 157.369061461,
+          "model_calls": {
+            "rfdetr_driver_onnx": 37,
+            "face_mesh_onnx": 37
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 1.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.067,
+            1.067
+          ],
+          "total_fps": 2.134,
+          "p95_ms": 971.1,
+          "p99_ms": 1278.2,
+          "gpu_used_peak_mib": 115.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1289.66015625,
+          "decoded": 1112,
+          "errors": [],
+          "cpu_core_seconds": 229.449071245,
+          "model_calls": {
+            "rfdetr_driver_onnx": 74,
+            "face_mesh_onnx": 74
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.033
+          ],
+          "total_fps": 2.033,
+          "p95_ms": 817.8,
+          "p99_ms": 904.8,
+          "gpu_used_peak_mib": 115.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1330.640625,
+          "decoded": 541,
+          "errors": [],
+          "cpu_core_seconds": 246.39483581000007,
+          "model_calls": {
+            "rfdetr_driver_onnx": 71,
+            "face_mesh_onnx": 70
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            1
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.7,
+            1.7
+          ],
+          "total_fps": 3.4,
+          "p95_ms": 1129.3,
+          "p99_ms": 1160.1,
+          "gpu_used_peak_mib": 115.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1383.0,
+          "decoded": 1082,
+          "errors": [],
+          "cpu_core_seconds": 285.17904631500005,
+          "model_calls": {
+            "rfdetr_driver_onnx": 118,
+            "face_mesh_onnx": 116
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            12,
+            13
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": false
+        }
+      ]
+    },
+    "cuda": {
+      "schema_version": 1,
+      "created_at": 1792369805.218048,
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948357632,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 323.0,
+            "free_mib": 7484.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "data_path": "/mnt/L/Work/SandBox/inferops/.run/capacity/20261019-003004",
+      "runtime": "cuda",
+      "pipeline": "driver_behaviour",
+      "opencv_threads": 1,
+      "project": "/mnt/L/Work/SandBox/inferops/projects/driver_behaviour",
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "workload_fingerprint": "01c187c935dcbe27d205ec939a410b7f1553db9654e58b32b2432eee571ddd3a",
+      "software_fingerprint": "e165685545580650c0d210058d63d5ac91636a77441f020dbc9a871c29aaad1c",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "gpu",
+          "effective": "gpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "CUDAExecutionProvider available",
+          "active_providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "gpu",
+          "effective": "gpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "CUDAExecutionProvider available",
+          "active_providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "triton_url": null,
+      "evidence_enabled": true,
+      "evidence_policy": {
+        "pre_seconds": 5.0,
+        "post_seconds": 5.0,
+        "sample_fps": 10.0,
+        "processing_lag_seconds": 5.0,
+        "per_session_bytes": 67108864,
+        "global_bytes": 268435456,
+        "max_active_captures": 64,
+        "workers": 2,
+        "max_spool_bytes": 10737418240,
+        "disk_reserve_bytes": 1073741824,
+        "retry_delays": [
+          1.0,
+          5.0,
+          30.0
+        ],
+        "capture_timeout_seconds": 60.0,
+        "shutdown_timeout_seconds": 30.0
+      },
+      "preview_enabled": true,
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-1080p-15.mp4",
+        "sha256": "f4161fbc8b8a04ca60049a20a16494a103e76f6181485053c74811d095f83dda",
+        "provenance": "Scaled/pillarboxed repository driver sample, H264 15 FPS; not native 1080p footage; isolated native runtime verification"
+      },
+      "source_kind": "paced_local_video",
+      "completed": true,
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067
+          ],
+          "total_fps": 2.067,
+          "p95_ms": 294.5,
+          "p99_ms": 308.0,
+          "gpu_used_peak_mib": 2208.0,
+          "gpu_utilization_mean": 6.088235294117647,
+          "rss_peak_mib": 1521.63671875,
+          "decoded": 541,
+          "errors": [],
+          "cpu_core_seconds": 20.154103833,
+          "model_calls": {
+            "rfdetr_driver_onnx": 72,
+            "face_mesh_onnx": 72
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.067
+          ],
+          "total_fps": 4.134,
+          "p95_ms": 310.5,
+          "p99_ms": 348.5,
+          "gpu_used_peak_mib": 5620.0,
+          "gpu_utilization_mean": 12.542857142857143,
+          "rss_peak_mib": 2043.9609375,
+          "decoded": 1082,
+          "errors": [],
+          "cpu_core_seconds": 36.03889699599999,
+          "model_calls": {
+            "rfdetr_driver_onnx": 144,
+            "face_mesh_onnx": 144
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 4,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.067,
+            2.067,
+            2.067
+          ],
+          "total_fps": 8.268,
+          "p95_ms": 362.6,
+          "p99_ms": 408.7,
+          "gpu_used_peak_mib": 5622.0,
+          "gpu_utilization_mean": 17.514285714285716,
+          "rss_peak_mib": 2261.609375,
+          "decoded": 2164,
+          "errors": [],
+          "cpu_core_seconds": 73.21404355700001,
+          "model_calls": {
+            "rfdetr_driver_onnx": 288,
+            "face_mesh_onnx": 288
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            5.067
+          ],
+          "total_fps": 5.067,
+          "p95_ms": 287.2,
+          "p99_ms": 316.8,
+          "gpu_used_peak_mib": 5622.0,
+          "gpu_utilization_mean": 9.714285714285714,
+          "rss_peak_mib": 2323.14453125,
+          "decoded": 532,
+          "errors": [],
+          "cpu_core_seconds": 36.81530247400002,
+          "model_calls": {
+            "rfdetr_driver_onnx": 177,
+            "face_mesh_onnx": 96
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            5.033,
+            5.033
+          ],
+          "total_fps": 10.066,
+          "p95_ms": 341.2,
+          "p99_ms": 384.9,
+          "gpu_used_peak_mib": 5620.0,
+          "gpu_utilization_mean": 16.37142857142857,
+          "rss_peak_mib": 2421.1484375,
+          "decoded": 1064,
+          "errors": [],
+          "cpu_core_seconds": 72.06617272099999,
+          "model_calls": {
+            "rfdetr_driver_onnx": 351,
+            "face_mesh_onnx": 192
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            1,
+            2
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "cameras": 4,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            3.3,
+            3.333,
+            3.333,
+            3.3
+          ],
+          "total_fps": 13.266,
+          "p95_ms": 1377.4,
+          "p99_ms": 2419.8,
+          "gpu_used_peak_mib": 5622.0,
+          "gpu_utilization_mean": 22.457142857142856,
+          "rss_peak_mib": 2458.15625,
+          "decoded": 1756,
+          "errors": [],
+          "cpu_core_seconds": 111.83074387900001,
+          "model_calls": {
+            "rfdetr_driver_onnx": 462,
+            "face_mesh_onnx": 276
+          },
+          "triton_statistics_before": {},
+          "triton_statistics_after": {},
+          "dropped_before_processing": [
+            29,
+            29,
+            29,
+            31
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "passed": false
+        }
+      ]
+    },
+    "triton": {
+      "schema_version": 1,
+      "created_at": 1792369236.348226,
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948357632,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 1397.0,
+            "free_mib": 6410.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "data_path": "/mnt/L/Work/SandBox/inferops/.run/capacity/20261019-002035",
+      "runtime": "triton",
+      "pipeline": "driver_behaviour",
+      "opencv_threads": 1,
+      "project": "/mnt/L/Work/SandBox/inferops/projects/driver_behaviour",
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "workload_fingerprint": "fb6b683098a1cb7b4e0e62e62da5ed975fec12623d0fe501f8ee058cd0606a94",
+      "software_fingerprint": "e165685545580650c0d210058d63d5ac91636a77441f020dbc9a871c29aaad1c",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "triton_configurations": {
+          "face_mesh_triton": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "rfdetr_driver_triton": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee"
+        },
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "providers": {
+        "face_mesh_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "face_mesh_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        },
+        "rfdetr_driver_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "rfdetr_driver_behaviour_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        }
+      },
+      "triton_url": "127.0.0.1:8001",
+      "evidence_enabled": true,
+      "evidence_policy": {
+        "pre_seconds": 5.0,
+        "post_seconds": 5.0,
+        "sample_fps": 10.0,
+        "processing_lag_seconds": 5.0,
+        "per_session_bytes": 67108864,
+        "global_bytes": 268435456,
+        "max_active_captures": 64,
+        "workers": 2,
+        "max_spool_bytes": 10737418240,
+        "disk_reserve_bytes": 1073741824,
+        "retry_delays": [
+          1.0,
+          5.0,
+          30.0
+        ],
+        "capture_timeout_seconds": 60.0,
+        "shutdown_timeout_seconds": 30.0
+      },
+      "preview_enabled": true,
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-1080p-15.mp4",
+        "sha256": "f4161fbc8b8a04ca60049a20a16494a103e76f6181485053c74811d095f83dda",
+        "provenance": "Scaled/pillarboxed repository driver sample, H264 15 FPS; not native 1080p footage; checkpoint RF-DETR dynamic batch 4 on Triton 2.73.0"
+      },
+      "source_kind": "paced_local_video",
+      "completed": true,
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067
+          ],
+          "total_fps": 2.067,
+          "p95_ms": 449.8,
+          "p99_ms": 565.4,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 4.142857142857143,
+          "rss_peak_mib": 444.19921875,
+          "decoded": 541,
+          "errors": [],
+          "cpu_core_seconds": 19.387730915,
+          "model_calls": {
+            "rfdetr_driver_triton": 72,
+            "face_mesh_triton": 72
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 41,
+                  "execution_count": 18,
+                  "average_execution_batch_size": 2.2777777777777777,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "10",
+                        "ns": "3359125"
+                      },
+                      "compute_infer": {
+                        "count": "10",
+                        "ns": "159697554"
+                      },
+                      "compute_output": {
+                        "count": "10",
+                        "ns": "130367"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "41",
+                      "ns": "1651336118"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "41",
+                      "ns": "705149646"
+                    },
+                    "compute_input": {
+                      "count": "41",
+                      "ns": "23201598"
+                    },
+                    "compute_infer": {
+                      "count": "41",
+                      "ns": "917590705"
+                    },
+                    "compute_output": {
+                      "count": "41",
+                      "ns": "934321"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 41,
+                  "execution_count": 21,
+                  "average_execution_batch_size": 1.9523809523809523,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "13",
+                        "ns": "5783998"
+                      },
+                      "compute_infer": {
+                        "count": "13",
+                        "ns": "700170305"
+                      },
+                      "compute_output": {
+                        "count": "13",
+                        "ns": "291970"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "41",
+                      "ns": "3772761807"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "41",
+                      "ns": "1155358909"
+                    },
+                    "compute_input": {
+                      "count": "41",
+                      "ns": "84929133"
+                    },
+                    "compute_infer": {
+                      "count": "41",
+                      "ns": "2523811452"
+                    },
+                    "compute_output": {
+                      "count": "41",
+                      "ns": "1415335"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 113,
+                  "execution_count": 90,
+                  "average_execution_batch_size": 1.2555555555555555,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "82",
+                        "ns": "12315400"
+                      },
+                      "compute_infer": {
+                        "count": "82",
+                        "ns": "380906722"
+                      },
+                      "compute_output": {
+                        "count": "82",
+                        "ns": "1357717"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "113",
+                      "ns": "2047829339"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "113",
+                      "ns": "861983721"
+                    },
+                    "compute_input": {
+                      "count": "113",
+                      "ns": "32157873"
+                    },
+                    "compute_infer": {
+                      "count": "113",
+                      "ns": "1138799873"
+                    },
+                    "compute_output": {
+                      "count": "113",
+                      "ns": "2161671"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 113,
+                  "execution_count": 93,
+                  "average_execution_batch_size": 1.2150537634408602,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "85",
+                        "ns": "53524957"
+                      },
+                      "compute_infer": {
+                        "count": "85",
+                        "ns": "2231557319"
+                      },
+                      "compute_output": {
+                        "count": "85",
+                        "ns": "1902331"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "113",
+                      "ns": "5520375516"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "113",
+                      "ns": "1310810950"
+                    },
+                    "compute_input": {
+                      "count": "113",
+                      "ns": "132670092"
+                    },
+                    "compute_infer": {
+                      "count": "113",
+                      "ns": "4055198466"
+                    },
+                    "compute_output": {
+                      "count": "113",
+                      "ns": "3025696"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 2,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.067,
+            2.1
+          ],
+          "total_fps": 4.167,
+          "p95_ms": 428.2,
+          "p99_ms": 490.0,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 963.953125,
+          "decoded": 1082,
+          "errors": [],
+          "cpu_core_seconds": 35.610821232000006,
+          "model_calls": {
+            "rfdetr_driver_triton": 144,
+            "face_mesh_triton": 144
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 113,
+                  "execution_count": 90,
+                  "average_execution_batch_size": 1.2555555555555555,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "82",
+                        "ns": "12315400"
+                      },
+                      "compute_infer": {
+                        "count": "82",
+                        "ns": "380906722"
+                      },
+                      "compute_output": {
+                        "count": "82",
+                        "ns": "1357717"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "113",
+                      "ns": "2047829339"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "113",
+                      "ns": "861983721"
+                    },
+                    "compute_input": {
+                      "count": "113",
+                      "ns": "32157873"
+                    },
+                    "compute_infer": {
+                      "count": "113",
+                      "ns": "1138799873"
+                    },
+                    "compute_output": {
+                      "count": "113",
+                      "ns": "2161671"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 113,
+                  "execution_count": 93,
+                  "average_execution_batch_size": 1.2150537634408602,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "85",
+                        "ns": "53524957"
+                      },
+                      "compute_infer": {
+                        "count": "85",
+                        "ns": "2231557319"
+                      },
+                      "compute_output": {
+                        "count": "85",
+                        "ns": "1902331"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "113",
+                      "ns": "5520375516"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "113",
+                      "ns": "1310810950"
+                    },
+                    "compute_input": {
+                      "count": "113",
+                      "ns": "132670092"
+                    },
+                    "compute_infer": {
+                      "count": "113",
+                      "ns": "4055198466"
+                    },
+                    "compute_output": {
+                      "count": "113",
+                      "ns": "3025696"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 257,
+                  "execution_count": 234,
+                  "average_execution_batch_size": 1.0982905982905984,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "226",
+                        "ns": "28308238"
+                      },
+                      "compute_infer": {
+                        "count": "226",
+                        "ns": "695667144"
+                      },
+                      "compute_output": {
+                        "count": "226",
+                        "ns": "3535814"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "257",
+                      "ns": "2706779393"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "257",
+                      "ns": "1175291370"
+                    },
+                    "compute_input": {
+                      "count": "257",
+                      "ns": "48150711"
+                    },
+                    "compute_infer": {
+                      "count": "257",
+                      "ns": "1453560295"
+                    },
+                    "compute_output": {
+                      "count": "257",
+                      "ns": "4339768"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 257,
+                  "execution_count": 237,
+                  "average_execution_batch_size": 1.0843881856540085,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "229",
+                        "ns": "124575592"
+                      },
+                      "compute_infer": {
+                        "count": "229",
+                        "ns": "5276921700"
+                      },
+                      "compute_output": {
+                        "count": "229",
+                        "ns": "5141368"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "257",
+                      "ns": "9026079161"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "257",
+                      "ns": "1674258759"
+                    },
+                    "compute_input": {
+                      "count": "257",
+                      "ns": "203720727"
+                    },
+                    "compute_infer": {
+                      "count": "257",
+                      "ns": "7100562847"
+                    },
+                    "compute_output": {
+                      "count": "257",
+                      "ns": "6264733"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "cameras": 4,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.033,
+            2.067,
+            2.067,
+            2.067
+          ],
+          "total_fps": 8.234,
+          "p95_ms": 1190.1,
+          "p99_ms": 1721.1,
+          "gpu_used_peak_mib": 1498.0,
+          "gpu_utilization_mean": 4.828571428571428,
+          "rss_peak_mib": 1205.6328125,
+          "decoded": 2164,
+          "errors": [],
+          "cpu_core_seconds": 70.932763024,
+          "model_calls": {
+            "rfdetr_driver_triton": 284,
+            "face_mesh_triton": 282
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 257,
+                  "execution_count": 234,
+                  "average_execution_batch_size": 1.0982905982905984,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "226",
+                        "ns": "28308238"
+                      },
+                      "compute_infer": {
+                        "count": "226",
+                        "ns": "695667144"
+                      },
+                      "compute_output": {
+                        "count": "226",
+                        "ns": "3535814"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "257",
+                      "ns": "2706779393"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "257",
+                      "ns": "1175291370"
+                    },
+                    "compute_input": {
+                      "count": "257",
+                      "ns": "48150711"
+                    },
+                    "compute_infer": {
+                      "count": "257",
+                      "ns": "1453560295"
+                    },
+                    "compute_output": {
+                      "count": "257",
+                      "ns": "4339768"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 257,
+                  "execution_count": 237,
+                  "average_execution_batch_size": 1.0843881856540085,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "229",
+                        "ns": "124575592"
+                      },
+                      "compute_infer": {
+                        "count": "229",
+                        "ns": "5276921700"
+                      },
+                      "compute_output": {
+                        "count": "229",
+                        "ns": "5141368"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "257",
+                      "ns": "9026079161"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "257",
+                      "ns": "1674258759"
+                    },
+                    "compute_input": {
+                      "count": "257",
+                      "ns": "203720727"
+                    },
+                    "compute_infer": {
+                      "count": "257",
+                      "ns": "7100562847"
+                    },
+                    "compute_output": {
+                      "count": "257",
+                      "ns": "6264733"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 539,
+                  "execution_count": 512,
+                  "average_execution_batch_size": 1.052734375,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "500",
+                        "ns": "59430091"
+                      },
+                      "compute_infer": {
+                        "count": "500",
+                        "ns": "1439980189"
+                      },
+                      "compute_output": {
+                        "count": "500",
+                        "ns": "8225470"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "539",
+                      "ns": "5038304559"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "539",
+                      "ns": "2251849320"
+                    },
+                    "compute_input": {
+                      "count": "539",
+                      "ns": "82966092"
+                    },
+                    "compute_infer": {
+                      "count": "539",
+                      "ns": "2641670502"
+                    },
+                    "compute_output": {
+                      "count": "539",
+                      "ns": "9240296"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 541,
+                  "execution_count": 520,
+                  "average_execution_batch_size": 1.0403846153846155,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "511",
+                        "ns": "257541672"
+                      },
+                      "compute_infer": {
+                        "count": "511",
+                        "ns": "10916990972"
+                      },
+                      "compute_output": {
+                        "count": "511",
+                        "ns": "11720006"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "541",
+                      "ns": "15722178960"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "541",
+                      "ns": "2460420429"
+                    },
+                    "compute_input": {
+                      "count": "541",
+                      "ns": "342242435"
+                    },
+                    "compute_infer": {
+                      "count": "541",
+                      "ns": "12819887481"
+                    },
+                    "compute_output": {
+                      "count": "541",
+                      "ns": "12902417"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "passed": false
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            4.733
+          ],
+          "total_fps": 4.733,
+          "p95_ms": 496.2,
+          "p99_ms": 591.9,
+          "gpu_used_peak_mib": 1498.0,
+          "gpu_utilization_mean": 5.3428571428571425,
+          "rss_peak_mib": 1205.6328125,
+          "decoded": 532,
+          "errors": [],
+          "cpu_core_seconds": 33.39908762100001,
+          "model_calls": {
+            "rfdetr_driver_triton": 160,
+            "face_mesh_triton": 91
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 539,
+                  "execution_count": 512,
+                  "average_execution_batch_size": 1.052734375,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "500",
+                        "ns": "59430091"
+                      },
+                      "compute_infer": {
+                        "count": "500",
+                        "ns": "1439980189"
+                      },
+                      "compute_output": {
+                        "count": "500",
+                        "ns": "8225470"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "539",
+                      "ns": "5038304559"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "539",
+                      "ns": "2251849320"
+                    },
+                    "compute_input": {
+                      "count": "539",
+                      "ns": "82966092"
+                    },
+                    "compute_infer": {
+                      "count": "539",
+                      "ns": "2641670502"
+                    },
+                    "compute_output": {
+                      "count": "539",
+                      "ns": "9240296"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 541,
+                  "execution_count": 520,
+                  "average_execution_batch_size": 1.0403846153846155,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "511",
+                        "ns": "257541672"
+                      },
+                      "compute_infer": {
+                        "count": "511",
+                        "ns": "10916990972"
+                      },
+                      "compute_output": {
+                        "count": "511",
+                        "ns": "11720006"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "541",
+                      "ns": "15722178960"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "541",
+                      "ns": "2460420429"
+                    },
+                    "compute_input": {
+                      "count": "541",
+                      "ns": "342242435"
+                    },
+                    "compute_infer": {
+                      "count": "541",
+                      "ns": "12819887481"
+                    },
+                    "compute_output": {
+                      "count": "541",
+                      "ns": "12902417"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 630,
+                  "execution_count": 603,
+                  "average_execution_batch_size": 1.044776119402985,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "591",
+                        "ns": "69893209"
+                      },
+                      "compute_infer": {
+                        "count": "591",
+                        "ns": "1695912857"
+                      },
+                      "compute_output": {
+                        "count": "591",
+                        "ns": "9732231"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "630",
+                      "ns": "5512431290"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "630",
+                      "ns": "2449821132"
+                    },
+                    "compute_input": {
+                      "count": "630",
+                      "ns": "93429210"
+                    },
+                    "compute_infer": {
+                      "count": "630",
+                      "ns": "2897603170"
+                    },
+                    "compute_output": {
+                      "count": "630",
+                      "ns": "10747057"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 701,
+                  "execution_count": 680,
+                  "average_execution_batch_size": 1.0308823529411764,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "671",
+                        "ns": "332359774"
+                      },
+                      "compute_infer": {
+                        "count": "671",
+                        "ns": "14304655532"
+                      },
+                      "compute_output": {
+                        "count": "671",
+                        "ns": "14579061"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "701",
+                      "ns": "19558245298"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "701",
+                      "ns": "2809222618"
+                    },
+                    "compute_input": {
+                      "count": "701",
+                      "ns": "417060537"
+                    },
+                    "compute_infer": {
+                      "count": "701",
+                      "ns": "16207552041"
+                    },
+                    "compute_output": {
+                      "count": "701",
+                      "ns": "15761472"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            17
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": false
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "inference_fps": 2.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.9
+          ],
+          "total_fps": 1.9,
+          "p95_ms": 1036.3,
+          "p99_ms": 1160.8,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 7.942857142857143,
+          "rss_peak_mib": 1218.4453125,
+          "decoded": 549,
+          "errors": [],
+          "cpu_core_seconds": 38.67185513499999,
+          "model_calls": {
+            "rfdetr_driver_triton": 65,
+            "face_mesh_triton": 64
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 630,
+                  "execution_count": 603,
+                  "average_execution_batch_size": 1.044776119402985,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "591",
+                        "ns": "69893209"
+                      },
+                      "compute_infer": {
+                        "count": "591",
+                        "ns": "1695912857"
+                      },
+                      "compute_output": {
+                        "count": "591",
+                        "ns": "9732231"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "630",
+                      "ns": "5512431290"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "630",
+                      "ns": "2449821132"
+                    },
+                    "compute_input": {
+                      "count": "630",
+                      "ns": "93429210"
+                    },
+                    "compute_infer": {
+                      "count": "630",
+                      "ns": "2897603170"
+                    },
+                    "compute_output": {
+                      "count": "630",
+                      "ns": "10747057"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 701,
+                  "execution_count": 680,
+                  "average_execution_batch_size": 1.0308823529411764,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "671",
+                        "ns": "332359774"
+                      },
+                      "compute_infer": {
+                        "count": "671",
+                        "ns": "14304655532"
+                      },
+                      "compute_output": {
+                        "count": "671",
+                        "ns": "14579061"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "701",
+                      "ns": "19558245298"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "701",
+                      "ns": "2809222618"
+                    },
+                    "compute_input": {
+                      "count": "701",
+                      "ns": "417060537"
+                    },
+                    "compute_infer": {
+                      "count": "701",
+                      "ns": "16207552041"
+                    },
+                    "compute_output": {
+                      "count": "701",
+                      "ns": "15761472"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 694,
+                  "execution_count": 667,
+                  "average_execution_batch_size": 1.04047976011994,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "655",
+                        "ns": "76583317"
+                      },
+                      "compute_infer": {
+                        "count": "655",
+                        "ns": "1833421881"
+                      },
+                      "compute_output": {
+                        "count": "655",
+                        "ns": "10671162"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "694",
+                      "ns": "5802561281"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "694",
+                      "ns": "2589026784"
+                    },
+                    "compute_input": {
+                      "count": "694",
+                      "ns": "100119318"
+                    },
+                    "compute_infer": {
+                      "count": "694",
+                      "ns": "3035112194"
+                    },
+                    "compute_output": {
+                      "count": "694",
+                      "ns": "11685988"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 766,
+                  "execution_count": 745,
+                  "average_execution_batch_size": 1.0281879194630872,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "736",
+                        "ns": "362675786"
+                      },
+                      "compute_infer": {
+                        "count": "736",
+                        "ns": "15680968574"
+                      },
+                      "compute_output": {
+                        "count": "736",
+                        "ns": "15648263"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "766",
+                      "ns": "21115732574"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "766",
+                      "ns": "2950676691"
+                    },
+                    "compute_input": {
+                      "count": "766",
+                      "ns": "447376549"
+                    },
+                    "compute_infer": {
+                      "count": "766",
+                      "ns": "17583865083"
+                    },
+                    "compute_output": {
+                      "count": "766",
+                      "ns": "16830674"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            7
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": false
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "inference_fps": 5.0,
+          "cameras": 1,
+          "seconds": 30.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.8
+          ],
+          "total_fps": 1.8,
+          "p95_ms": 848.2,
+          "p99_ms": 885.4,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 2.5142857142857142,
+          "rss_peak_mib": 1573.03515625,
+          "decoded": 532,
+          "errors": [],
+          "cpu_core_seconds": 43.81793742400001,
+          "model_calls": {
+            "rfdetr_driver_triton": 62,
+            "face_mesh_triton": 61
+          },
+          "triton_statistics_before": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 694,
+                  "execution_count": 667,
+                  "average_execution_batch_size": 1.04047976011994,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "655",
+                        "ns": "76583317"
+                      },
+                      "compute_infer": {
+                        "count": "655",
+                        "ns": "1833421881"
+                      },
+                      "compute_output": {
+                        "count": "655",
+                        "ns": "10671162"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "694",
+                      "ns": "5802561281"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "694",
+                      "ns": "2589026784"
+                    },
+                    "compute_input": {
+                      "count": "694",
+                      "ns": "100119318"
+                    },
+                    "compute_infer": {
+                      "count": "694",
+                      "ns": "3035112194"
+                    },
+                    "compute_output": {
+                      "count": "694",
+                      "ns": "11685988"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 766,
+                  "execution_count": 745,
+                  "average_execution_batch_size": 1.0281879194630872,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "736",
+                        "ns": "362675786"
+                      },
+                      "compute_infer": {
+                        "count": "736",
+                        "ns": "15680968574"
+                      },
+                      "compute_output": {
+                        "count": "736",
+                        "ns": "15648263"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "766",
+                      "ns": "21115732574"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "766",
+                      "ns": "2950676691"
+                    },
+                    "compute_input": {
+                      "count": "766",
+                      "ns": "447376549"
+                    },
+                    "compute_infer": {
+                      "count": "766",
+                      "ns": "17583865083"
+                    },
+                    "compute_output": {
+                      "count": "766",
+                      "ns": "16830674"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "triton_statistics_after": {
+            "face_mesh_triton": {
+              "model": "face_mesh_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "face_mesh_onnx",
+                  "version": "1",
+                  "inference_count": 755,
+                  "execution_count": 728,
+                  "average_execution_batch_size": 1.0370879120879122,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "716",
+                        "ns": "83697693"
+                      },
+                      "compute_infer": {
+                        "count": "716",
+                        "ns": "1971498892"
+                      },
+                      "compute_output": {
+                        "count": "716",
+                        "ns": "11647246"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "1846764"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "221898581"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "105436"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "894103"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "72339961"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "28330"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "7",
+                        "ns": "4290041"
+                      },
+                      "compute_infer": {
+                        "count": "7",
+                        "ns": "135218317"
+                      },
+                      "compute_output": {
+                        "count": "7",
+                        "ns": "179741"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "755",
+                      "ns": "6087744086"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "755",
+                      "ns": "2722338814"
+                    },
+                    "compute_input": {
+                      "count": "755",
+                      "ns": "107233694"
+                    },
+                    "compute_infer": {
+                      "count": "755",
+                      "ns": "3173189205"
+                    },
+                    "compute_output": {
+                      "count": "755",
+                      "ns": "12662072"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            },
+            "rfdetr_driver_triton": {
+              "model": "rfdetr_driver_behaviour_onnx",
+              "max_batch_size": 4,
+              "dynamic_batching": true,
+              "versions": [
+                {
+                  "name": "rfdetr_driver_behaviour_onnx",
+                  "version": "1",
+                  "inference_count": 828,
+                  "execution_count": 807,
+                  "average_execution_batch_size": 1.0260223048327137,
+                  "batch_stats": [
+                    {
+                      "batch_size": "1",
+                      "compute_input": {
+                        "count": "798",
+                        "ns": "394588303"
+                      },
+                      "compute_infer": {
+                        "count": "798",
+                        "ns": "16995662448"
+                      },
+                      "compute_output": {
+                        "count": "798",
+                        "ns": "16819177"
+                      }
+                    },
+                    {
+                      "batch_size": "2",
+                      "compute_input": {
+                        "count": "1",
+                        "ns": "2777814"
+                      },
+                      "compute_infer": {
+                        "count": "1",
+                        "ns": "39627681"
+                      },
+                      "compute_output": {
+                        "count": "1",
+                        "ns": "29523"
+                      }
+                    },
+                    {
+                      "batch_size": "3",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "9065401"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "226992089"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "168971"
+                      }
+                    },
+                    {
+                      "batch_size": "4",
+                      "compute_input": {
+                        "count": "4",
+                        "ns": "12987233"
+                      },
+                      "compute_infer": {
+                        "count": "4",
+                        "ns": "285666220"
+                      },
+                      "compute_output": {
+                        "count": "4",
+                        "ns": "154113"
+                      }
+                    }
+                  ],
+                  "inference_stats": {
+                    "success": {
+                      "count": "828",
+                      "ns": "22606602617"
+                    },
+                    "fail": {},
+                    "queue": {
+                      "count": "828",
+                      "ns": "3085095061"
+                    },
+                    "compute_input": {
+                      "count": "828",
+                      "ns": "479289066"
+                    },
+                    "compute_infer": {
+                      "count": "828",
+                      "ns": "18898558957"
+                    },
+                    "compute_output": {
+                      "count": "828",
+                      "ns": "18001588"
+                    },
+                    "cache_hit": {},
+                    "cache_miss": {}
+                  }
+                }
+              ]
+            }
+          },
+          "dropped_before_processing": [
+            114
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "passed": false
+        }
+      ]
+    }
+  },
+  "identity_recheck": "After correcting capacity RAM matching to allow <=1% reporting drift while requiring CPU count; no inference code changed. Earlier complete sweeps retained separately."
+}

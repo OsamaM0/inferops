@@ -1,0 +1,13 @@
+# Capture fixture only. Does not consume GPU capacity alongside app benchmarks.
+services:
+  mediamtx-load:
+    image: bluenviron/mediamtx:1.21.2
+    ports: ['127.0.0.1:18554:8554']
+    environment:
+      MTX_RTSPTRANSPORTS: tcp
+      MTX_RTMP: 'no'
+      MTX_HLS: 'no'
+      MTX_WEBRTC: 'no'
+      MTX_SRT: 'no'
+      MTX_MOQ: 'no'
+    restart: 'no'

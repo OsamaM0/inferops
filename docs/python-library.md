@@ -19,7 +19,6 @@ pip install 'inferops[cpu]'
 pip install 'inferops[cuda]'
 pip install 'inferops[triton]'
 pip install 'inferops[tensorrt]'
-pip install 'inferops[deepstream]'
 pip install inferops-driver-behaviour
 ```
 
@@ -185,13 +184,13 @@ async def durable_run():
         return await engine.run('driver_video', 'clip.mp4')
 ```
 
-This requires the `server` extra, PostgreSQL, MinIO and the configured delivery
+This requires the `server` extra, PostgreSQL, persistent disk and the configured delivery
 transport. It enables snapshot/clip capture for accepted incidents and uses the
 persistent spool. The supported server deployment has one application owner; do
 not start this as an additional owner against a running API's live records.
 
-For a development run with SQLite and filesystem artifacts, install the `server`
-and `dev` extras and construct those adapters explicitly:
+For durable development runs, use a dedicated PostgreSQL database and persistent disk.
+Install the `server` extra and construct these adapters explicitly:
 
 ```python
 from pathlib import Path
@@ -203,8 +202,8 @@ async def development_run():
     Path('.run/dev').mkdir(parents=True, exist_ok=True)
     async with Engine.from_project(
         './my_project',
-        repository=SqlRepository('sqlite+aiosqlite:///.run/dev/records.db'),
-        storage=FilesystemStorage('.run/dev/artifacts'),
+        repository=SqlRepository('postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/inferops_dev'),
+        storage=FilesystemStorage('.run/dev/evidence'),
         evidence=True,
         spool_path='.run/dev/spool',
     ) as engine:
@@ -212,10 +211,12 @@ async def development_run():
 ```
 
 The spool retains recoverable material separately from completed artifacts.
+Optional `S3Storage` implements the same `ObjectStore` port; install `.[s3]` and
+supply its endpoint, credentials and bucket when shared object storage is needed.
 `Model`, `InferenceSession` and `Model.from_yaml()` remain supported, including
 raw tensor inference and async cleanup. Relative project plugins require explicit
 project loading rather than a process-global active project. See the
-[migration guide](redesign.md) for states, retries, ownership and rollout checks.
+[lifecycle guide](lifecycle.md) for states, retries, ownership and release operation.
 
 A pipeline can chain multiple `infer` stages on a frame, then `track`, `fuse` and
 `alert`. Each infer stage appends its result, allowing fusion rules to combine
@@ -257,11 +258,7 @@ engines through a separately running Triton server. A logical model port can add
 a `tensorrt` variant and select it with `runtime='tensorrt'` in the Python API.
 
 The TensorRT extra targets CUDA 12 / TensorRT 10. Matching NVIDIA drivers and
-runtime libraries must be present. DeepStream uses the existing video execution
-path and Triton model serving; its extra installs Python clients/PyAV. Install the
-DeepStream SDK, GStreamer plugins and matching Python bindings through NVIDIA's
-system/container setup. Installing that extra alone does not provide the SDK or
-a standalone `deepstream` model backend. Accelerator execution requires hardware
+runtime libraries must be present. Accelerator execution requires hardware
 validation on your deployment machine.
 
 Sources: [ONNX Runtime installation](https://onnxruntime.ai/docs/install/),

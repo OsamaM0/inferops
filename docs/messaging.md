@@ -37,8 +37,9 @@ state when they need the latest authoritative view.
 
 ## What the default deployment runs
 
-The [base Compose stack](../deploy/compose.yaml) starts one Redpanda broker and
-one API process. The API runs evidence workers and the outbox relay internally.
+The [base Compose stack](../deploy/compose.yaml) starts one API process; Redpanda
+is enabled explicitly with the `broker` profile and transport settings. The API
+runs evidence workers and the outbox relay internally.
 It does **not** launch a separate topic worker, Redpanda Console or an external
 consumer service. Adding a Kafka sink does not create a second inference engine.
 
@@ -153,11 +154,12 @@ shape. Reserving an inbox entry and then performing a separate remote effect
 can lose the effect after a crash. Webhooks receive `Idempotency-Key: <event_id>`;
 duplicate-free remote effects depend on the receiver honoring it.
 
-`ServerDelivery` publishes to the broker before incident notification/actions.
-If a later action fails, the row is retried and earlier successful publications
-or actions can repeat. This is a single delivery attempt with fan-out, not an
-independent exactly-once transaction per target. Stable identities let receivers
-handle those retries.
+New `ServerDelivery` intents split local notification, optional broker publication
+and each action into independent durable rows with stable IDs. A broker outage
+does not block local notifications or unrelated actions. Every destination remains
+at least once; receivers must deduplicate. Legacy unsplit rows retain their old
+fan-out retry behavior until delivered. In static-worker mode only the API owns
+the relay, so local hints reach its dashboard subscribers.
 
 ## Inbound path: broker records to shared pipeline services
 
@@ -237,10 +239,11 @@ inferops worker topic driver_behaviour \
 
 The environment also needs matching PostgreSQL, MinIO, spool and runtime settings;
 see [deployment](../deploy/README.md). On another container, use the internal
-broker address instead. The server bootstrap is deliberately single-owner:
+broker address instead. Combined bootstrap is deliberately single-owner:
 starting this command beside the default API against the same database/spool
-can fence active API sessions. Worker parallelization requires an explicit
-ownership design beyond the current deployment.
+can fence active API sessions. The optional [static camera workers](static-workers.md)
+have scoped ownership; this does not automatically turn topic workers into
+independently owned shards. Give topic workers isolated bundles.
 
 ## Inspect the shipped broker
 

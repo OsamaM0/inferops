@@ -1,13 +1,12 @@
-"""The project UI and original service interfaces, served by the Python API."""
+"""One packaged operations console and browser-safe service discovery."""
 from __future__ import annotations
 
 import os
-from html import escape
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 API_DIR = Path(__file__).resolve().parent
@@ -19,7 +18,8 @@ SERVICE_INTERFACES = {
     "prometheus": ("Prometheus", "PROMETHEUS", 9090, "/graph", "Metrics queries, scrape targets and alerts"),
 }
 API_PAGES = {
-    "dashboard": ("InferOps", "/ui/", "Project controls, live preview, activity and YAML configuration"),
+    "cameras": ("Sources", "/ui/cameras", "Register RTSP, video and image sources; annotations, history and measured capacity"),
+    "dashboard": ("InferOps", "/ui/", "Project controls, live preview, activity and configuration forms"),
     "guide": ("Interface guide", "/ui/guide", "All interfaces, ports and API routes in this running instance"),
     "swagger": ("Swagger API docs", "/docs", "Interactive HTTP API documentation"),
     "redoc": ("ReDoc", "/redoc", "Readable HTTP API reference"),
@@ -35,11 +35,16 @@ PORTS = [
     ("Grafana", "3000", "3000", "Original web UI / HTTP API", "INFEROPS_GRAFANA_PORT"),
     ("Prometheus", "9090", "9090", "Original web UI / HTTP API", "INFEROPS_PROMETHEUS_PORT"),
     ("PostgreSQL", "5432", "5432", "PostgreSQL protocol; no web UI", "INFEROPS_PG_PORT"),
-    ("Redis", "6379", "6379", "RESP protocol; no web UI", "INFEROPS_REDIS_PORT"),
     ("Redpanda Kafka", "19092", "19092 / 9092", "Kafka protocol; no web UI", "INFEROPS_KAFKA_PORT"),
-    ("Triton HTTP", "8000", "8000", "Inference API; Triton / DeepStream modes", "INFEROPS_TRITON_HTTP_PORT"),
-    ("Triton gRPC", "8001", "8001", "Inference gRPC; Triton / DeepStream modes", "INFEROPS_TRITON_GRPC_PORT"),
-    ("Triton metrics", "8002", "8002", "Metrics; Triton / DeepStream modes", "INFEROPS_TRITON_METRICS_PORT"),
+    ("Triton HTTP", "8000", "8000", "Inference API; Triton mode", "INFEROPS_TRITON_HTTP_PORT"),
+    ("Triton gRPC", "8001", "8001", "Inference gRPC; Triton mode", "INFEROPS_TRITON_GRPC_PORT"),
+    ("Triton metrics", "8002", "8002", "Metrics; Triton mode", "INFEROPS_TRITON_METRICS_PORT"),
+    ("MediaMTX RTSP", "8554", "8554", "Default shared camera relay", "INFEROPS_MEDIAMTX_RTSP_PORT"),
+    ("MediaMTX WebRTC", "8889", "8889", "Live video player", "INFEROPS_MEDIAMTX_WEBRTC_PORT"),
+    ("MediaMTX HLS", "8888", "8888", "HLS player", "INFEROPS_MEDIAMTX_HLS_PORT"),
+    ("MediaMTX playback", "9996", "9996", "Original stream recordings", "INFEROPS_MEDIAMTX_PLAYBACK_PORT"),
+    ("MediaMTX ICE", "8189/udp", "8189/udp", "WebRTC media", ""),
+    ("MediaMTX control", "9997 (loopback)", "9997", "Authenticated internal API", "INFEROPS_MEDIAMTX_API_PORT"),
     ("Redpanda admin", "unpublished", "9644", "Internal HTTP admin / metrics API", ""),
     ("Redpanda Schema Registry", "unpublished", "8081", "Internal HTTP API", ""),
     ("Redpanda Pandaproxy", "unpublished", "8082", "Internal HTTP Kafka proxy", ""),
@@ -77,6 +82,8 @@ def interface_catalog(request: Request) -> list[dict]:
 
 def mount_ui(app: FastAPI) -> None:
     """Keep application HTML, CSS and JavaScript in the installed API package."""
+    @app.get("/ui/cameras", include_in_schema=False)
+    @app.get("/ui/guide", include_in_schema=False)
     @app.get("/ui", include_in_schema=False)
     @app.get("/ui/", include_in_schema=False)
     @app.get("/frontend", include_in_schema=False)
@@ -88,7 +95,14 @@ def mount_ui(app: FastAPI) -> None:
 
     @app.get("/v1/interfaces", tags=["interfaces"])
     async def interfaces(request: Request):
-        return {"interfaces": interface_catalog(request)}
+        return {
+            "interfaces": interface_catalog(request),
+            "ports": [
+                {"name": name, "host": os.getenv(variable, host) if variable else host,
+                 "internal": internal, "protocol": protocol, "override": variable}
+                for name, host, internal, protocol, variable in PORTS
+            ],
+        }
 
     @app.get("/v1/interfaces/{name}", tags=["interfaces"])
     async def open_interface(name: str, request: Request):
@@ -96,47 +110,3 @@ def mount_ui(app: FastAPI) -> None:
             if item["id"] == name:
                 return RedirectResponse(item["url"], status_code=307)
         raise HTTPException(404, "Unknown interface")
-
-    @app.get("/ui/guide", response_class=HTMLResponse, include_in_schema=False)
-    async def guide(request: Request):
-        links = "".join(
-            f'<tr><td><a href="{escape(item["url"], quote=True)}">{escape(item["title"])}</a></td>'
-            f'<td>{escape(item["description"])}</td></tr>' for item in interface_catalog(request)
-        )
-        ports = "".join(
-            "<tr>" + "".join(f"<td>{escape(str(cell))}</td>" for cell in (
-                name, os.getenv(variable, host) if variable else host, internal, protocol, variable,
-            )) + "</tr>" for name, host, internal, protocol, variable in PORTS
-        )
-        routes = "".join(
-            f'<tr><td>{escape(method.upper())}</td><td><code>{escape(path)}</code></td>'
-            f'<td>{escape(operation.get("summary", ""))}</td></tr>'
-            for path, operations in app.openapi()["paths"].items() if path.startswith("/v1/")
-            for method, operation in operations.items() if method in {"get", "post", "put", "delete", "patch"}
-        )
-        routes += (
-            '<tr><td>WS</td><td><code>/v1/live/{pipeline}</code></td><td>Live frame inference</td></tr>'
-            '<tr><td>WS</td><td><code>/v1/ws/{channel}</code></td><td>Pipeline event subscriptions</td></tr>'
-        )
-        return HTMLResponse(
-            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            '<title>InferOps interface guide</title><link rel="stylesheet" href="/ui/static/dashboard.css">'
-            '</head><body><main class="shell guide"><a href="/ui/">← InferOps</a>'
-            '<h1>Interfaces, APIs and ports</h1>'
-            '<p>All web interfaces run with <code>docker compose up -d --build</code> from the project directory. '
-            'MinIO: <code>minio / minio12345</code>. Grafana: <code>admin / admin</code>. '
-            'Environment settings can override these development credentials.</p>'
-            '<h2>Pages</h2><div class="table-wrap"><table><thead><tr><th>Interface</th><th>Purpose</th>'
-            f'</tr></thead><tbody>{links}</tbody></table></div>'
-            '<h2>Ports</h2><div class="table-wrap"><table><thead><tr><th>Service</th><th>Host port</th>'
-            f'<th>Container port</th><th>Protocol / purpose</th><th>Override</th></tr></thead><tbody>{ports}</tbody></table></div>'
-            '<p>Host ports apply to Docker deployment. Native mode uses localhost service settings; '
-            'set their endpoints explicitly if you change published ports. DeepStream has no separate web server. '
-            'Camera capture requires localhost or HTTPS. For reverse proxies, configure the service '
-            '<code>INFEROPS_*_PUBLIC_URL</code> values. Service links open the original applications.</p>'
-            '<h2>API routes</h2><p>See <a href="/docs">Swagger</a> for request bodies, query parameters and responses.</p>'
-            '<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Operation</th>'
-            f'</tr></thead><tbody>{routes}</tbody></table></div>'
-            '</main></body></html>'
-        )

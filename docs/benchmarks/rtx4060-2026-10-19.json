@@ -1,0 +1,374 @@
+{
+  "date_local": "2026-10-19",
+  "timezone": "Africa/Cairo",
+  "classification": "short local measurements, not certified maximum camera capacity",
+  "hardware": {
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700HX",
+    "logical_cpus": 24,
+    "ram_bytes": 15948357632,
+    "gpu": [
+      {
+        "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+        "total_mib": 8188.0,
+        "driver": "580.178.04"
+      }
+    ],
+    "persistent_data_filesystem": "fuseblk"
+  },
+  "pipeline": "driver_behaviour",
+  "runtime": "cuda",
+  "model_artifacts": {
+    "face_mesh_onnx": {
+      "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+      "bytes": 4955225
+    },
+    "face_mesh_tensorrt": {
+      "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+      "bytes": 4955225
+    },
+    "face_mesh_triton": {
+      "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+      "bytes": 4955225
+    },
+    "rfdetr_driver_onnx": {
+      "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+      "bytes": 125468266
+    },
+    "rfdetr_driver_tensorrt": {
+      "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+      "bytes": 125468266
+    },
+    "rfdetr_driver_triton": {
+      "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+      "bytes": 125468266
+    }
+  },
+  "active_providers": {
+    "face_mesh_onnx": {
+      "requested": "gpu",
+      "effective": "gpu",
+      "gpu_id": 0,
+      "downgraded": false,
+      "reason": "CUDAExecutionProvider available",
+      "active_providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ]
+    },
+    "rfdetr_driver_onnx": {
+      "requested": "gpu",
+      "effective": "gpu",
+      "gpu_id": 0,
+      "downgraded": false,
+      "reason": "CUDAExecutionProvider available",
+      "active_providers": [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ]
+    }
+  },
+  "fixture": {
+    "encoded_size": "1920x1080",
+    "encoded_fps": 15,
+    "codec": "H264",
+    "content": "Repository driver sample originally 360x640, upscaled/pillarboxed; repeated footage, not independent real cameras",
+    "quality_assessment": "not performed"
+  },
+  "pass_rule": {
+    "per_camera_fps_fraction": 0.95,
+    "receive_to_result_p95_ms": 1000,
+    "processing_errors_allowed": 0
+  },
+  "local_sqlite_profile": {
+    "raw_report": ".run/capacity/20261018-231331/report.json",
+    "software_fingerprint": "acec1b90de8e3c6ba5247f03b9d1e23f0e57bd3cfa4e7653004ec1e746114b4c",
+    "service_profile": {
+      "repository": "SqlRepository",
+      "sql_dialect": "sqlite",
+      "evidence_storage": "FilesystemStorage",
+      "model_concurrency": 1,
+      "opencv_threads": 1,
+      "preview_fps": 2,
+      "preview_width": 640,
+      "jpeg_quality": 75
+    },
+    "evidence_policy": {
+      "pre_seconds": 5.0,
+      "post_seconds": 5.0,
+      "sample_fps": 10.0,
+      "processing_lag_seconds": 5.0,
+      "per_session_bytes": 67108864,
+      "global_bytes": 268435456,
+      "max_active_captures": 64,
+      "workers": 2,
+      "max_spool_bytes": 10737418240,
+      "disk_reserve_bytes": 1073741824,
+      "retry_delays": [
+        1.0,
+        5.0,
+        30.0
+      ],
+      "capture_timeout_seconds": 60.0,
+      "shutdown_timeout_seconds": 30.0
+    },
+    "cases": [
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 2.0,
+        "cameras": 1,
+        "seconds": 20.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          2.05
+        ],
+        "total_fps": 2.05,
+        "p95_ms": 341.4,
+        "p99_ms": 387.9,
+        "gpu_used_peak_mib": 2208.0,
+        "gpu_utilization_mean": 3.4,
+        "rss_peak_mib": 1527.1640625,
+        "decoded": 384,
+        "errors": [],
+        "cpu_core_seconds": 14.437909182999999,
+        "model_calls": {
+          "rfdetr_driver_onnx": 51,
+          "face_mesh_onnx": 51
+        },
+        "passed": true
+      },
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 2.0,
+        "cameras": 2,
+        "seconds": 20.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          1.85,
+          1.85
+        ],
+        "total_fps": 3.7,
+        "p95_ms": 2302.4,
+        "p99_ms": 2675.0,
+        "gpu_used_peak_mib": 5126.0,
+        "gpu_utilization_mean": 7.28,
+        "rss_peak_mib": 2035.05078125,
+        "decoded": 768,
+        "errors": [],
+        "cpu_core_seconds": 27.182664629,
+        "model_calls": {
+          "rfdetr_driver_onnx": 90,
+          "face_mesh_onnx": 90
+        },
+        "passed": false
+      },
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 4.0,
+        "cameras": 1,
+        "seconds": 20.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          1.55
+        ],
+        "total_fps": 1.55,
+        "p95_ms": 2941.0,
+        "p99_ms": 3272.7,
+        "gpu_used_peak_mib": 5620.0,
+        "gpu_utilization_mean": 1.0,
+        "rss_peak_mib": 2109.96484375,
+        "decoded": 200,
+        "errors": [],
+        "cpu_core_seconds": 20.672642277,
+        "model_calls": {
+          "rfdetr_driver_onnx": 40,
+          "face_mesh_onnx": 35
+        },
+        "passed": false
+      },
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 5.0,
+        "cameras": 1,
+        "seconds": 20.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          0.85
+        ],
+        "total_fps": 0.85,
+        "p95_ms": 4025.4,
+        "p99_ms": 4079.6,
+        "gpu_used_peak_mib": 5620.0,
+        "gpu_utilization_mean": 0.8148148148148148,
+        "rss_peak_mib": 2174.0625,
+        "decoded": 91,
+        "errors": [],
+        "cpu_core_seconds": 17.21285504100001,
+        "model_calls": {
+          "rfdetr_driver_onnx": 26,
+          "face_mesh_onnx": 14
+        },
+        "passed": false
+      }
+    ]
+  },
+  "ram_diagnostic": {
+    "raw_report": "/tmp/inferops-capacity-native/20261018-215752/report.json",
+    "note": "Earlier diagnostic with RAM-backed files and an in-memory incident/session repository. Not equivalent to the persistent UI server; not auto-promoted to its capacity profile.",
+    "cases": [
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 5.0,
+        "cameras": 1,
+        "seconds": 15.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          5.067
+        ],
+        "total_fps": 5.067,
+        "p95_ms": 240.3,
+        "p99_ms": 270.6,
+        "gpu_used_peak_mib": 2721.0,
+        "gpu_utilization_mean": 8.5,
+        "rss_peak_mib": 1643.79296875,
+        "decoded": 304,
+        "errors": [],
+        "cpu_core_seconds": 23.111177375,
+        "model_calls": {
+          "rfdetr_driver_onnx": 101,
+          "face_mesh_onnx": 54
+        },
+        "passed": true
+      },
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 5.0,
+        "cameras": 2,
+        "seconds": 15.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          4.733,
+          4.8
+        ],
+        "total_fps": 9.533,
+        "p95_ms": 440.8,
+        "p99_ms": 668.6,
+        "gpu_used_peak_mib": 5595.0,
+        "gpu_utilization_mean": 13.75,
+        "rss_peak_mib": 2263.08984375,
+        "decoded": 608,
+        "errors": [],
+        "cpu_core_seconds": 48.351465731000005,
+        "model_calls": {
+          "rfdetr_driver_onnx": 193,
+          "face_mesh_onnx": 106
+        },
+        "passed": false
+      },
+      {
+        "width": 640,
+        "height": 480,
+        "inference_fps": 10.0,
+        "cameras": 1,
+        "seconds": 15.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          5.6
+        ],
+        "total_fps": 5.6,
+        "p95_ms": 305.3,
+        "p99_ms": 380.7,
+        "gpu_used_peak_mib": 5609.0,
+        "gpu_utilization_mean": 13.5,
+        "rss_peak_mib": 2349.1015625,
+        "decoded": 303,
+        "errors": [],
+        "cpu_core_seconds": 25.86594876999999,
+        "model_calls": {
+          "rfdetr_driver_onnx": 114,
+          "face_mesh_onnx": 59
+        },
+        "passed": false
+      },
+      {
+        "width": 1280,
+        "height": 720,
+        "inference_fps": 5.0,
+        "cameras": 1,
+        "seconds": 15.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          1.933
+        ],
+        "total_fps": 1.933,
+        "p95_ms": 814.3,
+        "p99_ms": 883.0,
+        "gpu_used_peak_mib": 5609.0,
+        "gpu_utilization_mean": 4.25,
+        "rss_peak_mib": 2617.8359375,
+        "decoded": 307,
+        "errors": [],
+        "cpu_core_seconds": 31.909404226999996,
+        "model_calls": {
+          "rfdetr_driver_onnx": 38,
+          "face_mesh_onnx": 37
+        },
+        "passed": false
+      },
+      {
+        "width": 1280,
+        "height": 720,
+        "inference_fps": 10.0,
+        "cameras": 1,
+        "seconds": 15.0,
+        "warmup_seconds": 5.0,
+        "per_camera_fps": [
+          2.0
+        ],
+        "total_fps": 2.0,
+        "p95_ms": 728.6,
+        "p99_ms": 767.2,
+        "gpu_used_peak_mib": 5609.0,
+        "gpu_utilization_mean": 6.4,
+        "rss_peak_mib": 2749.953125,
+        "decoded": 306,
+        "errors": [],
+        "cpu_core_seconds": 32.204803053999996,
+        "model_calls": {
+          "rfdetr_driver_onnx": 39,
+          "face_mesh_onnx": 38
+        },
+        "passed": false
+      }
+    ]
+  },
+  "rtsp_reconnect": {
+    "success": true,
+    "first_frame_seconds": 5.256069572999877,
+    "cut_state": "reconnecting",
+    "reconnect_seconds": 4.807677689000229,
+    "close_seconds": 0.07328500299990992,
+    "stats": {
+      "decoded": 33,
+      "dropped": 23,
+      "connection": "connected",
+      "source_width": 360,
+      "source_height": 640,
+      "reconnects": 1
+    },
+    "reader_threads_remaining": []
+  },
+  "limitations": [
+    "20-second measured windows after 5-second warmup for the final SQLite profile; no long soak",
+    "Paced local-file streams rather than a full multi-camera RTSP/network load test",
+    "Camera images, H264 complexity and conditional FaceMesh/CPU fallback affect capacity",
+    "GPU VRAM peaks include shared model arenas/caches; they are not per-camera VRAM allocations",
+    "Measured CPU/application/storage limits cannot be interpreted as the absolute RTX 4060 GPU limit",
+    "PostgreSQL/MinIO and alternate preview settings require their own matched profile"
+  ]
+}

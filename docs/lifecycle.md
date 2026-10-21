@@ -57,9 +57,9 @@ The root `compose.yaml` includes the base stack and one runtime overlay. The API
 image packages engine code and UI; `/project` is a writable bind mount containing
 the selected project. The `prepare` container validates/prepares that mount.
 
-Services can start concurrently where dependencies permit. The API waits for
-successful preparation and MinIO readiness, plus healthy PostgreSQL, Redis and
-Redpanda. Triton modes also wait for the model server, which itself depends on
+The default starts preparation, PostgreSQL, MediaMTX and one combined
+API, with persistent-disk evidence. MinIO/S3 (`storage`), Redpanda (`broker`) and monitoring
+are optional profiles. Triton mode waits for the model server, which itself depends on
 preparation. This is a **startup dependency graph**; it does not restart the API
 whenever a dependency later becomes unhealthy.
 
@@ -73,7 +73,7 @@ Construction reads deployment settings and loads an instance-scoped project:
 
 1. Load platform/project/model/pipeline/rule definitions and validate references.
 2. Compute a project revision and bind relative plugins to that project context.
-3. Construct the model pool, SQL repository, S3 storage, persistent spool,
+3. Construct the model pool, SQL repository, filesystem storage (optional S3), persistent spool,
    evidence service, delivery adapter and selected transport.
 4. Inject those objects into `PipelineApplication` and wrap it in `Engine`.
 
@@ -97,11 +97,12 @@ Construction and startup are distinct. Constructors establish ownership;
 7. Start the HTTP job service: interrupted running jobs become failed, and
    persisted queued jobs within the admission bound are scheduled.
 
-The current startup policy assumes **one active engine owner per database/spool
-bundle**. A second default server/worker against that bundle can interrupt the
-first owner's sessions. Run worker entry points as an alternative owner or use
-an explicitly isolated bundle. Multiple Uvicorn workers/replicas are not a
-supported way to scale this configuration.
+Combined mode assumes one active owner per database/spool bundle. Optional
+`api` and `camera-worker` roles instead acquire PostgreSQL scopes before recovery;
+each recovers only its own sessions/jobs/evidence. Writes check the current lease
+and generation in the same transaction. Workers have separate locked persistent
+spools and generation-specific object keys. See [static workers](static-workers.md).
+Multiple Uvicorn API replicas and automatic cross-host reassignment are unsupported.
 
 `/healthz` checks the API process. `/readyz` reports engine startup state. Neither
 proves model capacity or continuing health of every dependency; inspect
@@ -141,9 +142,10 @@ and payload. The session adds `session_id` and `timeline_id` to processing data.
 Files decode incrementally with PyAV. Variable frame rates use decoded PTS;
 `every_n` controls input sampling. Missing PTS uses advertised average frame rate
 and marks the estimate; if both are unavailable the source fails visibly.
-Browser clients can supply capture-relative media time. The current OpenCV
-camera adapter estimates capture intervals using monotonic time; it does not
-extract every camera's native hardware timestamp.
+Browser clients can supply capture-relative media time. RTSP/MJPEG entry points
+share a PyAV capture adapter with a latest slot, per-context options and bounded
+reader threads. It records local receive time before conversion, source PTS when
+available and connection generation; receive time is not camera hardware time.
 
 Equal media timestamps are valid when sequence increases. A backwards timestamp
 starts a new timeline, resets temporal stages and finalizes affected captures
@@ -231,8 +233,9 @@ For a trigger at media time `t`, the requested interval is
 3. Closes the capture on source termination, discontinuity or monotonic timeout
    when completion is impossible, retaining a reason.
 4. Encodes a snapshot near the trigger and an MP4 clip asynchronously.
-5. Uploads deterministic `evidence/<evidence_id>/snapshot.jpg`, `clip.mp4` and
-   `manifest.json` objects, recording SHA-256 hashes and verifying uploads.
+5. Uploads snapshot, clip and manifest objects, recording and verifying SHA-256.
+   Distributed owners prefix keys with `owners/<scope>/<generation>` to prevent
+   stale uploads overwriting a replacement owner's artifacts.
 6. Commits artifact references, requested/actual coverage, missing intervals,
    errors and state. Evidence revisions create `evidence.updated` outbox rows.
 7. Removes spool material only after a `Saved` completion commit. Incomplete
@@ -268,8 +271,9 @@ because the full requested pre/post interval does not exist.
 ## 10. Distribute committed effects and query state
 
 The outbox relay claims committed SQL records and calls the delivery adapter.
-The adapter publishes to Redpanda and runs configured notification/actions;
-acknowledgment marks the SQL row delivered. Evidence capture begins from the
+Local notification, optional broker delivery and each action have independent
+durable IDs and retries. A failed broker does not block local notifications or
+webhooks. The API owns the distributed relay. Evidence capture begins from the
 committed request and does not wait for the broker. See [the full messaging
 protocol](messaging.md).
 
@@ -283,8 +287,8 @@ protocol](messaging.md).
 | Inspect operation | `/metrics`, Prometheus targets and Grafana |
 
 WebSocket hints can be dropped or missed. SQL queries recover authoritative
-state. Broker failure can delay durable incident/evidence notifications even
-while capture continues; transient inference previews have their own path.
+state. Broker failure delays its own destination; transient inference previews
+and local notifications have independent paths.
 
 ## 11. Background jobs and configuration changes
 
@@ -329,7 +333,7 @@ and committed spool generations.
 | Outbox publication acknowledged; SQL ack interrupted | Republish with the same event ID; consumer deduplication is required |
 | Manual deletion interrupted | Resume object/spool cleanup from the persisted tombstone |
 
-The SQL database, spool filesystem and MinIO do not share a distributed atomic
+The SQL database, spool and completed evidence store do not share a distributed atomic
 transaction. Reconciliation is part of normal operation. Source frames not
 captured durably before a crash cannot be reconstructed from incident records.
 
@@ -339,12 +343,11 @@ captured durably before a crash cannot be reconstructed from incident records.
 | --- | --- |
 | Session/model/job capacity exhausted | Visible admission failure; no unbounded queue growth |
 | PostgreSQL unavailable | Session processing/acceptance and durable job submission fail visibly; direct prediction has no SQL dependency |
-| MinIO slow/unavailable | Retain spool and retry within configured limits; then expose terminal state and retry information |
+| Evidence disk or optional S3 unavailable | Retain spool and retry within configured limits; then expose terminal state and retry information |
 | Redpanda unavailable | Pending outbox accumulates within its admission bound; capture is independent until persistence/outbox capacity is exhausted |
 | Capture/encoding capacity exhausted | Accepted evidence record carries an explicit capacity reason |
 | Spool quota/disk reserve reached | Capture fails or retains available incomplete material; objects are not auto-deleted to free space |
 | Camera stops or timestamps regress | Finalize affected windows with source/discontinuity reasons |
-| Redis unavailable | Current shared inference/evidence state is unaffected; Compose still requires Redis healthy at initial API startup |
 | Monitoring unavailable | Processing continues; operational visibility degrades |
 
 ## Upgrade and rollback
@@ -355,11 +358,12 @@ server. Before cutover, designate a compatibility release that can read the
 expanded schema and recover the spool/outbox.
 
 Stop admitting work, quiesce sessions/jobs and let capture/upload/delivery drain
-within budgets. Preserve PostgreSQL, MinIO, spool volumes and matching project
+within budgets. Preserve PostgreSQL, evidence disk (or S3), spool volumes and matching project
 configuration/weights. Switch execution artifacts without schema downgrade or
 record deletion. Finalize interrupted captures explicitly.
 
 Rollback verification must read/play new-engine evidence, recover pending work,
 process additional work and upgrade again while preserving idempotency. An
-arbitrary historical commit is not a supported target. See [migration contracts](redesign.md)
-and [recorded verification](cleanup-verification.md).
+arbitrary historical commit is not a supported target. Preserve the designated
+release artifact and matching project configuration for qualification against the
+deployment's schema before cutover.

@@ -325,6 +325,8 @@ class EvidenceService:
         return [span for span in missing if span[1] > span[0]]
 
     async def _save(self, evidence_id: str) -> None:
+        if hasattr(self.repository, "assert_evidence_owner"):
+            await self.repository.assert_evidence_owner(evidence_id)
         record = await self.repository.get_evidence(evidence_id)
         if record is None:
             return  # Unknown spool material is retained for operator reconciliation.
@@ -342,6 +344,8 @@ class EvidenceService:
                 retry_available=False)
             return
         artifacts = dict(record.get("artifacts") or {})
+        if getattr(self.repository, "scope", None):
+            artifacts = {}  # A new owner never references a stale generation's mutable keys.
         for name, content_type in (("snapshot", "image/jpeg"), ("clip", "video/mp4")):
             filename = "snapshot.jpg" if name == "snapshot" else "clip.mp4"
             data = await self.spool.read_artifact(evidence_id, filename)
@@ -355,7 +359,8 @@ class EvidenceService:
             previous = artifacts.get(name, {})
             uri = previous.get("uri")
             if not uri or previous.get("sha256") != digest or not await self.storage.verify(uri, digest):
-                uri = await self.storage.put(f"evidence/{evidence_id}/{filename}", data, content_type)
+                prefix = getattr(self.repository, "artifact_prefix", "evidence")
+                uri = await self.storage.put(f"{prefix}/{evidence_id}/{filename}", data, content_type)
                 if not await self.storage.verify(uri, digest):
                     raise RuntimeError("Stored artifact checksum verification failed")
             artifacts[name] = {"uri": uri, "sha256": digest, "bytes": len(data), "content_type": content_type}
@@ -385,9 +390,10 @@ class EvidenceService:
             await self.spool.write_artifact(evidence_id, "evidence-manifest.json", manifest_data)
         manifest_digest = hashlib.sha256(manifest_data).hexdigest()
         manifest_uri = record.get("manifest_uri")
-        if (not manifest_uri or record.get("manifest_sha256") != manifest_digest
+        if (getattr(self.repository, "scope", None) or not manifest_uri or record.get("manifest_sha256") != manifest_digest
                 or not await self.storage.verify(manifest_uri, manifest_digest)):
-            manifest_uri = await self.storage.put(f"evidence/{evidence_id}/manifest.json",
+            prefix = getattr(self.repository, "artifact_prefix", "evidence")
+            manifest_uri = await self.storage.put(f"{prefix}/{evidence_id}/manifest.json",
                                                   manifest_data, "application/json")
             if not await self.storage.verify(manifest_uri, manifest_digest):
                 raise RuntimeError("Stored evidence manifest checksum verification failed")
@@ -441,7 +447,7 @@ class EvidenceService:
         await self._enqueue(evidence_id)
         return await self.repository.get_evidence(evidence_id)
 
-    async def delete(self, evidence_id: str) -> dict[str, Any]:
+    async def delete(self, evidence_id: str, *, retention_before=None) -> dict[str, Any]:
         """Explicit manual deletion, with a durable retryable tombstone.
 
         The audit record remains queryable. Publishing the tombstone before
@@ -459,6 +465,7 @@ class EvidenceService:
             artifacts = dict(record.get("deleted_artifacts") or record.get("artifacts") or {})
             manifest_uri = record.get("deleted_manifest_uri") or record.get("manifest_uri")
             await self.repository.update_evidence(evidence_id, deleted=True, deletion_pending=True,
+                **({"_retention_before": retention_before} if retention_before is not None else {}),
                 deleted_artifacts=artifacts, deleted_manifest_uri=manifest_uri,
                 manifest_uri=None, artifacts={}, state=EvidenceState.FAILED.value,
                 previous_state=record.get("previous_state", record.get("state")),
@@ -477,13 +484,20 @@ class EvidenceService:
         await self.start()
         ids = set(await self.spool.list_ids())
         # Include accepted requests that crashed before their first spool commit.
-        records = await self.repository.list_evidence(limit=100_000)
+        records = ([row async for row in self.repository.recovery_evidence()]
+                   if hasattr(self.repository, "recovery_evidence")
+                   else await self.repository.list_evidence(limit=100_000))
         ids.update(str(record["id"]) for record in records
                    if record.get("state") == EvidenceState.PENDING.value or record.get("deletion_pending"))
         for evidence_id in sorted(ids):
             record = await self.repository.get_evidence(evidence_id)
             if record is None:
                 continue
+            if getattr(self.repository, "scope", None):
+                scope = await self.repository.record_scope("evidence", evidence_id)
+                if scope != self.repository.scope:
+                    continue  # A foreign spool is never evidence of missing material.
+                await self.repository.assert_evidence_owner(evidence_id)
             if record.get("deleted"):
                 if record.get("deletion_pending"):
                     try:
@@ -557,6 +571,8 @@ class EvidenceService:
                 self._queue.task_done()
             self._queued.clear()
             self._captures.clear()
+            if hasattr(self.spool, "close"):
+                await self.spool.close()
             self._rings.clear()
             self._last_frame_error.clear()
             self._workers.clear()

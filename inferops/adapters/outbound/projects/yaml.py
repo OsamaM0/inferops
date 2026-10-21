@@ -13,6 +13,17 @@ from inferops.domain.errors import ConfigError
 _ENV_RE = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
 
 
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge mappings; lists replace lists and inputs stay untouched."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 def _interp(value: Any) -> Any:
     if isinstance(value, str):
         def sub(m: re.Match[str]) -> str:
@@ -30,13 +41,14 @@ def load_yaml(path: str | Path) -> dict:
     return parse_yaml(Path(path).read_text(encoding="utf-8"))
 
 
-def parse_yaml(text: str) -> dict:
+def parse_yaml(text: str, *, interpolate: bool = True) -> dict:
     """Parse file/editor content using the same environment interpolation."""
     try:
-        raw = yaml.safe_load(text) or {}
+        raw = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         raise ConfigError(f"invalid YAML: {exc}") from exc
-    return _interp(raw)
+    raw = {} if raw is None else raw
+    return _interp(raw) if interpolate else raw
 
 
 def load_dir(path: str | Path) -> list[tuple[Path, dict]]:

@@ -1,6 +1,25 @@
-# Reusable engine and selected project; runtime overlays are selected by .env.
+# Default: API + PostgreSQL + MediaMTX + persistent disk. Optional: S3, broker, monitoring, Triton.
 name: inferops
 services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.2
+    environment:
+      MTX_AUTHINTERNALUSERS_1_USER: ${INFEROPS_MEDIAMTX_API_USER:-inferops}
+      MTX_AUTHINTERNALUSERS_1_PASS: ${INFEROPS_MEDIAMTX_API_PASSWORD:-inferops-local-api}
+      MTX_PATHDEFAULTS_RECORDDELETEAFTER: ${INFEROPS_MEDIAMTX_RECORD_RETENTION:-24h}
+      MTX_PATHDEFAULTS_RECORDSEGMENTDURATION: ${INFEROPS_MEDIAMTX_RECORD_SEGMENT:-1m}
+      MTX_WEBRTCADDITIONALHOSTS: ${INFEROPS_MEDIAMTX_PUBLIC_HOST:-127.0.0.1}
+    volumes:
+    - ./deploy/media/mediamtx.yml:/mediamtx.yml:ro
+    - media-recordings:/recordings
+    ports:
+    - 127.0.0.1:${INFEROPS_MEDIAMTX_API_PORT:-9997}:9997
+    - ${INFEROPS_MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:${INFEROPS_MEDIAMTX_PLAYBACK_PORT:-9996}:9996
+    - ${INFEROPS_MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:${INFEROPS_MEDIAMTX_RTSP_PORT:-8554}:8554
+    - ${INFEROPS_MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:${INFEROPS_MEDIAMTX_WEBRTC_PORT:-8889}:8889
+    - ${INFEROPS_MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:${INFEROPS_MEDIAMTX_HLS_PORT:-8888}:8888
+    - ${INFEROPS_MEDIAMTX_BIND_ADDRESS:-127.0.0.1}:8189:8189/udp
+    restart: unless-stopped
   redpanda:
     image: redpandadata/redpanda:v23.3.13
     command:
@@ -30,21 +49,8 @@ services:
       retries: 20
     volumes:
     - redpanda-data:/var/lib/redpanda/data
-  redis:
-    image: redis:7-alpine
-    ports:
-    - ${INFEROPS_REDIS_PORT:-6379}:6379
-    healthcheck:
-      test:
-      - CMD
-      - redis-cli
-      - PING
-    command:
-    - redis-server
-    - --appendonly
-    - 'yes'
-    volumes:
-    - redis-data:/data
+    profiles:
+    - broker
   postgres:
     image: postgres:16-alpine
     environment:
@@ -62,6 +68,8 @@ services:
     volumes:
     - postgres-data:/var/lib/postgresql/data
   minio:
+    profiles:
+    - storage
     image: inferops-minio:console
     build:
       context: .
@@ -79,20 +87,25 @@ services:
   triton:
     profiles:
     - triton
-    - deepstream
-    image: nvcr.io/nvidia/tritonserver:24.04-py3
+    image: ${INFEROPS_TRITON_IMAGE:-nvcr.io/nvidia/tritonserver:26.09-py3}
     command:
     - tritonserver
     - --model-repository=/models
-    - --strict-model-config=false
-    - --model-control-mode=poll
-    - --repository-poll-secs=5
+    - --strict-model-config=true
+    - --model-control-mode=explicit
+    - --load-model=*
+    - --exit-on-error=true
+    - --rate-limit=execution_count
+    - --pinned-memory-pool-byte-size=134217728
+    - --cuda-memory-pool-byte-size=0:134217728
+    - --allow-metrics=true
+    - --allow-gpu-metrics=true
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
     - type: bind
-      source: ${INFEROPS_PROJECT_ROOT:-./projects/driver_behaviour}/model_repository
+      source: ${INFEROPS_TRITON_REPOSITORY:-./projects/driver_behaviour/model_repository}
       target: /models
       read_only: true
       bind:
@@ -120,6 +133,8 @@ services:
     depends_on:
       prepare:
         condition: service_completed_successfully
+    shm_size: 1gb
+    restart: unless-stopped
   prometheus:
     extra_hosts:
     - host.docker.internal:host-gateway
@@ -128,6 +143,8 @@ services:
     - ${INFEROPS_PROMETHEUS_CONFIG:-./deploy/observability/prometheus.yml}:/etc/prometheus/prometheus.yml:ro
     ports:
     - ${INFEROPS_PROMETHEUS_PORT:-9090}:9090
+    profiles:
+    - monitoring
   grafana:
     image: grafana/grafana:10.4.2
     volumes:
@@ -144,23 +161,45 @@ services:
     - ${INFEROPS_GRAFANA_PORT:-3000}:3000
     depends_on:
     - prometheus
+    profiles:
+    - monitoring
   api:
     image: inferops-engine:local
     build:
       context: .
       dockerfile: deploy/docker/api.Dockerfile
     environment:
-      INFEROPS_TRANSPORT_KIND: ${INFEROPS_TRANSPORT_KIND:-redpanda}
+      INFEROPS_TRANSPORT_KIND: ${INFEROPS_TRANSPORT_KIND:-inproc}
       INFEROPS_TRANSPORT_BOOTSTRAP: ${INFEROPS_TRANSPORT_BOOTSTRAP:-redpanda:9092}
-      INFEROPS_REDIS_URL: ${INFEROPS_REDIS_URL:-redis://redis:6379/0}
-      INFEROPS_PG_URL: ${INFEROPS_PG_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/inferops}
+      INFEROPS_PG_URL: ${INFEROPS_PG_URL:-}
       INFEROPS_S3_ENDPOINT: ${INFEROPS_S3_ENDPOINT:-http://minio:9000}
       INFEROPS_S3_PUBLIC_URL: ${INFEROPS_S3_PUBLIC_URL:-http://localhost:9000}
       INFEROPS_OBS_LOG_JSON: ${INFEROPS_OBS_LOG_JSON:-false}
       INFEROPS_EXECUTION_MODE: ${INFEROPS_EXECUTION_MODE:-cpu}
       INFEROPS_MAX_SESSIONS: ${INFEROPS_MAX_SESSIONS:-128}
+      INFEROPS_MAX_ACTIVE_SOURCES: ${INFEROPS_MAX_ACTIVE_SOURCES:-8}
+      INFEROPS_SOURCES_PATH: /var/lib/inferops/sources
+      INFEROPS_SOURCE_RESULT_HISTORY: ${INFEROPS_SOURCE_RESULT_HISTORY:-1000}
+      INFEROPS_SOURCE_UPLOAD_MAX_BYTES: ${INFEROPS_SOURCE_UPLOAD_MAX_BYTES:-536870912}
+      INFEROPS_MEDIA_ROUTER: ${INFEROPS_MEDIA_ROUTER:-mediamtx}
+      INFEROPS_MEDIAMTX_API_URL: http://mediamtx:9997
+      INFEROPS_MEDIAMTX_RTSP_URL: rtsp://mediamtx:8554
+      INFEROPS_MEDIAMTX_PLAYBACK_URL: http://mediamtx:9996
+      INFEROPS_MEDIAMTX_RECORD: ${INFEROPS_MEDIAMTX_RECORD:-true}
+      INFEROPS_MEDIAMTX_PLAYBACK_PORT: ${INFEROPS_MEDIAMTX_PLAYBACK_PORT:-9996}
+      INFEROPS_MEDIAMTX_PLAYBACK_PUBLIC_URL: ${INFEROPS_MEDIAMTX_PLAYBACK_PUBLIC_URL:-}
+      INFEROPS_MEDIAMTX_API_USER: ${INFEROPS_MEDIAMTX_API_USER:-inferops}
+      INFEROPS_MEDIAMTX_API_PASSWORD: ${INFEROPS_MEDIAMTX_API_PASSWORD:-inferops-local-api}
+      INFEROPS_MEDIAMTX_WEBRTC_PORT: ${INFEROPS_MEDIAMTX_WEBRTC_PORT:-8889}
+      INFEROPS_MEDIAMTX_HLS_PORT: ${INFEROPS_MEDIAMTX_HLS_PORT:-8888}
+      INFEROPS_MEDIAMTX_WEBRTC_PUBLIC_URL: ${INFEROPS_MEDIAMTX_WEBRTC_PUBLIC_URL:-}
+      INFEROPS_MEDIAMTX_HLS_PUBLIC_URL: ${INFEROPS_MEDIAMTX_HLS_PUBLIC_URL:-}
+      INFEROPS_CAPACITY_REPORTS: /var/lib/inferops/capacity
       INFEROPS_SESSION_IDLE_SECONDS: ${INFEROPS_SESSION_IDLE_SECONDS:-300}
       INFEROPS_MODEL_CONCURRENCY: ${INFEROPS_MODEL_CONCURRENCY:-1}
+      INFEROPS_CUDNN_MAX_WORKSPACE: ${INFEROPS_CUDNN_MAX_WORKSPACE:-0}
+      INFEROPS_ORT_THREADS: ${INFEROPS_ORT_THREADS:-4}
+      INFEROPS_OPENCV_THREADS: ${INFEROPS_OPENCV_THREADS:-1}
       INFEROPS_EVIDENCE_PRE_SECONDS: ${INFEROPS_EVIDENCE_PRE_SECONDS:-5}
       INFEROPS_EVIDENCE_POST_SECONDS: ${INFEROPS_EVIDENCE_POST_SECONDS:-5}
       INFEROPS_EVIDENCE_SAMPLE_FPS: ${INFEROPS_EVIDENCE_SAMPLE_FPS:-10}
@@ -178,6 +217,7 @@ services:
       INFEROPS_MODEL_REPOSITORY: model_repository
       INFEROPS_ACTIVE_DOMAIN: ''
       INFEROPS_TRITON_URL: ${INFEROPS_TRITON_URL:-triton:8001}
+      INFEROPS_TRITON_METRICS_URL: ${INFEROPS_TRITON_METRICS_URL:-http://triton:8002}
       INFEROPS_TRITON_HTTP_URL: ${INFEROPS_TRITON_HTTP_URL:-http://triton:8000}
       INFEROPS_DOMAIN_ROOT: /project
       INFEROPS_CONFIGS_DIR: /app/configs
@@ -197,8 +237,14 @@ services:
       INFEROPS_OBS_LOG_LEVEL: ${INFEROPS_OBS_LOG_LEVEL:-INFO}
       INFEROPS_PREWARM_MODELS: null
       INFEROPS_PREWARM_PIPELINES: null
+      INFEROPS_DATABASE_URL: ${INFEROPS_DATABASE_URL:-${INFEROPS_PG_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/inferops}}
+      INFEROPS_DATA_PATH: /var/lib/inferops/data
+      INFEROPS_STORAGE_KIND: ${INFEROPS_STORAGE_KIND:-filesystem}
+      INFEROPS_TRITON_CONCURRENCY: ${INFEROPS_TRITON_CONCURRENCY:-64}
+      INFEROPS_TRITON_TIMEOUT_SECONDS: ${INFEROPS_TRITON_TIMEOUT_SECONDS:-10}
+      INFEROPS_MONITORING_ENABLED: ${INFEROPS_MONITORING_ENABLED:-false}
     volumes:
-    - &project_mount
+    - &id001
       type: bind
       source: ${INFEROPS_PROJECT_ROOT:-./projects/driver_behaviour}
       target: /project
@@ -206,35 +252,36 @@ services:
         create_host_path: false
     - ./configs:/app/configs:ro
     - evidence-spool:/var/lib/inferops/spool
+    - source-data:/var/lib/inferops/sources
+    - ./.run/capacity:/var/lib/inferops/capacity:ro
+    - engine-data:/var/lib/inferops/data
     ports:
     - ${INFEROPS_API_PORT:-8080}:8080
     depends_on:
+      mediamtx:
+        condition: service_started
       redpanda:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+        required: false
       postgres:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+        required: false
       prepare:
         condition: service_completed_successfully
+    restart: unless-stopped
   minio-init:
+    profiles:
+    - storage
     image: python:3.11-slim
     command:
     - python
     - -c
-    - |
-      import time
-      import urllib.request
-      for attempt in range(120):
-          try:
-              with urllib.request.urlopen('http://minio:9000/minio/health/ready', timeout=2):
-                  break
-          except Exception:
-              time.sleep(1)
-      else:
-          raise SystemExit('MinIO did not become ready')
+    - "import time\nimport urllib.request\nfor attempt in range(120):\n    try:\n\
+      \        with urllib.request.urlopen('http://minio:9000/minio/health/ready',\
+      \ timeout=2):\n            break\n    except Exception:\n        time.sleep(1)\n\
+      else:\n    raise SystemExit('MinIO did not become ready')\n"
     depends_on:
       minio:
         condition: service_healthy
@@ -259,18 +306,20 @@ services:
       INFEROPS_PREWARM_MODELS: null
       INFEROPS_PREWARM_PIPELINES: null
     volumes:
-    - *project_mount
+    - *id001
     - ./configs:/app/configs:ro
     - hf-cache:/cache/huggingface
     restart: 'no'
     healthcheck:
       disable: true
 volumes:
+  media-recordings: {}
   triton-cache: null
   postgres-data: {}
-  redis-data: {}
   redpanda-data: {}
   minio-upstream-data: {}
   hf-cache: {}
   evidence-spool: {}
+  source-data: {}
   grafana-data: {}
+  engine-data: {}

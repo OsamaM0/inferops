@@ -11,20 +11,11 @@ from dotenv import find_dotenv, load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from inferops.adapters.outbound.projects.yaml import deep_merge
+
 # Load .env into os.environ so that _env_overrides_for() and nested settings
 # classes (which read from os.environ directly) pick up local overrides.
 _ENV_FILE = ""
-
-
-def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge dictionaries without mutating either input."""
-    out = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(out.get(key), dict):
-            out[key] = deep_merge(out[key], value)
-        else:
-            out[key] = value
-    return out
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -112,16 +103,9 @@ class ConfigStack:
         return load_domain_manifest(self.domain_root)
 
     def platform(self) -> dict[str, Any]:
-        merged: dict[str, Any] = {}
-        paths = [self.configs_dir / "platform.yaml"]
-        if self.domain_configs_dir is not None:
-            paths.append(self.domain_configs_dir / "platform.yaml")
-        for path in paths:
-            merged = deep_merge(merged, _load_yaml(path))
-        manifest = self.manifest()
-        if manifest is not None:
-            merged = deep_merge(merged, manifest.platform)
-        return merged
+        from inferops.adapters.outbound.projects.configuration import load_platform
+
+        return load_platform(self.configs_dir, self.domain_root, self.manifest())
 
     def enabled_pipeline(self, name: str) -> bool:
         manifest = self.manifest()
@@ -157,17 +141,10 @@ class ConfigStack:
 
 class TransportSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="INFEROPS_TRANSPORT_", extra="ignore")
-    kind: Literal["redpanda", "inproc"] = "redpanda"
+    kind: Literal["redpanda", "inproc"] = "inproc"
     bootstrap: str = "localhost:19092"
     client_id: str = "inferops"
     max_value_bytes: int = 64 * 1024
-    dlq_prefix: str = "inferops.dlq"
-
-
-class RedisSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="INFEROPS_REDIS_", extra="ignore")
-    url: str = "redis://localhost:6379/0"
-    frame_ttl_s: int = 180
 
 
 class S3Settings(BaseSettings):
@@ -185,7 +162,7 @@ class S3Settings(BaseSettings):
 
 class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="INFEROPS_PG_", extra="ignore")
-    url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/inferops"
+    url: str = "postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/inferops"
 
 
 class TritonSettings(BaseSettings):
@@ -210,6 +187,14 @@ class ObsSettings(BaseSettings):
     service_name: str = "inferops"
 
 
+class AdmissionSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="INFEROPS_ADMISSION_", extra="forbid")
+    local_device_capacity: int = Field(default=1, ge=1)
+    remote_outstanding: int = Field(default=64, ge=1)
+    max_pending: int = Field(default=1024, ge=1)
+    max_queue_age_ms: float = Field(default=5000, gt=0, allow_inf_nan=False)
+
+
 class Settings(BaseSettings):
     """Top-level settings; sub-blocks loaded independently from env."""
     model_config = SettingsConfigDict(
@@ -221,17 +206,17 @@ class Settings(BaseSettings):
     active_domain: str | None = Field(default=None, validation_alias="INFEROPS_ACTIVE_DOMAIN")
     domain_root: str | None = Field(default=None, validation_alias="INFEROPS_DOMAIN_ROOT")
     model_repository: str = Field(default="model_repository", validation_alias="INFEROPS_MODEL_REPOSITORY")
-    execution_mode: Literal["auto", "cpu", "cuda", "tensorrt", "triton", "deepstream"] = Field(
+    execution_mode: Literal["auto", "cpu", "cuda", "tensorrt", "triton"] = Field(
         default="cpu", validation_alias="INFEROPS_EXECUTION_MODE"
     )
 
     transport: TransportSettings = Field(default_factory=TransportSettings)
-    redis: RedisSettings = Field(default_factory=RedisSettings)
     s3: S3Settings = Field(default_factory=S3Settings)
     pg: PostgresSettings = Field(default_factory=PostgresSettings)
     triton: TritonSettings = Field(default_factory=TritonSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     obs: ObsSettings = Field(default_factory=ObsSettings)
+    admission: AdmissionSettings = Field(default_factory=AdmissionSettings)
 
 
 @lru_cache(maxsize=1)
@@ -257,6 +242,17 @@ def load_settings() -> Settings:
         domain_root=domain_root,
     )
     overrides = stack.platform()
+    admission = overrides.pop("runtime", {}).get("admission")
+    if admission is not None:
+        overrides["admission"] = admission
+    # Compatibility variables are defaults; explicit admission settings win.
+    legacy_admission = {}
+    for variable, field in [("INFEROPS_MODEL_CONCURRENCY", "local_device_capacity"),
+                            ("INFEROPS_TRITON_CONCURRENCY", "remote_outstanding")]:
+        if variable in os.environ:
+            legacy_admission[field] = os.environ[variable]
+    if legacy_admission:
+        overrides["admission"] = deep_merge(overrides.get("admission", {}), legacy_admission)
     if stack.active_domain:
         overrides["active_domain"] = stack.active_domain
     if stack.domain_root is not None:
@@ -277,12 +273,12 @@ def load_settings() -> Settings:
 
     nested = {
         "transport": ("INFEROPS_TRANSPORT_", TransportSettings),
-        "redis": ("INFEROPS_REDIS_", RedisSettings),
         "s3": ("INFEROPS_S3_", S3Settings),
         "pg": ("INFEROPS_PG_", PostgresSettings),
         "triton": ("INFEROPS_TRITON_", TritonSettings),
         "api": ("INFEROPS_API_", ApiSettings),
         "obs": ("INFEROPS_OBS_", ObsSettings),
+        "admission": ("INFEROPS_ADMISSION_", AdmissionSettings),
     }
     for section, (prefix, cls) in nested.items():
         env_section = _env_overrides_for(prefix, cls)

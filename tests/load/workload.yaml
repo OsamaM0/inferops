@@ -1,0 +1,10 @@
+version: 1
+count: configurable
+fixture: .run/capacity/fixtures/driver-360p-15-gop15.mp4
+source: {codec: h264, fps: 15, width: 640, height: 360, independent_content: false}
+capture_soak: {seconds: 3600, fps: 5, outage_seconds: 5, reconnect_seconds: 15, close_seconds: 10}
+pipeline: {name: driver_behaviour, inference_fps: 2, width: 640, height: 480}
+acceptance: {minimum_target_fraction: 0.95, p95_ms: 1000, errors: 0}
+evidence: {pre_seconds: 5, post_seconds: 5, sample_fps: 10, lag_seconds: 5}
+# Actual model/runtime hashes and hardware are recorded by each harness run.
+# Repeated generated footage tests load/correctness, not independent camera accuracy.

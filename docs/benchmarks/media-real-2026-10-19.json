@@ -1,0 +1,760 @@
+{
+  "passed": true,
+  "runtime": "triton",
+  "camera_id": "verify-real-20261019-220332-08dfa1",
+  "input": "/mnt/L/Work/SandBox/inferops/research/driver_training/test.mp4",
+  "checks": {
+    "rtsp_real_inference_annotations": {
+      "processed": 36,
+      "foreground_detections": 49,
+      "source_size": [
+        360,
+        640
+      ],
+      "processing_size": [
+        270,
+        480
+      ],
+      "target_fps": 2,
+      "observed_session_fps": 1.87
+    },
+    "hls_remux_release_seconds": 5.07,
+    "browser_playback_and_release": true,
+    "router_readers_after_player_close": 1,
+    "player_release_seconds": 35.22,
+    "source_reconnect_seconds": 8.66,
+    "router_restart_processing_recovery_seconds": 18.08,
+    "preview_disabled_processing_continues": true,
+    "api_restart_identity_history_autostart": true,
+    "autostart_recovers_from_initial_router_outage": true,
+    "image_input": {
+      "processed": 1,
+      "status": "completed"
+    },
+    "video_input": {
+      "processed": 30,
+      "status": "completed"
+    },
+    "evidence": {
+      "states": {
+        "Incomplete": 17
+      },
+      "clip_decoded": true,
+      "http_range": true,
+      "incomplete_reasons": [
+        "completed",
+        "missing_media_context",
+        "stopped",
+        "timeline_discontinuity"
+      ]
+    },
+    "remove_cleans_path_preserves_history": true
+  },
+  "started_at": 1792436612.1130128,
+  "runtime_models": [
+    {
+      "model": "rfdetr_driver_triton",
+      "backend": "_BoundedBackend",
+      "device": "remote",
+      "requested_device": "gpu",
+      "downgraded": false,
+      "reason": "placement decided by Triton instance_group (KIND_GPU)",
+      "active_providers": null
+    },
+    {
+      "model": "face_mesh_triton",
+      "backend": "_BoundedBackend",
+      "device": "remote",
+      "requested_device": "gpu",
+      "downgraded": false,
+      "reason": "placement decided by Triton instance_group (KIND_GPU)",
+      "active_providers": null
+    }
+  ],
+  "initial": {
+    "camera_id": "verify-real-20261019-220332-08dfa1",
+    "name": "Real driver verification",
+    "kind": "rtsp",
+    "pipeline": "driver_behaviour",
+    "inference_fps": 2.0,
+    "evidence_fps": 10.0,
+    "max_frame_age_ms": 500,
+    "max_width": 640,
+    "max_height": 480,
+    "preview_fps": 2.0,
+    "preview_enabled": true,
+    "preview_width": 640,
+    "jpeg_quality": 75,
+    "loop": false,
+    "autostart": true,
+    "rtsp_transport": "tcp",
+    "timeout_s": 3.0,
+    "decoder_threads": 1,
+    "configured": true,
+    "session_id": "da401e8861b5405282d479f291ad36fd",
+    "started_at": 1792436614.1787927,
+    "status": "running",
+    "processed": 36,
+    "decoded": 283,
+    "dropped": 126,
+    "sampling_skips": 120,
+    "admission_expired": 0,
+    "decode_errors": 0,
+    "capture_overwrites": 126,
+    "reconnects": 0,
+    "connection": "connected",
+    "fps": 1.87,
+    "latency_ms": 203.4,
+    "preview_version": 23,
+    "source_width": 360,
+    "source_height": 640,
+    "last_frame_at": 1792436633.43847,
+    "receive_to_result_ms": 220.7,
+    "last_result_at": 1792436633.4206855,
+    "processed_width": 270,
+    "processed_height": 480,
+    "active": true,
+    "live_video_available": true
+  },
+  "triton_before": {
+    "model_stats": [
+      {
+        "name": "face_mesh_onnx",
+        "version": "1",
+        "last_inference": 1792436398482,
+        "inference_count": 20036,
+        "execution_count": 10998,
+        "inference_stats": {
+          "success": {
+            "count": 20036,
+            "ns": 169667034506
+          },
+          "fail": {
+            "count": 0,
+            "ns": 0
+          },
+          "queue": {
+            "count": 20036,
+            "ns": 72476958427
+          },
+          "compute_input": {
+            "count": 20036,
+            "ns": 10537653938
+          },
+          "compute_infer": {
+            "count": 20036,
+            "ns": 83981348429
+          },
+          "compute_output": {
+            "count": 20036,
+            "ns": 464523296
+          },
+          "cache_hit": {
+            "count": 0,
+            "ns": 0
+          },
+          "cache_miss": {
+            "count": 0,
+            "ns": 0
+          }
+        },
+        "response_stats": {},
+        "batch_stats": [
+          {
+            "batch_size": 1,
+            "compute_input": {
+              "count": 7825,
+              "ns": 923028052
+            },
+            "compute_infer": {
+              "count": 7825,
+              "ns": 23401257462
+            },
+            "compute_output": {
+              "count": 7825,
+              "ns": 128750883
+            }
+          },
+          {
+            "batch_size": 2,
+            "compute_input": {
+              "count": 195,
+              "ns": 67836180
+            },
+            "compute_infer": {
+              "count": 195,
+              "ns": 2355583402
+            },
+            "compute_output": {
+              "count": 195,
+              "ns": 3280487
+            }
+          },
+          {
+            "batch_size": 3,
+            "compute_input": {
+              "count": 91,
+              "ns": 47720938
+            },
+            "compute_infer": {
+              "count": 91,
+              "ns": 5877993765
+            },
+            "compute_output": {
+              "count": 91,
+              "ns": 2505405
+            }
+          },
+          {
+            "batch_size": 4,
+            "compute_input": {
+              "count": 2887,
+              "ns": 2333947678
+            },
+            "compute_infer": {
+              "count": 2887,
+              "ns": 9558735717
+            },
+            "compute_output": {
+              "count": 2887,
+              "ns": 80423806
+            }
+          }
+        ],
+        "memory_usage": []
+      },
+      {
+        "name": "rfdetr_driver_behaviour_onnx",
+        "version": "1",
+        "last_inference": 1792436398340,
+        "inference_count": 7410,
+        "execution_count": 6853,
+        "inference_stats": {
+          "success": {
+            "count": 7410,
+            "ns": 257405448000
+          },
+          "fail": {
+            "count": 0,
+            "ns": 0
+          },
+          "queue": {
+            "count": 7410,
+            "ns": 57372549580
+          },
+          "compute_input": {
+            "count": 7410,
+            "ns": 13411189410
+          },
+          "compute_infer": {
+            "count": 7410,
+            "ns": 185529985293
+          },
+          "compute_output": {
+            "count": 7410,
+            "ns": 161016145
+          },
+          "cache_hit": {
+            "count": 0,
+            "ns": 0
+          },
+          "cache_miss": {
+            "count": 0,
+            "ns": 0
+          }
+        },
+        "response_stats": {},
+        "batch_stats": [
+          {
+            "batch_size": 1,
+            "compute_input": {
+              "count": 6510,
+              "ns": 10792999533
+            },
+            "compute_infer": {
+              "count": 6510,
+              "ns": 135849483005
+            },
+            "compute_output": {
+              "count": 6510,
+              "ns": 129932436
+            }
+          },
+          {
+            "batch_size": 2,
+            "compute_input": {
+              "count": 225,
+              "ns": 405960560
+            },
+            "compute_infer": {
+              "count": 225,
+              "ns": 8487960471
+            },
+            "compute_output": {
+              "count": 225,
+              "ns": 6352537
+            }
+          },
+          {
+            "batch_size": 3,
+            "compute_input": {
+              "count": 22,
+              "ns": 48979567
+            },
+            "compute_infer": {
+              "count": 22,
+              "ns": 1282647910
+            },
+            "compute_output": {
+              "count": 22,
+              "ns": 838045
+            }
+          },
+          {
+            "batch_size": 4,
+            "compute_input": {
+              "count": 96,
+              "ns": 414832514
+            },
+            "compute_infer": {
+              "count": 96,
+              "ns": 7214159404
+            },
+            "compute_output": {
+              "count": 96,
+              "ns": 3966125
+            }
+          }
+        ],
+        "memory_usage": []
+      }
+    ]
+  },
+  "triton_after": {
+    "model_stats": [
+      {
+        "name": "face_mesh_onnx",
+        "version": "1",
+        "last_inference": 1792436745222,
+        "inference_count": 20219,
+        "execution_count": 11181,
+        "inference_stats": {
+          "success": {
+            "count": 20219,
+            "ns": 170516533188
+          },
+          "fail": {
+            "count": 0,
+            "ns": 0
+          },
+          "queue": {
+            "count": 20219,
+            "ns": 72885061123
+          },
+          "compute_input": {
+            "count": 20219,
+            "ns": 10556990639
+          },
+          "compute_infer": {
+            "count": 20219,
+            "ns": 84383773177
+          },
+          "compute_output": {
+            "count": 20219,
+            "ns": 467218234
+          },
+          "cache_hit": {
+            "count": 0,
+            "ns": 0
+          },
+          "cache_miss": {
+            "count": 0,
+            "ns": 0
+          }
+        },
+        "response_stats": {},
+        "batch_stats": [
+          {
+            "batch_size": 1,
+            "compute_input": {
+              "count": 8008,
+              "ns": 942364753
+            },
+            "compute_infer": {
+              "count": 8008,
+              "ns": 23803682210
+            },
+            "compute_output": {
+              "count": 8008,
+              "ns": 131445821
+            }
+          },
+          {
+            "batch_size": 2,
+            "compute_input": {
+              "count": 195,
+              "ns": 67836180
+            },
+            "compute_infer": {
+              "count": 195,
+              "ns": 2355583402
+            },
+            "compute_output": {
+              "count": 195,
+              "ns": 3280487
+            }
+          },
+          {
+            "batch_size": 3,
+            "compute_input": {
+              "count": 91,
+              "ns": 47720938
+            },
+            "compute_infer": {
+              "count": 91,
+              "ns": 5877993765
+            },
+            "compute_output": {
+              "count": 91,
+              "ns": 2505405
+            }
+          },
+          {
+            "batch_size": 4,
+            "compute_input": {
+              "count": 2887,
+              "ns": 2333947678
+            },
+            "compute_infer": {
+              "count": 2887,
+              "ns": 9558735717
+            },
+            "compute_output": {
+              "count": 2887,
+              "ns": 80423806
+            }
+          }
+        ],
+        "memory_usage": []
+      },
+      {
+        "name": "rfdetr_driver_behaviour_onnx",
+        "version": "1",
+        "last_inference": 1792436745080,
+        "inference_count": 7596,
+        "execution_count": 7039,
+        "inference_stats": {
+          "success": {
+            "count": 7596,
+            "ns": 261870032995
+          },
+          "fail": {
+            "count": 0,
+            "ns": 0
+          },
+          "queue": {
+            "count": 7596,
+            "ns": 57782790333
+          },
+          "compute_input": {
+            "count": 7596,
+            "ns": 13501841031
+          },
+          "compute_infer": {
+            "count": 7596,
+            "ns": 189464871511
+          },
+          "compute_output": {
+            "count": 7596,
+            "ns": 164285305
+          },
+          "cache_hit": {
+            "count": 0,
+            "ns": 0
+          },
+          "cache_miss": {
+            "count": 0,
+            "ns": 0
+          }
+        },
+        "response_stats": {},
+        "batch_stats": [
+          {
+            "batch_size": 1,
+            "compute_input": {
+              "count": 6696,
+              "ns": 10883651154
+            },
+            "compute_infer": {
+              "count": 6696,
+              "ns": 139784369223
+            },
+            "compute_output": {
+              "count": 6696,
+              "ns": 133201596
+            }
+          },
+          {
+            "batch_size": 2,
+            "compute_input": {
+              "count": 225,
+              "ns": 405960560
+            },
+            "compute_infer": {
+              "count": 225,
+              "ns": 8487960471
+            },
+            "compute_output": {
+              "count": 225,
+              "ns": 6352537
+            }
+          },
+          {
+            "batch_size": 3,
+            "compute_input": {
+              "count": 22,
+              "ns": 48979567
+            },
+            "compute_infer": {
+              "count": 22,
+              "ns": 1282647910
+            },
+            "compute_output": {
+              "count": 22,
+              "ns": 838045
+            }
+          },
+          {
+            "batch_size": 4,
+            "compute_input": {
+              "count": 96,
+              "ns": 414832514
+            },
+            "compute_infer": {
+              "count": 96,
+              "ns": 7214159404
+            },
+            "compute_output": {
+              "count": 96,
+              "ns": 3966125
+            }
+          }
+        ],
+        "memory_usage": []
+      }
+    ]
+  },
+  "finished_at": 1792436746.5701575,
+  "artifact_audit": {
+    "passed": true,
+    "evidence_records": 17,
+    "checksummed_artifacts": 34,
+    "fully_decoded_clips": 17,
+    "decoded_clip_frames": 649,
+    "triton_inference_deltas": {
+      "face_mesh_onnx": 183,
+      "rfdetr_driver_behaviour_onnx": 186
+    },
+    "evidence_errors": [
+      "completed",
+      "missing_media_context",
+      "stopped",
+      "timeline_discontinuity"
+    ]
+  },
+  "local_activation": {
+    "api": "http://127.0.0.1:8081/ui/",
+    "pid": 551136,
+    "media_router_enabled": true,
+    "triton_ready": true,
+    "source_ids_preserved": true,
+    "existing_evidence_preserved": 21,
+    "registered_sources": 2,
+    "active_sources": 0
+  },
+  "existing_artifacts": {
+    "existing_records": 21,
+    "artifact_hashes_verified": 42,
+    "all_passed": true
+  },
+  "live_dashboard": {
+    "passed": true,
+    "image": {
+      "camera_id": "demo-driver-image",
+      "session_id": "eeb6a42adce544b88bcff071922c17f7",
+      "processed": 1,
+      "status": "completed",
+      "annotated_preview": true
+    },
+    "video_1fps": {
+      "camera_id": "demo-driver-video",
+      "session_id": "15f30c029863422186719b4fcb11feed",
+      "processed": 15,
+      "achieved_session_fps": 1.05,
+      "status": "completed",
+      "requested_fps": 1
+    },
+    "original_video_settings_restored": true,
+    "runtime": {
+      "onnxruntime_version": "1.26.0",
+      "onnxruntime_import_error": null,
+      "available_providers": [
+        "TensorrtExecutionProvider",
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider"
+      ],
+      "cuda_available": true,
+      "cuda_device_count": 1,
+      "force_cpu": false,
+      "execution_mode": "triton",
+      "video_decoder": "pyav",
+      "models": [
+        {
+          "model": "rfdetr_driver_triton",
+          "backend": "_BoundedBackend",
+          "device": "remote",
+          "requested_device": "gpu",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)",
+          "active_providers": null
+        },
+        {
+          "model": "face_mesh_triton",
+          "backend": "_BoundedBackend",
+          "device": "remote",
+          "requested_device": "gpu",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)",
+          "active_providers": null
+        }
+      ],
+      "models_downgraded": []
+    },
+    "media_router": {
+      "enabled": true,
+      "status": 200
+    }
+  },
+  "triton_effective_configs": {
+    "rfdetr_driver_behaviour_onnx": {
+      "instance_group": [
+        {
+          "name": "rfdetr_driver_behaviour_onnx_0",
+          "count": 1,
+          "gpus": [
+            0
+          ],
+          "kind": "KIND_GPU",
+          "profile": [],
+          "rate_limiter": {
+            "resources": [
+              {
+                "name": "GPU_EXECUTION",
+                "global": false,
+                "count": 1
+              }
+            ],
+            "priority": 0
+          },
+          "passive": false,
+          "secondary_devices": [],
+          "host_policy": ""
+        }
+      ],
+      "max_batch_size": 4,
+      "dynamic_batching": {
+        "preferred_batch_size": [
+          4
+        ],
+        "max_queue_delay_microseconds": 2000,
+        "preserve_ordering": false,
+        "priority_levels": 0,
+        "default_priority_level": 0,
+        "default_queue_policy": {
+          "timeout_action": "REJECT",
+          "default_timeout_microseconds": 5000000,
+          "allow_timeout_override": false,
+          "max_queue_size": 128
+        },
+        "priority_queue_policy": {}
+      }
+    },
+    "face_mesh_onnx": {
+      "instance_group": [
+        {
+          "name": "face_mesh_onnx_0",
+          "count": 1,
+          "gpus": [
+            0
+          ],
+          "kind": "KIND_GPU",
+          "profile": [],
+          "rate_limiter": {
+            "resources": [
+              {
+                "name": "GPU_EXECUTION",
+                "global": false,
+                "count": 1
+              }
+            ],
+            "priority": 0
+          },
+          "passive": false,
+          "secondary_devices": [],
+          "host_policy": ""
+        }
+      ],
+      "max_batch_size": 4,
+      "dynamic_batching": {
+        "preferred_batch_size": [
+          4
+        ],
+        "max_queue_delay_microseconds": 2000,
+        "preserve_ordering": false,
+        "priority_levels": 0,
+        "default_priority_level": 0,
+        "default_queue_policy": {
+          "timeout_action": "REJECT",
+          "default_timeout_microseconds": 5000000,
+          "allow_timeout_override": false,
+          "max_queue_size": 128
+        },
+        "priority_queue_policy": {}
+      }
+    }
+  },
+  "regressions": {
+    "core_passed": 356,
+    "core_skipped": 32,
+    "driver_project_passed": 16
+  },
+  "limits": [
+    "One replayed RTSP source; no physical camera/network soak or maximum concurrency claim.",
+    "2 FPS target achieved about 1.8 to 1.87 FPS in this workload; a separate 1 FPS finite video check passed.",
+    "All 17 fault-test evidence captures are Incomplete with explicit reasons; complete 10 FPS evidence windows are not qualified by this run.",
+    "Browser connection removal is immediate; HLS remuxing idles out after 5 seconds and its session entry after approximately 30-40 seconds."
+  ],
+  "dashboard_followup": {
+    "checked_at": "2026-10-20T01:39:22.190310+03:00",
+    "passed": true,
+    "health": 200,
+    "ready": 200,
+    "registered_sources": 4,
+    "active_sources": 0,
+    "annotated_preview_decoded": true,
+    "mediamtx_control_status": 200,
+    "service_health_visible_under_services": true,
+    "navigation": [
+      "sources",
+      "services",
+      "pipeline",
+      "sources"
+    ],
+    "browser_javascript_errors": [],
+    "operator_configuration_unchanged": true,
+    "screenshots": [
+      ".run/verification/media-real/main-dashboard.png",
+      ".run/verification/media-real/main-services.png"
+    ]
+  }
+}

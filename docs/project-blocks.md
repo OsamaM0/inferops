@@ -35,9 +35,62 @@ platform:
 ```
 
 `pipelines: []` explicitly enables no inference pipelines and opens an empty
-dashboard. Omitting `pipelines` preserves legacy discovery of all pipeline files.
+dashboard. Omitting `pipelines` discovers all pipeline files; this is the default
+for new projects, so adding a pipeline does not require a second manifest edit.
 Enabled pipelines determine which models must be prepared; unused model files
 need no downloads. Explicit prewarm models are also prepared.
+
+## One configuration workspace
+
+Open **Configuration** in `/ui/` to manage the active project. Settings are grouped
+by purpose: Project, Models, Pipelines, Signals & rules, Alerts & actions, Platform.
+The forms come from the same schemas used by InferOps and save the existing YAML
+documents. They support nested fields, ordered stages, model choices, runtime
+overrides, rule expressions and custom plugin parameters. YAML remains available
+under **Advanced YAML**; switching editors with unsaved changes asks before discarding them.
+
+Use **Add configuration** to draft a model, pipeline, ruleset or alert policy.
+**Validate** checks the candidate against the entire project without writing it.
+**Save changes** persists it and can apply live settings to new sessions. Existing
+sessions keep their compiled revision. Artifact, project and platform changes
+report preparation/restart requirements; a reload cannot bypass pending startup
+changes. Concurrent changes to the same document return a conflict instead of
+silently overwriting it.
+
+To build a pipeline through the forms, choose **Add configuration → Pipeline**.
+Under **Stages**, choose a step such as **Run a model**, then click **Add processing
+step**. Model and policy steps offer the project's configured names. Required
+parameters and safe defaults appear with the selected step; optional parameters
+can be added with **Add field**. **Move up** changes the step order while keeping
+its settings. Under **Sinks**, use **Add output** for live results, webhooks,
+evidence or other supported outputs. Choose **Custom project stage** for a Python
+plugin reference and its own parameters. The stage registry supplies these
+choices without importing or executing project plugins.
+
+Forms preserve fields they do not recognize and literal `${ENV}` references.
+Form saves normalize YAML formatting and remove comments; use Advanced YAML to
+retain comments and formatting. The UI does not create a separate settings database.
+
+Platform precedence is shared by the server settings loader and project loader:
+
+1. `configs/platform.yaml`: installation defaults.
+2. `<project>/configs/platform.yaml`: optional compatibility overrides.
+3. `project.yaml` → `platform`: preferred home for project-specific overrides.
+4. Environment variables: server/deployment overrides, including secrets.
+
+The library remains explicit about runtime options; it does not read server
+environment variables. YAML `${ENV}` interpolation remains available in both.
+Keep each setting in its owning layer rather than copying the platform defaults
+into every project. The UI shows startup environment variable names without
+copying their resolved values into YAML. Environment-only deployment controls
+(Compose profiles, worker ownership, storage and media services) still belong in
+`.env` / deployment configuration; source input, rate and preview controls live
+in **Sources**.
+
+Add `tags.label` and `tags.description` to pipelines to explain their purpose in
+the UI. A pipeline refers to logical model names such as `detector`; a model's
+runtime variants are implementations of that model, not separate workflows.
+New projects and custom plugins use this same editor without changes to InferOps.
 
 ## Model configuration and sources
 
@@ -108,7 +161,7 @@ the previous artifact and stops preparation. No synthetic substitute is supplied
     model: detector
 ```
 
-Logical names select ONNX for CPU/CUDA and Triton for Triton/DeepStream. `auto`
+Logical names select ONNX for CPU/CUDA and Triton for remote serving. `auto`
 is a CPU alias. Tracking filters also accept logical names. Custom stages using
 `params.model` receive the same resolved model name.
 

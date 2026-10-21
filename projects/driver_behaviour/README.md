@@ -11,7 +11,7 @@ docker compose up -d --build
 ```
 
 Open http://localhost:8080/ui/. CPU/CUDA use trained ONNX models;
-Triton/DeepStream use the Triton repository. All modes require real weights. MODE=auto is a CPU alias. Docker prepares the
+Triton use the Triton repository. All modes require real weights. MODE=auto is a CPU alias. Docker prepares the
 configured models before inference starts.
 
 | Folder/file | Edit here to change |
@@ -36,6 +36,22 @@ Sample videos and training are kept in
 [research/driver_training](../../research/driver_training/).
 See the [extension guide](../../docs/project-blocks.md) for adding models and
 actions, and the [dashboard guide](../../docs/interfaces.md) for video use.
+
+In **Configuration**, edit settings through forms and follow a pipeline's links
+to its models, rules and alert policy. The two models are `rfdetr_driver` and
+`face_mesh`; ONNX, TensorRT and Triton are runtime variants of those models.
+
+| UI name | Stable pipeline ID | Purpose |
+| --- | --- | --- |
+| Full driver monitoring | `driver_behaviour` | Detection, face landmarks, temporal eye/head features, tracking, alerts and evidence |
+| Detector-only monitoring | `driver_video` | Detection and phone, seatbelt, smoking and eating rules, alerts and WebSocket output; no FaceMesh, tracking or evidence sink |
+
+Both pipelines accept images, videos and live frames. The older `driver_video`
+name describes a reduced workflow, not a restriction to video inputs. IDs stay
+unchanged so existing sources and clients keep working.
+
+Hands-off-wheel requires an external `hand_on_wheel` signal producer and is not
+a verified detector-only feature. See [pipeline declarations](configs/pipelines/).
 
 ## Install as an independent adapter
 

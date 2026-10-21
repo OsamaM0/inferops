@@ -7,8 +7,7 @@ share these services.
 
 Read the [documentation index](README.md), [full lifecycle](lifecycle.md),
 [Redpanda guide](messaging.md) or [offline diagram gallery](architecture/index.html).
-This page describes the current source; [redesign.md](redesign.md) records the
-broader contracts and staged release migration.
+The [release lifecycle](lifecycle.md#upgrade-and-rollback) covers upgrades and rollback.
 
 ## Why Hexagonal Architecture fits InferOps
 
@@ -16,7 +15,7 @@ The same use case must work when driven by a Python program, an uploaded video,
 a browser camera or a broker worker. It also needs different model backends and
 storage implementations. Ports and adapters keep those technology choices at the
 application boundary. Tests can use fake models and an in-memory repository;
-production supplies ONNX Runtime, PostgreSQL and MinIO. This follows
+the server supplies ONNX Runtime, PostgreSQL and persistent disk (optional S3). This follows
 [Cockburn's original architecture description](https://alistair.cockburn.us/hexagonal-architecture).
 
 The hexagon represents the inside/outside boundary. It does not prescribe six
@@ -91,9 +90,8 @@ docs/                          Explanations, contracts and architecture drawings
 
 The repository root and importable `inferops/` package are distinct. Generated
 `.venv/`, `.run/`, wheel metadata and project weights have their own roles; see
-[generated files](../README.md#generated-files-and-cleanup). The detailed
-[package guide](structure.md) and [file inventory](architecture/repository-tree.md)
-show individual modules.
+[generated files](../README.md#generated-files-and-cleanup). The
+[package guide](structure.md) maps individual modules to their responsibilities.
 
 | Use case | Application implementation | Collaborator |
 | --- | --- | --- |
@@ -113,9 +111,9 @@ show individual modules.
 | [inference.py](../inferops/ports/inference.py) | Backend load, tensors and close | `outbound/inference/`: ONNX Runtime, TensorRT EP, Triton; synthetic testing backend |
 | [projects.py](../inferops/ports/projects.py) | Project loading, pinned definition and scoped plugins | `outbound/projects/`: YAML, manifests, artifacts and installed project packages |
 | [extensions.py](../inferops/ports/extensions.py) | Pre/postprocessing, stages and alert extensions | Built-in stages/model plugins and `projects/<name>/` implementations |
-| [persistence.py](../inferops/ports/persistence.py) | Sessions, atomic acceptance, evidence, inbox/outbox and jobs | `SqlRepository` with PostgreSQL or SQLite; `MemoryRepository` |
+| [persistence.py](../inferops/ports/persistence.py) | Sessions, atomic acceptance, evidence, inbox/outbox and jobs | `SqlRepository` with PostgreSQL; `MemoryRepository` |
 | [media.py](../inferops/ports/media.py) | Snapshot/clip encoding and durable spool | OpenCV/FFmpeg encoder and `CrashSafeSpool` |
-| [storage.py](../inferops/ports/storage.py) | Put/read/verify/delete artifacts | S3-compatible MinIO adapter; filesystem adapter |
+| [storage.py](../inferops/ports/storage.py) | Put/read/verify/delete artifacts | Filesystem adapter by default; optional S3-compatible MinIO adapter |
 | [messaging.py](../inferops/ports/messaging.py) | Producer, consumer, transport and delivery | Redpanda/aiokafka, in-process transport and server delivery |
 
 Incremental decoding lives in the inbound source adapter. Encoding and spooling
@@ -131,7 +129,7 @@ completed artifacts go to MinIO.
 | Engine | Model pool, session registry, repository, evidence, delivery and transport | Explicit construction through close |
 | Model pool | Loaded backends and bounded model concurrency | Shared within an engine/revision; retired after its sessions finish |
 | Processing session | Generated ID/capability, tracking, fusion, cooldowns, stages, timeline and bounded reply cache | One run or explicit continued session |
-| Evidence service | Bounded look-behind rings, active captures and encoding tasks | Engine lifetime; committed material survives in spool/SQL/MinIO |
+| Evidence service | Bounded look-behind rings, active captures and encoding tasks | Engine lifetime; committed material survives in spool/SQL/evidence storage |
 | PostgreSQL | Durable ownership/lifecycle, records, job inputs, evidence and delivery progress | Across process restarts |
 
 External stream names can repeat. Internal session IDs scope temporal state and
@@ -139,12 +137,12 @@ evidence. HTTP continuation requires the generated handle and
 `X-Session-Capability`; a stream name or ID alone grants no continuation.
 One-shot requests intentionally do not share temporal state.
 
-The deployment assumes **one active application owner process per database/spool
-bundle**, serving many sessions. Startup interrupts previous process owners.
-Launching another default API/worker owner against that bundle can fence the
-first owner's sessions. Separate worker entry points exist, but Compose does
-not launch them. Multi-owner scheduling and cross-host session migration are
-outside this deployment model.
+Combined mode uses one owner per database/spool bundle. Optional static workers
+share PostgreSQL/S3 through explicit scopes: database-time leases fence writes,
+each scope recovers only its own work, and spool volumes have process locks.
+One API routes authenticated controls and owns delivery/jobs. See
+[static workers](static-workers.md). API replicas and cross-host reassignment
+are outside this deployment model.
 
 ## Processing and side effects
 
@@ -152,7 +150,7 @@ outside this deployment model.
 Input adapter → session lock and timeline policy
   → shared model resources → session-owned tracking/fusion/incident decisions
   → atomic persistence of accepted effects
-      ├─ evidence request → durable capture → encode → verify MinIO → status commit
+      ├─ evidence request → durable capture → encode → verify evidence storage → status commit
       └─ outbox → broker / configured delivery targets → acknowledgment
 ```
 
@@ -176,19 +174,23 @@ frame does not guarantee every camera frame is retained. The
 | --- | --- | --- |
 | API | Shared engine, UI, HTTP/WebSocket adapters and in-process background services | 8080 |
 | PostgreSQL | Authoritative sessions, jobs, events, incidents, evidence, inbox/outbox and scheduling | 5432 |
-| MinIO | Durable snapshots, clips and artifact manifests | 9000; console 9001 |
+| Persistent disk | Default snapshots, clips and artifact manifests | `/var/lib/inferops/data/evidence` on `engine-data` |
+| MinIO/S3 | Optional shared evidence storage (`storage` profile for MinIO) | 9000; console 9001 |
 | Persistent spool | Recoverable capture/artifact material and retained incomplete captures | `/var/lib/inferops/spool` inside the API container |
 | Redpanda | Durable Kafka-compatible event transport and optional broker input/output | Host 19092; container `redpanda:9092` |
-| Redis | Reserved for rebuildable TTL/cache integrations; the current shared engine does not use it for frame/evidence state | 6379 |
 | Prometheus | Application and infrastructure measurements | 9090 |
 | Grafana | Provisioned views of those measurements | 3000 |
-| Triton | Optional model server for `triton`/`deepstream` modes | HTTP 8000, gRPC 8001, metrics 8002 |
+| Triton | Optional model server for `triton` modes | HTTP 8000, gRPC 8001, metrics 8002 |
+| MediaMTX | Default on-demand camera relay, live players, recording and playback; source catalog stays authoritative | RTSP 8554, WebRTC 8889 + UDP 8189, HLS 8888; playback 9996; control 9997 on loopback |
 
-SQLite, memory and filesystem are explicit local/test choices. Standalone
-prediction requires none of these services. Python callers can inject production
-persistence/storage for server-equivalent durability. The shared engine uses
-incremental PyAV decoding in all modes; installing a DeepStream extra does not
-automatically replace that path.
+PostgreSQL and persistent disk are the default durable server storage. MinIO/S3
+is an optional adapter through the `ObjectStore` port. MediaMTX is the
+default RTSP router and provides original-video recording/playback. Redpanda,
+monitoring and static workers remain optional. Each owner retains a separately
+persistent recovery spool. Memory persistence and explicitly injected storage remain useful
+for embedded programs and tests. Standalone prediction needs none of these services.
+The shared engine uses incremental PyAV decoding; annotated incident clips are
+encoded independently of MediaMTX's original recording segments.
 
 ## How to extend the system
 
@@ -209,8 +211,7 @@ does not require another application runner or global active project.
 
 [CI](../.github/workflows/ci.yaml) runs boundaries, lint and main tests on Python
 3.10 and 3.12. Infrastructure checks need their explicit service environment;
-skips do not prove integration success. The [verification record](cleanup-verification.md)
-documents real CPU/CUDA runs, playback, crash recovery and release rollback.
+see the [PostgreSQL test setup](../README.md#postgresql-backed-tests).
 
 Live capacity still needs capture-enabled benchmarks measuring reply p50/p95/p99,
 drops, evidence completion, memory, spool growth and outbox lag on fixed

@@ -112,6 +112,11 @@ async def process_source(engine, pipeline, source):
                 if frame is stop:
                     await task  # Surface acquisition failures after draining pending frames.
                     break
+                captured = frame.payload.get("_captured_monotonic_ns", time.monotonic_ns()) / 1e9
+                if time.monotonic() - captured >= .5:
+                    dropped += 1
+                    continue
+                frame.payload["_admission_deadline"] = captured + .5
                 frame.payload["source_frames_dropped"] = dropped
                 require_durable_processing(await session.process(frame, observed=True))
         finally:

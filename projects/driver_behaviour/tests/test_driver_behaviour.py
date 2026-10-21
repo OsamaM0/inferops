@@ -4,6 +4,8 @@ Feeds synthetic detection-laden StageItems mirroring what the RFDetr
 postprocess would produce, and asserts that the driver_fusion + driver_alerts
 configs emit the expected events and alerts.
 """
+import asyncio
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -165,5 +167,29 @@ async def test_face_mesh_propagates_model_failures_without_fallback():
     stage.ctx = SimpleNamespace(registry=Registry())
     with pytest.raises(RuntimeError, match="required weights unavailable"):
         await infer_face_mesh(stage, np.zeros((64, 64, 3), dtype=np.uint8))
+
+
+@pytest.mark.asyncio
+async def test_face_search_keeps_control_loop_responsive_and_drains_on_cancel():
+    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")()
+    entered, release = threading.Event(), threading.Event()
+    def slow_search(image):
+        entered.set()
+        release.wait(timeout=2)
+        return None
+    stage._detect_face_with_haar=slow_search
+    item=StageItem(payload={"image_np":np.zeros((64,64,3),np.uint8)})
+    task=asyncio.create_task(stage.process(item))
+    try:
+        assert await asyncio.wait_for(asyncio.to_thread(entered.wait,1),1.5)
+        # This coroutine can run while native face search is still active.
+        assert not task.done()
+        task.cancel()
+        await asyncio.sleep(.01)
+        assert not task.done(), "native face search must drain before cleanup"
+    finally:
+        release.set()
+        results=await asyncio.gather(task,return_exceptions=True)
+    assert isinstance(results[0],asyncio.CancelledError)
 
 

@@ -8,7 +8,8 @@ The API and UI share http://localhost:8080 by default. All `/v1/` routes are
 provided by the Python engine. [Swagger](http://localhost:8080/docs) contains
 the authoritative request/response schemas for the running version;
 [ReDoc](http://localhost:8080/redoc) and [OpenAPI JSON](http://localhost:8080/openapi.json)
-are also available. [The built-in guide](http://localhost:8080/ui/guide) lists live routes.
+are also available. [The built-in guide](http://localhost:8080/ui/guide) covers workflows and ports;
+the [integrated API explorer](http://localhost:8080/ui/#api) discovers live routes and sends requests.
 
 ## HTTP endpoints
 
@@ -51,7 +52,7 @@ are also available. [The built-in guide](http://localhost:8080/ui/guide) lists l
 | POST | `/v1/evidence/records/{evidence_id}/retry` | — | Retry using retained capture material |
 | DELETE | `/v1/evidence/records/{evidence_id}` | — | Manually remove artifacts and retain an audit tombstone |
 | GET | `/v1/evidence/records/{evidence_id}/assets/{kind}` | `kind`: `snapshot` or `clip`; HTTP Range | Read an artifact through a storage-neutral endpoint |
-| GET | `/v1/interfaces` | — | Interfaces |
+| GET | `/v1/interfaces` | — | Interface links and configured deployment ports |
 | GET | `/v1/interfaces/{name}` | — | Open Interface |
 | GET | `/` | — | Root |
 
@@ -92,11 +93,41 @@ curl -X POST http://localhost:8080/v1/run/driver_behaviour/upload \
 curl http://localhost:8080/v1/configs/pipelines/driver_behaviour
 ```
 
-`PUT /v1/configs/{section}/{name}` accepts `{"content":"<YAML>","reload":true}`.
+`GET /v1/configs` returns grouped entries and each pipeline's `config_links`,
+which resolve logical references to editor IDs even when filenames differ.
+`GET /v1/configs/{section}/{name}` includes `data`, `schema`, original `content`,
+and a `version` token. The UI renders typed controls from this schema.
+
+`PUT /v1/configs/{section}/{name}` accepts either
+`{"data":{...},"version":"<token>","reload":true}` or the compatible
+`{"content":"<YAML>","reload":true}`. Send exactly one of `data` and `content`.
+Add `"validate_only":true` to validate the candidate project without saving.
+A stale version returns 409; invalid configuration leaves the file unchanged.
+Structured saves normalize YAML and remove comments; `${ENV}` references remain literal.
+
+`POST /v1/configs/{section}/{name}` creates a model, pipeline, fusion or alert
+configuration using the same payload. Existing IDs return 409. Pipeline
+allowlists remain explicit: if `project.yaml` declares `pipelines`, add the new
+pipeline there; projects without an allowlist discover it automatically.
+`GET /v1/configs/schema/{section}?model_port=true` provides schemas for new drafts
+(`model_port` selects shared defaults/runtime variants for the models section).
+Pipeline schemas include `x-stages`: registered step labels, source/processing/
+output categories and parameter schemas. `StageDecl` carries the
+`x-stage-declaration` marker so the UI can render a guided step selector. Parameter
+fields marked `x-reference` offer logical model, fusion or alert names. Custom
+stage references and arbitrary plugin parameter mappings remain supported.
+
 Sections are `project`, `platform`, `models`, `pipelines`, `fusion` and `alerts`.
-Saving validates YAML and references. Live reload applies to models, pipelines,
+Saving validates YAML and references. Configuration entries report `reload_behavior`:
+`live` for pipelines/fusion/alerts, `conditional` for models whose artifact changes
+can need preparation, and `restart` for project/platform settings. Live reload applies to models, pipelines,
 fusion and alerts; project/platform and artifact changes may need restart or
-preparation. `POST /v1/configs/reload?section=all` reloads live sections.
+preparation. `POST /v1/configs/reload` applies saved live settings together to new
+sessions. It reports `restart_required` without activation if pending startup or
+artifact changes exist. Existing sessions retain their compiled configuration.
+Platform entries use `platform/platform` for installation defaults and
+`platform/project` for an existing project `configs/platform.yaml`; project
+manifest overrides are edited through `project/project`.
 
 `POST /v1/jobs/{pipeline}` creates a background run; inspect its status with
 `GET /v1/jobs/{job_id}`. `POST /v1/run/{pipeline}` runs a JSON payload once;
@@ -174,7 +205,7 @@ visible status outcome rather than silently losing an accepted incident.
 
 The `/records/.../assets/...` route reads through the configured object storage
 adapter. Existing MinIO file and clip routes remain compatibility entry points.
-The [redesign guide](redesign.md) explains spool durability, outbox delivery and
+The [lifecycle guide](lifecycle.md) explains spool durability, outbox delivery and
 rollback through a designated previous release artifact.
 
 Unknown resources return 404, malformed/invalid configuration returns 400,
@@ -192,8 +223,9 @@ Use `/v1/system/status` and Prometheus targets to inspect those dependencies.
 | Grafana | `http://localhost:3000` | `/api/health`, `/api/search`, `/api/dashboards/uid/inferops-overview`; writes require appropriate login/permissions |
 | Prometheus | `http://localhost:9090` | `/api/v1/query`, `/api/v1/query_range`, `/api/v1/targets`, `/-/ready`, `/metrics` |
 | Triton | `http://localhost:8000` | `/v2/health/live`, `/v2/health/ready`, `/v2/models/<model>`, `/v2/models/<model>/infer`; gRPC on 8001 and metrics on 8002 |
+| MediaMTX | Optional loopback `http://127.0.0.1:9997` | Authenticated Control API; managed camera players via `GET /v1/cameras/{camera_id}/live`; see [media routing](media-router.md) |
 | Redpanda | Internal `http://redpanda:9644` | Admin API and `/public_metrics`; Kafka protocol on host port 19092 |
 
 See [interfaces, pages and all ports](interfaces.md) for startup, service
 credentials, remote URLs and the difference between host and container ports.
-PostgreSQL and Redis expose their native protocols rather than HTTP APIs.
+Optional PostgreSQL exposes its native protocol rather than an HTTP API.

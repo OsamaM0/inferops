@@ -26,3 +26,7 @@ scrape_configs:
   static_configs:
   - targets:
     - redpanda:9644
+
+- job_name: mediamtx
+  static_configs:
+  - targets: ["mediamtx:9998"]

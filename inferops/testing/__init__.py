@@ -53,14 +53,19 @@ def configure_test_env(domain: str | None = None, *, domain_root: str | Path | N
 
     os.environ.setdefault("APP_ENV", "dev")
     # Isolate server tests from deployment configuration and persistent resources.
+    os.environ["INFEROPS_DATA_PATH"] = str(Path(_test_storage.name) / "data")
+    os.environ["INFEROPS_SOURCES_PATH"] = str(Path(_test_storage.name) / "sources")
     os.environ["INFEROPS_SPOOL_PATH"] = str(Path(_test_storage.name) / "spool")
+    os.environ["INFEROPS_MEDIA_ROUTER"] = "direct"  # Never mutate the operator's live router.
     os.environ.setdefault("INFEROPS_TRANSPORT_KIND", "inproc")
-    os.environ["INFEROPS_PG_URL"] = os.environ.get(
-        "INFEROPS_TEST_PG_URL", f"sqlite+aiosqlite:///{_test_storage.name}/test.db"
-    )
+    from inferops.testing.postgres import test_database_url
+    database_url = test_database_url()
+    os.environ["INFEROPS_PG_URL"] = database_url
+    os.environ["INFEROPS_DATABASE_URL"] = database_url
+    os.environ["INFEROPS_STORAGE_KIND"] = "filesystem"
     os.environ.setdefault("INFEROPS_OBS_LOG_JSON", "false")
-    os.environ.setdefault("INFEROPS_S3_ENDPOINT", f"http://127.0.0.1:{port}")
-    os.environ.setdefault("INFEROPS_S3_PUBLIC_URL", f"http://127.0.0.1:{port}")
+    os.environ["INFEROPS_S3_ENDPOINT"] = f"http://127.0.0.1:{port}"
+    os.environ["INFEROPS_S3_PUBLIC_URL"] = f"http://127.0.0.1:{port}"
     os.environ.setdefault("INFEROPS_TRITON_URL", "127.0.0.1:1")
     os.environ.setdefault("INFEROPS_TRITON_HTTP_URL", "http://127.0.0.1:1")
     # Prewarm is exercised by the domain suites through the manifest; keep the

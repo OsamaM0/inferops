@@ -1,4 +1,4 @@
-"""Transactional PostgreSQL persistence with a SQLite development adapter.
+"""Transactional PostgreSQL persistence.
 
 The legacy tables remain projections, so the designated compatibility release can read data
 created by the new engine. No module-level client, configuration or lock exists.
@@ -6,11 +6,11 @@ created by the new engine. No module-level client, configuration or lock exists.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Column,
     DateTime,
@@ -29,17 +29,19 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 
 class SqlRepository:
-    def __init__(self, url: str, *, max_pending_outbox: int | None = 100_000):
+    def __init__(self, url: str, *, max_pending_outbox: int | None = 100_000, maintenance=False):
         if max_pending_outbox is not None and max_pending_outbox < 0:
             raise ValueError("Outbox capacity cannot be negative")
         if url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        elif url.startswith("sqlite://"):
-            url = url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+        if not url.startswith("postgresql+asyncpg://"):
+            raise ValueError("durable persistence requires a PostgreSQL URL (postgresql+asyncpg://)")
         self.url = url
+        self.maintenance = maintenance
         self.max_pending_outbox = max_pending_outbox
         self._engine: AsyncEngine | None = None
         self._write_lock = asyncio.Lock()
+        self.outbox_transform = lambda rows: rows
         self.metadata = MetaData()
         self.schema_versions = Table(
             "inferops_schema_versions", self.metadata,
@@ -47,7 +49,7 @@ class SqlRepository:
             Column("description", String, nullable=False),
             Column("applied_at", DateTime(timezone=True), server_default=func.now()),
         )
-        payload_type = JSONB().with_variant(JSON(), "sqlite")
+        payload_type = JSONB()
         self.events = Table(
             "events", self.metadata,
             Column("id", String, primary_key=True),
@@ -123,6 +125,18 @@ class SqlRepository:
             Column("consumer", String, primary_key=True),
             Column("created_at", DateTime(timezone=True), server_default=func.now()),
         )
+        self.leases = Table(
+            "inferops_owner_leases", self.metadata,
+            Column("scope", String, primary_key=True), Column("instance", String, nullable=False),
+            Column("generation", Integer, nullable=False), Column("expires_at", DateTime(timezone=True), nullable=False))
+        self.record_scopes = Table(
+            "inferops_record_scopes", self.metadata,
+            Column("kind", String, primary_key=True), Column("id", String, primary_key=True),
+            Column("scope", String, nullable=False, index=True))
+        self.delivery_receipts = Table(
+            "inferops_delivery_receipts", self.metadata,
+            Column("message_id", String, primary_key=True),
+            Column("delivered_at", DateTime(timezone=True), nullable=False, index=True))
 
     @property
     def engine(self) -> AsyncEngine:
@@ -133,19 +147,29 @@ class SqlRepository:
     async def start(self) -> None:
         if self._engine is not None:
             return
-        kwargs = {"connect_args": {"timeout": 30}} if self.url.startswith("sqlite") else {}
-        engine = create_async_engine(self.url, pool_pre_ping=True, **kwargs)
+        engine = create_async_engine(self.url, pool_pre_ping=True)
         try:
             async with engine.begin() as conn:
-                if engine.dialect.name == "sqlite":
-                    await conn.execute(text("PRAGMA journal_mode=WAL"))
-                    await conn.execute(text("PRAGMA busy_timeout=30000"))
+                await conn.execute(text("SELECT pg_advisory_xact_lock(731914215)"))
                 await conn.run_sync(self.metadata.create_all)
                 # Version 1 is entirely additive. Record it only after every
                 # table was created successfully in this startup transaction.
                 await conn.execute(self._insert(self.schema_versions, {
                     "version": 1, "description": "Sessions, evidence, delivery and immutable job requests",
                 }, dialect=engine.dialect.name))
+                await conn.execute(self._insert(self.schema_versions, {
+                    "version": 2, "description": "Additive owner leases and explicit record scope mapping",
+                }, dialect=engine.dialect.name))
+                await conn.execute(self._insert(self.schema_versions, {
+                    "version": 3, "description": "Delivery completion timestamps for explicit outbox retention",
+                }, dialect=engine.dialect.name))
+                if await conn.scalar(select(func.max(self.schema_versions.c.version))) > 3:
+                    raise ValueError("database schema requires a newer InferOps runtime")
+                if not getattr(self, "scope", None) and not self.maintenance:
+                    scoped = await conn.scalar(select(self.record_scopes.c.id).limit(1))
+                    owned = await conn.scalar(select(self.leases.c.scope).limit(1))
+                    if scoped or owned:
+                        raise ValueError("database contains distributed records; use an owned API/worker role")
         except BaseException:
             await engine.dispose()
             raise
@@ -156,11 +180,32 @@ class SqlRepository:
         if engine is not None:
             await engine.dispose()
 
+    @asynccontextmanager
+    async def _transaction(self):
+        async with self._write_lock, self.engine.begin() as conn:
+            await self._fence(conn)
+            yield conn
+
+    async def _fence(self, conn):
+        pass
+
+    async def _record_owner(self, conn, kind, record_id, *, create=False):
+        pass
+
+    def _scope_condition(self, kind, column):
+        return True
+
+    async def record_scope(self, kind, record_id):
+        async with self.engine.connect() as conn:
+            return await conn.scalar(select(self.record_scopes.c.scope).where(
+                self.record_scopes.c.kind == kind, self.record_scopes.c.id == record_id))
+
+    async def claim_camera(self, camera_id):
+        async with self._transaction() as conn:
+            await self._record_owner(conn, "camera", camera_id, create=True)
+
     def _insert(self, table: Table, row: dict[str, Any], *, dialect: str | None = None):
-        if (dialect or self.engine.dialect.name) == "sqlite":
-            from sqlalchemy.dialects.sqlite import insert
-        else:
-            from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy.dialects.postgresql import insert
         return insert(table).values(**row).on_conflict_do_nothing()
 
     @staticmethod
@@ -188,11 +233,14 @@ class SqlRepository:
 
     async def save_session(self, row: dict[str, Any]) -> dict[str, Any]:
         document = {"status": "open", "generation": 1, "owner_generation": 1, **row}
+        if getattr(self, "scope", None):
+            document.update(owner_scope=self.scope, owner_generation=self.generation)
         values = {
             "id": document["id"], "owner": document["owner"],
             "status": document["status"], "document": document,
         }
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
+            await self._record_owner(conn, "session", document["id"], create=True)
             await conn.execute(self._insert(self.sessions, values))
             # A repeated save cannot steal ownership or reopen an interrupted
             # session. Return durable state so callers can detect fencing.
@@ -201,7 +249,8 @@ class SqlRepository:
             ))
 
     async def close_session(self, session_id: str, status: str = "closed") -> None:
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
+            await self._record_owner(conn, "session", session_id)
             query = select(self.sessions.c.document).where(self.sessions.c.id == session_id).with_for_update()
             document = await conn.scalar(query)
             if document is not None:
@@ -210,10 +259,6 @@ class SqlRepository:
                 await conn.execute(self.sessions.update().where(self.sessions.c.id == session_id).values(
                     status=status, document=document,
                 ))
-
-    async def interrupt_sessions(self, owner: str) -> int:
-        """Interrupt sessions owned by a specific process (compatibility API)."""
-        return await self._interrupt_sessions(self.sessions.c.owner == owner)
 
     async def interrupt_other_sessions(self, current_owner: str) -> int:
         """Fence prior process owners on startup of the single-owner server.
@@ -224,12 +269,10 @@ class SqlRepository:
         """
         if not current_owner:
             raise ValueError("A current process owner is required")
-        return await self._interrupt_sessions(self.sessions.c.owner != current_owner)
-
-    async def _interrupt_sessions(self, owner_condition) -> int:
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
             rows = (await conn.execute(select(self.sessions).where(
-                owner_condition, self.sessions.c.status == "open",
+                self.sessions.c.owner != current_owner, self.sessions.c.status == "open",
+                self._scope_condition("session", self.sessions.c.id),
             ).with_for_update())).mappings().all()
             closed_at = (await self._now(conn)).isoformat()
             for row in rows:
@@ -252,7 +295,15 @@ class SqlRepository:
         evidence: list[dict[str, Any]], outbox: list[dict[str, Any]],
         *, inbox: tuple[str, str] | None = None,
     ) -> bool:
-        async with self._write_lock, self.engine.begin() as conn:
+        outbox = self.outbox_transform(outbox)
+        async with self._transaction() as conn:
+            for row in events + incidents:
+                session_id = (row.get("payload") or {}).get("session_id")
+                if session_id:
+                    await self._record_owner(conn, "session", session_id)
+            for row in evidence:
+                await self._record_owner(conn, "session", row["session_id"])
+                await self._record_owner(conn, "evidence", row["id"], create=True)
             if inbox is not None:
                 event_id, consumer = inbox
                 reserved = await conn.execute(self._insert(self.inbox, {
@@ -295,7 +346,9 @@ class SqlRepository:
     async def list_evidence(
         self, session_id: str | None = None, limit: int = 100,
     ) -> list[dict[str, Any]]:
-        stmt = select(self.evidence.c.document).order_by(
+        stmt = select(self.evidence.c.document).where(
+            True if getattr(self, "scope", None) == "api" else
+            self._scope_condition("evidence", self.evidence.c.id)).order_by(
             self.evidence.c.created_at.desc(), self.evidence.c.id,
         ).limit(max(0, limit))
         if session_id is not None:
@@ -303,10 +356,42 @@ class SqlRepository:
         async with self.engine.connect() as conn:
             return list((await conn.execute(stmt)).scalars())
 
+    async def recovery_evidence(self, page_size=256):
+        cursor = ""
+        while True:
+            stmt = select(self.evidence.c.document).where(
+                self.evidence.c.id > cursor, self._scope_condition("evidence", self.evidence.c.id),
+                or_(self.evidence.c.state == "Pending",
+                    self.evidence.c.document["deletion_pending"].as_boolean().is_(True)),
+            ).order_by(self.evidence.c.id).limit(page_size)
+            async with self.engine.connect() as conn:
+                rows = list((await conn.execute(stmt)).scalars())
+            if not rows:
+                return
+            for row in rows:
+                yield row
+            cursor = rows[-1]["id"]
+
+    async def retention_candidates(self, before, limit=100, *, evidence_id=None):
+        pending = select(self.outbox.c.key).where(self.outbox.c.status == "pending", self.outbox.c.key.is_not(None))
+        stmt = select(self.evidence.c.document).where(
+            self.evidence.c.created_at < before, self.evidence.c.state.in_(["Saved", "Incomplete", "Failed"]),
+            self.evidence.c.document["deleted"].as_boolean().is_not(True),
+            self.evidence.c.document["deletion_pending"].as_boolean().is_not(True),
+            ~self.evidence.c.id.in_(pending), ~self.evidence.c.session_id.in_(pending),
+            self._scope_condition("evidence", self.evidence.c.id),
+        ).order_by(self.evidence.c.id).limit(limit)
+        if evidence_id:
+            stmt = stmt.where(self.evidence.c.id == evidence_id)
+        async with self.engine.connect() as conn:
+            return list((await conn.execute(stmt)).scalars())
+
     async def update_evidence(self, evidence_id: str, **changes: Any) -> dict[str, Any] | None:
         if "id" in changes or "session_id" in changes:
             raise ValueError("Evidence identity and session ownership are immutable")
-        async with self._write_lock, self.engine.begin() as conn:
+        retention_before = changes.pop("_retention_before", None)
+        async with self._transaction() as conn:
+            await self._record_owner(conn, "evidence", evidence_id)
             # All admission writers lock the outbox before individual records;
             # this keeps duplicate acceptance and evidence updates deadlock-free.
             await self._lock_outbox_admission(conn)
@@ -315,20 +400,31 @@ class SqlRepository:
             ).with_for_update())
             if document is None:
                 return None
+            if retention_before is not None:
+                created = await conn.scalar(select(self.evidence.c.created_at).where(self.evidence.c.id == evidence_id))
+                created = created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created
+                pending = await conn.scalar(select(self.outbox.c.id).where(
+                    self.outbox.c.status == "pending",
+                    self.outbox.c.key.in_([evidence_id, document["session_id"]])).limit(1))
+                if (created >= retention_before or document["state"] == "Pending" or document.get("deleted")
+                        or document.get("deletion_pending") or pending):
+                    raise ValueError("evidence is no longer eligible for retention")
             previous_document = document
             next_revision = document.get("revision", 0) + 1
-            await self._check_outbox_capacity(conn, {f"evidence:{evidence_id}:{next_revision}"})
             document = {
                 **document, **changes, "revision": next_revision,
                 "updated_at": (await self._now(conn)).isoformat(),
             }
+            messages = self.outbox_transform([{
+                "id": f"evidence:{evidence_id}:{document['revision']}",
+                "topic": "evidence.updated", "key": evidence_id, "payload": document,
+            }])
+            await self._check_outbox_capacity(conn, {row["id"] for row in messages})
             await conn.execute(self.evidence.update().where(self.evidence.c.id == evidence_id).values(
                 state=document["state"], document=document,
             ))
-            await conn.execute(self._insert(self.outbox, self._outbox_row({
-                "id": f"evidence:{evidence_id}:{document['revision']}",
-                "topic": "evidence.updated", "key": evidence_id, "payload": document,
-            })))
+            for message in messages:
+                await conn.execute(self._insert(self.outbox, self._outbox_row(message)))
             # Maintain readable evidence links for the compatibility release.
             incident_id = document.get("incident_id") or document.get("alert_id")
             uris = self._artifact_uris(document.get("artifacts"))
@@ -424,7 +520,9 @@ class SqlRepository:
     ) -> list[dict[str, Any]]:
         if not owner or lease_s <= 0:
             raise ValueError("An owner and positive lease duration are required")
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
+            if getattr(self, "scope", "api") != "api":
+                raise PermissionError("only the API owner may claim notification outbox rows")
             now = await self._now(conn)
             eligible = and_(
                 self.outbox.c.status == "pending", self.outbox.c.available_at <= now,
@@ -436,7 +534,7 @@ class SqlRepository:
             ids = list((await conn.execute(stmt)).scalars())
             claimed = []
             for message_id in ids:
-                # The predicate is repeated for SQLite and independent repositories.
+                # Repeat the predicate for independent repository instances.
                 row = (await conn.execute(self.outbox.update().where(
                     self.outbox.c.id == message_id, eligible,
                 ).values(
@@ -454,18 +552,38 @@ class SqlRepository:
         )
 
     async def ack_outbox(self, message_id: str, owner: str, generation: int) -> bool:
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
             now = await self._now(conn)
             result = await conn.execute(self.outbox.update().where(
                 self._claim_identity(message_id, owner, generation),
                 self.outbox.c.lease_until > now,
             ).values(status="delivered", owner=None, lease_until=None, error=None))
+            if result.rowcount == 1:
+                await conn.execute(self._insert(self.delivery_receipts, {"message_id": message_id, "delivered_at": now}))
             return result.rowcount == 1
+
+    async def prune_delivered_outbox(self, before, *, dry_run=True, limit=1000):
+        if before.tzinfo is None or not 1 <= limit <= 1000:
+            raise ValueError("timezone-aware cutoff and limit 1..1000 are required")
+        if getattr(self, "scope", "api") != "api":
+            raise PermissionError("only the API owner may prune delivered outbox rows")
+        async with self._transaction() as conn:
+            stmt = select(self.outbox.c.id).join(self.delivery_receipts,
+                self.delivery_receipts.c.message_id == self.outbox.c.id).where(
+                self.outbox.c.status == "delivered", self.delivery_receipts.c.delivered_at < before,
+            ).order_by(self.delivery_receipts.c.delivered_at, self.outbox.c.id).limit(limit).with_for_update(
+                of=self.outbox, skip_locked=True)
+            ids = list((await conn.execute(stmt)).scalars())
+            if not dry_run and ids:
+                await conn.execute(self.outbox.delete().where(self.outbox.c.id.in_(ids)))
+                await conn.execute(self.delivery_receipts.delete().where(self.delivery_receipts.c.message_id.in_(ids)))
+            return {"dry_run": dry_run, "before": before.isoformat(), "message_ids": ids,
+                    "inbox_pruning": "disabled; replay horizon is undefined"}
 
     async def retry_outbox(
         self, message_id: str, owner: str, generation: int, error: str, delay_s: float,
     ) -> bool:
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
             now = await self._now(conn)
             result = await conn.execute(self.outbox.update().where(
                 self._claim_identity(message_id, owner, generation),
@@ -482,13 +600,13 @@ class SqlRepository:
         Consumers with additional SQL effects must use ``consume`` to put those
         writes in the same transaction; reserving before a remote effect is unsafe.
         """
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
             result = await conn.execute(self._insert(self.inbox, {"event_id": event_id, "consumer": consumer}))
             return result.rowcount == 1
 
     async def consume(self, event_id: str, consumer: str, effect) -> bool:
         """Apply an async SQL effect and inbox reservation in one transaction."""
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
             result = await conn.execute(self._insert(self.inbox, {"event_id": event_id, "consumer": consumer}))
             if result.rowcount != 1:
                 return False
@@ -496,7 +614,8 @@ class SqlRepository:
             return True
 
     async def create_job(self, row: dict[str, Any]) -> None:
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
+            await self._record_owner(conn, "job", row["id"], create=True)
             values = {key: value for key, value in row.items() if key in self.jobs.c}
             result = await conn.execute(self._insert(self.jobs, values))
             if result.rowcount == 1:
@@ -508,7 +627,8 @@ class SqlRepository:
         values: dict[str, Any] = {"status": status}
         if result is not None:
             values["result"] = result
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
+            await self._record_owner(conn, "job", job_id)
             await conn.execute(self.jobs.update().where(self.jobs.c.id == job_id).values(**values))
 
     async def get_job(self, job_id: str) -> dict[str, Any] | None:
@@ -527,7 +647,7 @@ class SqlRepository:
         """Recover oldest admitted work without a recent-completed-job cutoff."""
         async with self.engine.connect() as conn:
             rows = (await conn.execute(self._job_query().where(
-                self.jobs.c.status == "queued",
+                self.jobs.c.status == "queued", self._scope_condition("job", self.jobs.c.id),
             ).order_by(self.jobs.c.created_at, self.jobs.c.id).limit(max(0, limit)))).mappings()
             return [self._job_document(row) for row in rows]
 
@@ -541,9 +661,10 @@ class SqlRepository:
         return {**dict(row), "input": row["input"] or {}}
 
     async def interrupt_jobs(self) -> int:
-        async with self._write_lock, self.engine.begin() as conn:
+        async with self._transaction() as conn:
             rows = (await conn.execute(select(self.jobs).where(
                 self.jobs.c.status.in_(["running", "processing"]),
+                self._scope_condition("job", self.jobs.c.id),
             ).with_for_update())).mappings().all()
             for row in rows:
                 await conn.execute(self.jobs.update().where(self.jobs.c.id == row["id"]).values(

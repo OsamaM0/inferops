@@ -1,3 +1,4 @@
+(() => {
     "use strict";
 
     const STORAGE_KEYS = {
@@ -19,6 +20,7 @@
       selectedDomainId: "",
       selectedMode: "camera",
       selectedConfig: null,
+      configDirty: false,
       activeStreamId: "",
       cameraMediaStream: null,
       cameraLoopEnabled: false,
@@ -46,13 +48,12 @@
     };
 
     const $ = (id) => document.getElementById(id);
+    let configForm = null, configLoadId = 0;
 
     const DEFAULT_REQUEST_TIMEOUT_MS = 12000;
     const LONG_REQUEST_TIMEOUT_MS = 90000;
 
     function inferDefaultApiBase() {
-      const saved = normalizeBase(localStorage.getItem(STORAGE_KEYS.apiBase) || "");
-      if (saved) return saved;
       return window.location.origin;
     }
 
@@ -162,50 +163,11 @@
     function setNotice(text, tone = "status-info") {
       setPill("apiConnectionBadge", tone, tone === "status-ok" ? "Connected" : tone === "status-err" ? "Error" : tone === "status-warn" ? "Attention" : "Working");
       $("dashboardNotice").textContent = text;
+      if (!text.startsWith("Connected to") && !text.startsWith("Refreshing dashboard")) window.InferOps.notify(text, tone === "status-err");
     }
 
     async function request(path, options = {}) {
-      const timeoutMs = requestTimeoutMs(path, options);
-      const controller = options.signal ? null : new AbortController();
-      const timeoutId = controller
-        ? window.setTimeout(() => controller.abort(new DOMException("Request timed out", "AbortError")), timeoutMs)
-        : null;
-      let response;
-      try {
-        response = await fetch(apiUrl(path), {
-          ...options,
-          signal: options.signal || controller.signal,
-        });
-      } catch (error) {
-        if (timeoutId !== null) {
-          window.clearTimeout(timeoutId);
-        }
-        if (error && error.name === "AbortError") {
-          throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
-        }
-        throw error;
-      }
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-      const text = await response.text();
-      let payload = null;
-      if (text) {
-        try {
-          payload = JSON.parse(text);
-        } catch {
-          payload = text;
-        }
-      }
-      if (!response.ok) {
-        const message = payload && typeof payload === "object" && "detail" in payload
-          ? formatDetail(payload.detail)
-          : typeof payload === "string"
-            ? payload
-            : response.statusText;
-        throw new Error(message || `HTTP ${response.status}`);
-      }
-      return payload;
+      return window.InferOps.request(path, {...options, timeoutMs: requestTimeoutMs(path, options)});
     }
 
     function selectedDomain() {
@@ -222,11 +184,11 @@
         return null;
       }
 
-      const saved = localStorage.getItem(STORAGE_KEYS.domainId);
+      const saved = window.InferOps.storage.get(STORAGE_KEYS.domainId);
       const candidate = state.selectedDomainId || saved;
       const found = domains.find((domain) => domain.id === candidate) || domains[0];
       state.selectedDomainId = found.id;
-      localStorage.setItem(STORAGE_KEYS.domainId, found.id);
+      window.InferOps.storage.set(STORAGE_KEYS.domainId, found.id);
       return found;
     }
 
@@ -608,12 +570,13 @@
       $("interfaceGrid").innerHTML = items.map((item) => {
         const health = state.system?.services?.[serviceKeys[item.id]];
         const online = health && Boolean(health.ok || health.open || health.status === 200);
-        const tone = !health ? "status-info" : online ? "status-ok" : "status-warn";
-        const label = !health ? "Not checked" : online ? "Online" : "Unavailable";
-        return `<a class="interface-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">
+        const disabled = health?.enabled === false;
+        const tone = disabled || !health ? "status-info" : online ? "status-ok" : "status-warn";
+        const label = disabled ? "Optional / off" : !health ? "Not checked" : online ? "Online" : "Unavailable";
+        return `<a class="interface-card" href="${item.id === "swagger" ? "#api" : escapeHtml(item.url)}" ${item.id === "swagger" ? "" : 'target="_blank" rel="noopener noreferrer"'}>
           <div class="interface-top"><span class="app-icon ${item.id}-icon">${icons[item.id]}</span>
           <span class="status-pill ${tone}">${label}</span></div>
-          <strong>${escapeHtml(item.title)} ↗</strong><span>${escapeHtml(item.description)}</span></a>`;
+          <strong>${item.id === "swagger" ? "API explorer →" : `${escapeHtml(item.title)} ↗`}</strong><span>${escapeHtml(item.description)}</span></a>`;
       }).join("");
     }
 
@@ -634,6 +597,7 @@
         ["MinIO console", system.services.minio_console],
         ["Grafana", system.services.grafana],
         ["Prometheus", system.services.prometheus],
+        ["MediaMTX", system.services.mediamtx],
       ].filter(([, value]) => value && value.enabled !== false);
 
       let okCount = 0;
@@ -695,7 +659,8 @@
         $("domainPipeline").textContent = "-";
         $("domainRefs").textContent = "-";
         $("domainFlow").innerHTML = '<span class="flow-pill">No domain metadata</span>';
-        $("domainConfigLinks").innerHTML = '<div class="empty-state">No linked config files found for the current workspace.</div>';
+        $("domainConfigLinks").innerHTML = '<div class="empty-state">Add a pipeline to connect models and policies.</div>';
+        $("configPipelineDescription").textContent = "";
         return;
       }
 
@@ -710,6 +675,7 @@
 
       $("domainPipeline").textContent = domain.pipeline;
       const refs = domain.config_names || {};
+      $("configPipelineDescription").textContent = domain.description || "";
       $("domainRefs").textContent = [refs.model, refs.fusion, refs.alerts].filter(Boolean).join(" / ") || "Linked config missing";
 
       const flowBits = [];
@@ -721,16 +687,10 @@
       }
       $("domainFlow").innerHTML = flowBits.join("") || '<span class="flow-pill">No stage metadata</span>';
 
-      const quickLinks = [
-        { section: "platform", name: "platform", label: "platform.yaml" },
-        { section: "pipelines", name: refs.pipeline, label: `pipeline: ${refs.pipeline || "-"}` },
-        { section: "models", name: refs.model, label: `model: ${refs.model || "-"}` },
-        { section: "fusion", name: refs.fusion, label: `fusion: ${refs.fusion || "-"}` },
-        { section: "alerts", name: refs.alerts, label: `alerts: ${refs.alerts || "-"}` },
-      ].filter((item) => item.name);
+      const quickLinks = domain.config_links || [];
 
       $("domainConfigLinks").innerHTML = quickLinks.map((item) => {
-        return `<button class="link-btn" data-config-section="${escapeHtml(item.section)}" data-config-name="${escapeHtml(item.name)}">${escapeHtml(item.label)}</button>`;
+        return `<button class="link-btn" data-config-section="${escapeHtml(item.section)}" data-config-name="${escapeHtml(item.name)}">${escapeHtml(item.title)}</button>`;
       }).join("");
     }
 
@@ -741,7 +701,8 @@
 
       const loaded = (state.models || []).filter((model) => (model.loaded_variants || []).length > 0).length;
       $("summaryModels").textContent = formatCount(loaded);
-      $("summaryModelsLabel").textContent = `Loaded models (${formatCount(state.models.length)} configured)`;
+      const logicalCount = (state.configsIndex?.files || []).filter(file => file.section === "models").length;
+      $("summaryModelsLabel").textContent = `Loaded implementations (${formatCount(logicalCount)} models / ${formatCount(state.models.length)} runtime variants)`;
       $("summaryModelStates").textContent = state.models.length
         ? state.models.map((model) => `${model.name}: ${(model.loaded_variants || []).length ? "loaded" : "configured; loads when used"}`).join(" · ")
         : "This project has no models configured.";
@@ -823,25 +784,30 @@
       const container = $("configList");
       const index = state.configsIndex;
       if (!index || !Array.isArray(index.files) || !index.files.length) {
-        container.innerHTML = '<div class="empty-state">No config files were found under the configured config root.</div>';
+        container.innerHTML = '<div class="empty-state">No settings yet. Add your first model or pipeline.</div>';
         return;
       }
+      $("configPrecedence").textContent = `Settings precedence: ${(index.precedence || []).join(" → ")}. Environment overrides apply at startup.`;
 
-      const files = [...index.files].sort((left, right) => {
+      const search = $("configSearch").value.toLowerCase();
+      const order = Object.keys(index.groups || {});
+      const files = [...index.files].filter(file => `${file.title} ${file.section} ${file.description}`.toLowerCase().includes(search)).sort((left, right) => {
         if (left.section === right.section) {
           return left.name.localeCompare(right.name);
         }
-        return left.section.localeCompare(right.section);
+        return order.indexOf(left.section) - order.indexOf(right.section);
       });
-
+      let previousSection = "";
       container.innerHTML = files.map((file) => {
         const isActive = state.selectedConfig && state.selectedConfig.section === file.section && state.selectedConfig.name === file.name;
+        const heading = previousSection === file.section ? "" : `<h5 class="config-section">${escapeHtml(file.group)}</h5>`;
+        previousSection = file.section;
         return `
-          <article class="config-entry ${isActive ? "is-active" : ""}" data-config-section="${escapeHtml(file.section)}" data-config-name="${escapeHtml(file.name)}">
-            <strong>${escapeHtml(file.name)}</strong>
-            <small>${escapeHtml(file.section)} / ${escapeHtml(file.path)}</small>
-            <small>${file.reload_behavior === "live" ? "Reloads live" : "Save only, then restart if needed"}</small>
-          </article>
+          ${heading}<button type="button" class="config-entry ${isActive ? "is-active" : ""}" data-config-section="${escapeHtml(file.section)}" data-config-name="${escapeHtml(file.name)}" aria-pressed="${Boolean(isActive)}">
+            <strong>${escapeHtml(file.title)}</strong>
+            <small>${escapeHtml(file.description || (file.variants.length ? `Runtime variants: ${file.variants.join(", ")}` : file.group))}</small>
+            <small>${file.reload_behavior === "live" ? "Reloads live" : file.reload_behavior === "conditional" ? "Artifact changes need preparation and restart" : "Restart to apply"}</small>
+          </button>
         `;
       }).join("");
     }
@@ -906,10 +872,10 @@
         return false;
       }
 
-      $("docsLink").href = apiUrl("/docs");
+      $("docsLink").href = "#api";
       $("evidenceLink").href = apiUrl("/v1/interfaces/minio");
-      $("guideLink").href = apiUrl("/ui/guide");
-      $("healthLink").href = apiUrl("/healthz");
+      $("guideLink").href = "#guide";
+      $("healthLink").href = "#api";
 
       if (!keepNotice) {
         setNotice("Refreshing dashboard snapshot...", "status-info");
@@ -976,15 +942,14 @@
 
         if (!state.selectedConfig) {
           const domain = selectedDomain();
-          if (domain && domain.config_names && domain.config_names.pipeline) {
-            await loadConfig("pipelines", domain.config_names.pipeline, { quiet: true });
-          }
+          if (domain && domain.config_names && domain.config_names.pipeline) await loadConfig("pipelines", domain.config_names.pipeline, { quiet: true });
+          else if (state.configsIndex.files.length) await loadConfig(state.configsIndex.files[0].section, state.configsIndex.files[0].name, {quiet:true});
         }
         return true;
       } catch (error) {
         state.connected = false;
         if (state.activityTimer) {
-          window.clearInterval(state.activityTimer);
+          state.activityTimer();
           state.activityTimer = null;
         }
         setNotice(`Connection failed: ${error.message}`, "status-err");
@@ -1015,7 +980,7 @@
       } catch (error) {
         state.connected = false;
         if (state.activityTimer) {
-          window.clearInterval(state.activityTimer);
+          state.activityTimer();
           state.activityTimer = null;
         }
         console.warn("activity refresh failed", error);
@@ -1061,11 +1026,11 @@
         return;
       }
       state.apiBase = base;
-      localStorage.setItem(STORAGE_KEYS.apiBase, base);
+
       const connected = await refreshSnapshot();
 
       if (connected && !state.activityTimer) {
-        state.activityTimer = window.setInterval(refreshActivityOnly, 10000);
+        state.activityTimer = window.InferOps.poll(() => ["activity-view", "playground", "services"].includes(window.InferOps.view) && refreshActivityOnly());
       }
     }
 
@@ -1074,17 +1039,15 @@
       if (!state.apiBase) {
         return;
       }
+      if (state.configDirty && !confirm("Discard unsaved changes and open these settings?")) return;
+      const loadId = ++configLoadId;
       try {
         const payload = await request(`/v1/configs/${encodeURIComponent(section)}/${encodeURIComponent(name)}`);
-        state.selectedConfig = payload;
-        $("configTitle").textContent = `${payload.section}/${payload.name}`;
-        $("configMeta").textContent = `${payload.path} | ${payload.reload_behavior === "live" ? "live reload" : "restart may be required"}`;
-        $("configEditor").value = payload.content || "";
+        if (loadId !== configLoadId) return;
+        openConfig(payload);
         $("configStatus").textContent = payload.reload_behavior === "live"
           ? "Live sections are validated and reloaded after save when the checkbox is enabled."
           : "Project and platform changes require a restart. New model sources require preparation before restart.";
-        setPill("configBadge", payload.reload_behavior === "live" ? "status-ok" : "status-warn", `${payload.section}`);
-        renderConfigList();
         if (!quiet) {
           setNotice(`Loaded config ${payload.section}/${payload.name}.`, "status-ok");
         }
@@ -1094,34 +1057,67 @@
       }
     }
 
-    async function saveCurrentConfig() {
+    function openConfig(payload) {
+      state.selectedConfig = payload;
+      state.configDirty = false;
+      $("configTitle").textContent = payload.title || payload.name;
+      $("configMeta").textContent = payload.reload_behavior === "live" ? "Applies to new sessions. Running sessions keep their current settings."
+        : payload.reload_behavior === "conditional" ? "Shared model settings and runtime overrides. Artifact changes need preparation and restart." : "Restart required to apply these settings.";
+      const overrides = ["platform", "project"].includes(payload.section) ? (state.configsIndex?.environment_overrides || []) : [];
+      $("configDescription").textContent = (payload.description || "") + (overrides.length ? `\nStartup environment overrides: ${overrides.join(", ")}. Values are not copied into this document.` : "");
+      $("configMode").value = "form";
+      $("configMode").disabled = Boolean(payload.isNew);
+      $("configEditor").value = payload.content || "";
+      $("configEditor").hidden = true; $("configForm").hidden = false;
+      configForm = new window.InferOpsConfigForm($("configForm"), payload, state.configsIndex, () => {
+        state.configDirty = true;
+        $("configStatus").textContent = "Unsaved changes. Validate to check the project before saving.";
+      });
+      setPill("configBadge", payload.isNew ? "status-info" : payload.reload_behavior === "live" ? "status-ok" : "status-warn", payload.isNew ? "New draft" : payload.group || payload.section);
+      renderConfigList();
+    }
+
+    async function saveCurrentConfig(validateOnly = false) {
+      validateOnly = validateOnly === true;
       if (!state.selectedConfig) {
-        setNotice("Choose a config file before saving.", "status-warn");
+        setNotice("Choose settings before saving.", "status-warn");
         return;
       }
+      if ($("configSaveReloadBtn").disabled) return;
+      $("configSaveReloadBtn").disabled = true;
       try {
         const payload = await request(
           `/v1/configs/${encodeURIComponent(state.selectedConfig.section)}/${encodeURIComponent(state.selectedConfig.name)}`,
           {
-            method: "PUT",
+            method: state.selectedConfig.isNew ? "POST" : "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              content: $("configEditor").value,
+              ...($("configMode").value === "form" ? {data:configForm.read()} : {content:$("configEditor").value}),
               reload: $("configReloadToggle").checked,
+              version: state.selectedConfig.version,
+              validate_only: validateOnly,
             }),
           }
         );
-        state.selectedConfig = Object.assign({}, state.selectedConfig, payload);
-        $("configStatus").textContent = payload.reload && payload.reload.restart_required
+        if (validateOnly) {
+          $("configStatus").textContent = `Configuration is valid. Nothing saved.${payload.restart_required ? " These changes require a restart." : " Ready to apply to new sessions."}`;
+          return;
+        }
+        openConfig(payload);
+        $("configStatus").textContent = payload.restart_required
           ? payload.preparation_required ? "Saved. Run project preparation and restart to apply model artifact changes." : "Saved. Restart to apply startup settings."
           : payload.reload
             ? `Saved and reloaded ${payload.reload.section}.`
             : "Saved without reload.";
+        if (payload.enabled === false) $("configStatus").textContent += " Enable this pipeline in Project settings before using it.";
         await refreshSnapshot({ keepNotice: true });
-        setNotice(`Saved ${payload.section}/${payload.name}.`, payload.reload && payload.reload.restart_required ? "status-warn" : "status-ok");
+        setNotice(`Saved ${payload.title || payload.name}.`, payload.restart_required ? "status-warn" : "status-ok");
       } catch (error) {
         console.error(error);
-        setNotice(`Save failed: ${error.message}`, "status-err");
+        $("configStatus").textContent = `${validateOnly ? "Validation" : "Save"} failed: ${error.message}`;
+        setNotice($("configStatus").textContent, "status-err");
+      } finally {
+        $("configSaveReloadBtn").disabled = false;
       }
     }
 
@@ -1133,7 +1129,7 @@
       try {
         const result = await request(`/v1/configs/reload?section=${encodeURIComponent(state.selectedConfig.section)}`, { method: "POST" });
         await refreshSnapshot({ keepNotice: true });
-        setNotice(result.restart_required ? `Reload skipped for ${result.section}; restart may be required.` : `Reloaded ${result.section}.`, result.restart_required ? "status-warn" : "status-ok");
+        setNotice(result.restart_required ? "Saved startup changes require a restart before settings can be applied." : `Applied saved configuration to new sessions (${result.reloaded} pipelines).`, result.restart_required ? "status-warn" : "status-ok");
       } catch (error) {
         console.error(error);
         setNotice(`Reload failed: ${error.message}`, "status-err");
@@ -1144,8 +1140,7 @@
       try {
         const result = await request("/v1/configs/reload?section=all", { method: "POST" });
         await refreshSnapshot({ keepNotice: true });
-        const sections = (result.results || []).map((item) => item.section).join(", ");
-        setNotice(`Reloaded live config sections: ${sections}.`, "status-ok");
+        setNotice(result.restart_required ? "Saved startup changes require a restart before settings can be applied." : `Applied saved configuration to new sessions (${result.reloaded} pipelines).`, result.restart_required ? "status-warn" : "status-ok");
       } catch (error) {
         console.error(error);
         setNotice(`Global reload failed: ${error.message}`, "status-err");
@@ -1699,10 +1694,60 @@
       $("configSaveReloadBtn").addEventListener("click", saveCurrentConfig);
       $("configReloadSectionBtn").addEventListener("click", reloadSelectedSection);
       $("configReloadAllBtn").addEventListener("click", reloadAllLiveConfigs);
+      $("configValidateBtn").addEventListener("click", () => saveCurrentConfig(true));
+      $("configSearch").addEventListener("input", renderConfigList);
+      $("configMode").addEventListener("change", () => {
+        if (!state.selectedConfig) { $("configMode").value = "form"; return; }
+        const selected = $("configMode").value;
+        if (state.configDirty && !confirm("Switching editors discards unsaved changes. Continue?")) {
+          $("configMode").value = selected === "form" ? "yaml" : "form"; return;
+        }
+        openConfig(state.selectedConfig);
+        $("configMode").value = selected;
+        $("configEditor").hidden = selected !== "yaml"; $("configForm").hidden = selected !== "form";
+      });
+      $("configNewBtn").addEventListener("click", () => $("configNewDialog").showModal());
+      $("configNewForm").addEventListener("submit", async event => {
+        event.preventDefault();
+        if (state.configDirty && !confirm("Discard unsaved changes and start a new configuration?")) return;
+        const section = $("configNewSection").value, name = $("configNewName").value;
+        const drafts = {
+          models:{name, defaults:{task:"custom", inputs:[{name:"input", shape:[], layout:"ND", color:"NONE"}], artifact:{path:`model_repository/${name}/1/model.onnx`}}, variants:{onnx:{backend:"onnxruntime"}}},
+          pipelines:{name, tags:{label:prettyName(name), description:""}, source:{name:"input", stage:"source_rest"}, stages:[]},
+          fusion:{name, signals:[], extract:{}, windows:{}, rules:[]},
+          alerts:{name, severity:{levels:[{name:"low", rank:1}], default:"low", mapping:{}}, sinks:[]},
+        };
+        try {
+          const schema = await request(`/v1/configs/schema/${section}?model_port=${section === "models"}`);
+          ++configLoadId;
+          openConfig({section, name, title:prettyName(name), data:drafts[section], schema, content:"", isNew:true,
+            reload_behavior:section === "models" ? "conditional" : "live"});
+          state.configDirty = true;
+          $("configStatus").textContent = "New draft. Fill in the settings, validate, then save.";
+          $("configNewDialog").close();
+        } catch(error) { setNotice(error.message, "status-err"); }
+      });
+      $("configEditor").addEventListener("input", () => {
+        state.configDirty = $("configEditor").value !== (state.selectedConfig?.content || "");
+        $("configStatus").textContent = state.configDirty ? "Unsaved changes. Save to validate and apply this configuration." : "No unsaved changes.";
+      });
+      $("configEditor").addEventListener("keydown", event => {
+        if (event.key === "Tab") {
+          event.preventDefault();
+          const editor = event.currentTarget;
+          editor.setRangeText("  ", editor.selectionStart, editor.selectionEnd, "end");
+          editor.dispatchEvent(new Event("input"));
+        }
+      });
+      document.addEventListener("keydown", event => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && window.InferOps.view === "settings") {
+          event.preventDefault(); saveCurrentConfig();
+        }
+      });
 
       $("domainSelect").addEventListener("change", async (event) => {
         state.selectedDomainId = event.target.value;
-        localStorage.setItem(STORAGE_KEYS.domainId, state.selectedDomainId);
+        window.InferOps.storage.set(STORAGE_KEYS.domainId, state.selectedDomainId);
         renderDomainSummary();
         renderAlertsAndEvents();
         const domain = selectedDomain();
@@ -1755,7 +1800,8 @@
         }
       });
 
-      window.addEventListener("beforeunload", () => {
+      window.addEventListener("beforeunload", event => {
+        if (state.configDirty) { event.preventDefault(); event.returnValue = ""; }
         stopCameraLoop();
         if (state.cameraMediaStream) {
           for (const track of state.cameraMediaStream.getTracks()) {
@@ -1773,7 +1819,17 @@
       window.addEventListener("resize", renderPreviewAnnotations);
     }
 
+    document.addEventListener("inferops:refresh", () => refreshSnapshot());
+    document.addEventListener("inferops:navigate", event => {
+      if (event.detail !== "playground") {
+        if (state.cameraMediaStream) stopCamera();
+        if (state.videoLoopEnabled) { stopVideoLoop(); $("videoPreview").pause(); }
+      }
+      if (["activity-view", "playground", "services"].includes(event.detail)) refreshActivityOnly();
+    });
     bindEvents();
     setSelectedMode("camera");
     renderResult();
     connectDashboard();
+
+})();

@@ -1,0 +1,43 @@
+# MediaMTX owns compressed-stream routing and the browser players.
+# Paths are restored from the InferOps catalog through the Control API.
+logLevel: warn
+metrics: true
+metricsAddress: :9998
+playback: true
+playbackAddress: :9996
+api: true
+apiAddress: :9997
+rtspTransports: [tcp]
+rtmp: false
+srt: false
+moq: false
+hls: true
+hlsAlwaysRemux: false
+# Release remuxing shortly after the last viewer, rather than the 60s default.
+hlsMuxerCloseAfter: 5s
+webrtc: true
+webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts: [127.0.0.1]
+authInternalUsers:
+  - user: any
+    permissions:
+      - action: read
+        path: '~^inferops/'
+      - action: playback
+        path: '~^inferops/'
+      - action: metrics
+  - user: inferops
+    pass: inferops-local-api
+    permissions:
+      - action: api
+      - action: playback
+        path: '~^inferops/'
+pathDefaults:
+  record: true
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 1m
+  recordDeleteAfter: 24h
+paths: {}

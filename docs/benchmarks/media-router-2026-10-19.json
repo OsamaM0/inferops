@@ -1,0 +1,32 @@
+{
+  "media_image": "bluenviron/mediamtx:1.21.2",
+  "input": "synthetic H264 baseline 640x360 15 FPS",
+  "readers": 2,
+  "frames_per_reader": [
+    10,
+    10
+  ],
+  "upstream_camera_connections": 1,
+  "players_http_status": {
+    "webrtc": 200,
+    "hls": 200
+  },
+  "unauthenticated_control_status": 401,
+  "restart_restoration": true,
+  "restart_restore_seconds": 4.26,
+  "dashboard_browser_verified": true,
+  "path_removal": true,
+  "capacity_benchmark": false,
+  "browser": {
+    "webRTCWidth": 640,
+    "hlsWidth": 640,
+    "closeReleasesFrame": true,
+    "previewToggle": true,
+    "javascript_errors": []
+  },
+  "regressions": {
+    "core_passed": 353,
+    "core_skipped": 32,
+    "project_passed": 16
+  }
+}

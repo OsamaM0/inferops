@@ -13,7 +13,7 @@ def wire_result(item):
 
 
 async def accept_incidents(items, *, repository, evidence, definition, pipeline, session_id,
-                           timeline_id, stream_name, fusions, broker_context=None):
+                           timeline_id, stream_name, fusions, broker_context=None, camera_id=None):
     events, incidents, captures, outbox = [], [], [], []
     broker = broker_context or next((item.payload.get("_broker_event") for item in items if item.payload.get("_broker_event")), None)
     for output_index, item in enumerate(items):
@@ -47,6 +47,7 @@ async def accept_incidents(items, *, repository, evidence, definition, pipeline,
                 config = evidence.config
                 evidence_id = uuid.uuid5(uuid.NAMESPACE_URL, f"{alert['id']}:evidence").hex
                 captures.append({"id": evidence_id, "incident_id": alert["id"], "session_id": session_id,
+                                 "camera_id": camera_id, "stream_name": stream_name,
                                  "timeline_id": timeline_id, "pipeline": pipeline.name,
                                  "media_time_ns": item.payload["media_time_ns"], "state": "Pending",
                                  "request_start_ns": item.payload["media_time_ns"] - int(config.pre_seconds * 1e9),

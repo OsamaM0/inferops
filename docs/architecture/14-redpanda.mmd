@@ -1,5 +1,5 @@
 flowchart TB
-    subgraph owner["Single active application owner"]
+    subgraph owner["Combined owner or static workers with one API relay"]
         pipeline["Shared pipeline services<br/>session decisions"]
         transaction["SQL transaction<br/>events + incidents + evidence + outbox<br/>broker input: inbox reservation too"]
         relay["Outbox relay<br/>short lease, owner generation<br/>network calls outside transaction"]
@@ -14,7 +14,7 @@ flowchart TB
         outputs["Project events / configured output topics"]
     end
     external["External integration consumers<br/>own groups and offsets<br/>transactional inbox + durable effects"]
-    hints["WebSocket hints / webhook / plugin actions<br/>webhook Idempotency-Key = event_id<br/>later action failure can repeat earlier delivery"]
+    hints["Local hints / webhook / plugin actions<br/>independent destination rows and retries<br/>webhook Idempotency-Key = event_id"]
     pipeline --> transaction
     transaction --> capture
     transaction -->|committed rows| relay --> delivery

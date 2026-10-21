@@ -1,5 +1,8 @@
 name: driver_video
 version: 1
+tags:
+  label: Detector-only monitoring
+  description: RF-DETR detection with phone, seatbelt, smoking and eating rules, alerts and WebSocket output. No face analysis, tracking or evidence sink. Accepts images, video and live frames; the legacy ID is driver_video.
 source:
   name: src
   stage: source_rest
@@ -13,7 +16,7 @@ stages:
       model: rfdetr_driver
   - name: fuse
     stage: fuse
-    params: { fusion: driver_fusion }
+    params: { fusion: driver_video_fusion }
   - name: alert
     stage: alert
     params: { alerts: driver_alerts }
@@ -21,4 +24,3 @@ sinks:
   - name: ws
     stage: sink_ws
     params: { channel: "live.{stream_id}" }
-limits: { max_concurrency: 4, queue_size: 32 }

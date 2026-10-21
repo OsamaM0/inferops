@@ -1,109 +1,40 @@
-"""RTSP source via OpenCV - dedicated reader thread with always-latest frame.
-
-The reader thread captures frames as fast as the camera delivers them and
-stores only the **most recent** frame.  The async generator yields that frame
-each time a new one arrives, so:
-- There is no per-frame thread-pool overhead.
-- When inference is slower than the camera, old frames are silently discarded
-  (frame-drop), keeping end-to-end latency bounded.
-- ``fps > 0`` caps the *producer* side (frames captured per second); use
-  ``fps=0`` for fully uncapped capture.
-"""
+"""Compatibility stage over the shared bounded PyAV camera reader."""
 from __future__ import annotations
 
-import asyncio
-import os
-import threading
-import time
-from collections.abc import AsyncIterator
-from contextlib import suppress
+from types import SimpleNamespace
 
-import cv2
-import numpy as np
-
-from inferops.adapters.outbound.observability import get_logger
+from inferops.adapters.outbound.media.camera import capture_frames
 from inferops.adapters.outbound.stages.base import SourceStage
 from inferops.domain.types import StageItem, now_ms
 
-log = get_logger(__name__)
-
 
 class SourceRTSP(SourceStage):
+    kind = "rtsp"
+
     def __init__(self, url: str, stream_id: str = "rtsp", fps: float = 0.0,
-                 reconnect_s: float = 2.0, transport: str = "tcp",
-                 latency_budget_ms: int = 100) -> None:
-        super().__init__(url=url, stream_id=stream_id, fps=fps,
-                         reconnect_s=reconnect_s, transport=transport,
-                         latency_budget_ms=latency_budget_ms)
-        self.url = url
-        self.stream_id = stream_id
-        self.fps = fps          # 0 = uncapped; >0 = producer-side rate cap
-        self.reconnect_s = reconnect_s
-        self.transport = transport
-        self.latency_budget_ms = latency_budget_ms
+                 reconnect_s: float = 0.5, transport: str = "tcp",
+                 latency_budget_ms: int = 100, timeout_s: float = 5):
+        if fps < 0 or timeout_s <= 0 or reconnect_s <= 0 or transport not in {"tcp", "udp"}:
+            raise ValueError("invalid camera rate, transport or timeout")
+        super().__init__(url=url, stream_id=stream_id, fps=fps, reconnect_s=reconnect_s,
+                         transport=transport, latency_budget_ms=latency_budget_ms,
+                         timeout_s=timeout_s, live=True)
+        self.url, self.stream_id, self.fps = url, stream_id, fps
+        self.timeout_s, self.transport, self.reconnect_s = timeout_s, transport, reconnect_s
+        self.stats = {"decoded": 0, "dropped": 0}
 
-    async def run(self) -> AsyncIterator[StageItem]:
-        loop = asyncio.get_running_loop()
-
-        # Tell FFmpeg/OpenCV to use a low-latency RTSP setup.  These env
-        # vars are read by the FFmpeg backend on VideoCapture construction.
-        os.environ.setdefault(
-            "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-            f"rtsp_transport;{self.transport}|fflags;nobuffer|flags;low_delay"
-            f"|max_delay;{self.latency_budget_ms * 1000}"
-            f"|reorder_queue_size;0|stimeout;5000000",
-        )
-
-        # Shared state: always-latest frame.  Assignment is atomic under the GIL
-        # in CPython, so no explicit lock is needed.
-        _latest: list[np.ndarray | None] = [None]
-        _new_frame = asyncio.Event()
-        _running = [True]
-
-        def _reader() -> None:
-            min_period = (1.0 / self.fps) if self.fps > 0 else 0.0
-            while _running[0]:
-                cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
-                # Smallest possible internal buffer
-                with suppress(Exception):
-                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                if not cap.isOpened():
-                    log.warning("rtsp_open_failed", url=self.url)
-                    time.sleep(self.reconnect_s)
-                    continue
-                try:
-                    last_t = 0.0
-                    while _running[0]:
-                        ok, frame = cap.read()
-                        if not ok or frame is None:
-                            log.warning("rtsp_read_failed", url=self.url)
-                            break
-                        now = time.monotonic()
-                        if min_period > 0 and (now - last_t) < min_period:
-                            continue   # discard frame: producer-side rate limit
-                        last_t = now
-                        _latest[0] = frame  # atomic in CPython (GIL protects ptr swap)
-                        loop.call_soon_threadsafe(_new_frame.set)
-                finally:
-                    cap.release()
-                if _running[0]:
-                    time.sleep(self.reconnect_s)
-
-        t = threading.Thread(target=_reader, daemon=True)
-        t.start()
-
-        seq = 0
+    async def run(self):
+        spec = SimpleNamespace(uri=self.url, camera_id=self.stream_id, kind=self.kind,
+                               inference_fps=self.fps or 120, evidence_fps=None,
+                               rtsp_transport=self.transport, timeout_s=self.timeout_s,
+                               reconnect_initial_s=self.reconnect_s, max_width=7680, max_height=4320)
+        frames = capture_frames(spec, self.stats)
         try:
-            while True:
-                await _new_frame.wait()
-                _new_frame.clear()
-                frame = _latest[0]
-                if frame is None:
-                    continue
-                seq += 1
-                yield StageItem(
-                    stream_id=self.stream_id, ts_ms=now_ms(), seq=seq,
-                    payload={"image_np": frame, "width": frame.shape[1], "height": frame.shape[0]},
-                )
+            async for frame in frames:
+                yield StageItem(stream_id=self.stream_id, ts_ms=now_ms(), seq=frame.sequence,
+                                payload={**frame.payload, "image_np": frame.image,
+                                         "width": frame.image.shape[1], "height": frame.image.shape[0],
+                                         "media_time_ns": frame.media_time_ns,
+                                         "timestamp_provenance": frame.timestamp_provenance})
         finally:
-            _running[0] = False
+            await frames.aclose()

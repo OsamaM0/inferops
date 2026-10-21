@@ -10,6 +10,12 @@ docker compose up -d --build
 docker compose ps
 ```
 
+Persistent disk is the default evidence store. MinIO uses the optional `storage`
+profile; Grafana and Prometheus use `monitoring`. Enable MinIO and its adapter
+with `make run-container MODE=cpu RUN_ARGS='--profiles storage'`, or
+`INFEROPS_STORAGE_KIND=s3 docker compose --profile storage up -d --build`.
+See [deployment storage settings](../deploy/README.md#what-starts-and-where).
+
 ## Web interfaces and pages
 
 | Page | Default URL | What it does |
@@ -17,7 +23,7 @@ docker compose ps
 | InferOps workspace | http://localhost:8080/ui/ | Project overview, pipeline inputs, previews, activity, YAML editing and original service links |
 | Browser landing page | http://localhost:8080/ | Redirects browser HTML requests to the workspace; API clients receive discovery JSON |
 | Compatibility workspace | http://localhost:8080/frontend/ | Same packaged workspace; no standalone frontend folder |
-| Built-in interface guide | http://localhost:8080/ui/guide | Pages, current configured ports, and dynamically listed API routes |
+| Built-in interface guide | http://localhost:8080/ui/guide | Integrated workflow guide and configured ports; API routes are in the console API explorer |
 | MinIO Console | http://localhost:9001/ | Original bucket/object browser and storage administration |
 | Grafana Overview | http://localhost:3000/d/inferops-overview/inferops-overview | Provisioned InferOps metrics dashboard |
 | Grafana dashboards | http://localhost:3000/dashboards | Browse and create dashboards |
@@ -33,9 +39,9 @@ docker compose ps
 | Service discovery | http://localhost:8080/v1/interfaces | Browser-facing service and page URLs as JSON |
 | Evidence compatibility link | http://localhost:8080/v1/evidence | Redirects to the original MinIO Console |
 
-There is no custom MinIO or Grafana replacement. PostgreSQL, Redis, Redpanda
+There is no custom MinIO or Grafana replacement. PostgreSQL and optional Redpanda
 and Triton provide protocol/API endpoints; this project does not ship separate
-web frontends for them. DeepStream runs the same InferOps API and UI.
+web frontends for them.
 
 Service cards open the native interfaces in new tabs. This preserves their
 login, downloads and navigation. The links resolve from the browser's API
@@ -59,8 +65,10 @@ models from loaded models and shows the actual execution mode and devices.
 | RTSP | Start a backend stream and inspect its status and activity | Follows the selected pipeline's sink configuration |
 
 Camera access requires localhost or HTTPS and a browser permission grant.
-RTSP browser playback needs a separate restreaming service; this dashboard
-shows stream status and events. Use a unique stream ID for independent runs.
+Registered RTSP sources support native WebRTC/HLS playback through the default
+[MediaMTX service](media-router.md), alongside the annotated JPEG wall.
+The legacy RTSP playground shows stream status and events. Use a unique stream
+ID for independent runs.
 Activity includes persisted alerts and fusion events. The YAML editor validates
 before saving; model, pipeline, fusion and alert sections can reload live.
 Project/platform changes require restart, and weight/source/tensor changes
@@ -68,8 +76,9 @@ require preparation and restart.
 
 For the shipped example, select Driver Behaviour, choose Video and
 `research/driver_training/test.mp4`, then click **Analyze all frames and save
-evidence**. Open MinIO Console to browse `inferops/evidence/<stream-id>/` and
-`inferops-clips/clips/<stream-id>/`. Configuration controls which snapshots
+evidence**. Open Activity & evidence to view saved snapshots and play clips.
+When S3 is selected, MinIO Console can also browse the configured bucket's
+`evidence/<evidence-id>/` objects. Configuration controls which snapshots
 and alert clips are created; not every video necessarily emits an alert.
 
 ## Original service interfaces
@@ -97,24 +106,19 @@ Grafana's Prometheus datasource has stable UID `prometheus`. Provisioning
 lives in `deploy/observability/grafana/`; metrics are scraped every five seconds.
 Container mode scrapes `api:8080`. Native mode generates a config in `.run/`
 that scrapes `host.docker.internal:<API_PORT>`. Triton targets are only healthy
-when a Triton/DeepStream runtime is started. The overview uses engine metrics
+when a Triton runtime is started. The overview uses engine metrics
 for CPU and GPU inference; no separate GPU exporter is required for its panels.
 
-The console-bearing release uses the fresh named volume
-`inferops_minio-upstream-data`. For an existing newer server, stop writers and
-back up its old volume, then transfer objects through S3 into the fresh volume.
-Do not point the older release at newer server metadata: LDAP settings and
-policy schemas can be incompatible. Preserve object metadata and tags and
-verify content after transfer; versioned buckets and custom IAM/server settings
-need their own migration plan. Retain the previous volume and image for rollback.
-This workspace retains `inferops_minio-data` and its backup under
-`.run/backups/minio-before-original-console/`. Do not use
-`docker compose down -v` to fix a UI problem: it deletes persisted storage.
+Optional MinIO uses the named volume `inferops_minio-upstream-data`. Retired
+local runtime volumes and backups were discarded; new storage starts empty.
+Default evidence uses the separate `engine-data` volume. Named volumes survive
+ordinary restarts and `docker compose down`; `docker compose down -v` deletes them.
 
 ## Published ports
 
-Ports below are host defaults. Docker uses the internal addresses shown even
-when a host port changes. All published ports use TCP.
+Ports below are host defaults for enabled services. Docker uses the internal
+addresses shown even when a host port changes. The ports in this table use TCP;
+MediaMTX's additional TCP and UDP ports are listed in the [media guide](media-router.md).
 
 | Service | Host | Container / internal address | Protocol / purpose | `.env` override |
 | --- | --- | --- | --- | --- |
@@ -124,20 +128,20 @@ when a host port changes. All published ports use TCP.
 | Grafana | 3000 | `grafana:3000` | Web UI and HTTP API | `INFEROPS_GRAFANA_PORT` |
 | Prometheus | 9090 | `prometheus:9090` | Web UI and HTTP API | `INFEROPS_PROMETHEUS_PORT` |
 | PostgreSQL | 5432 | `postgres:5432` | PostgreSQL protocol | `INFEROPS_PG_PORT` |
-| Redis | 6379 | `redis:6379` | RESP protocol | `INFEROPS_REDIS_PORT` |
 | Redpanda external Kafka | 19092 | `redpanda:19092` | Kafka; containers use `redpanda:9092` | `INFEROPS_KAFKA_PORT` |
-| Triton HTTP | 8000 | `triton:8000` | Inference HTTP API; only triton/deepstream modes | `INFEROPS_TRITON_HTTP_PORT` |
-| Triton gRPC | 8001 | `triton:8001` | Inference gRPC; only triton/deepstream modes | `INFEROPS_TRITON_GRPC_PORT` |
-| Triton metrics | 8002 | `triton:8002` | Prometheus metrics; only triton/deepstream modes | `INFEROPS_TRITON_METRICS_PORT` |
+| Triton HTTP | 8000 | `triton:8000` | Inference HTTP API; only triton modes | `INFEROPS_TRITON_HTTP_PORT` |
+| Triton gRPC | 8001 | `triton:8001` | Inference gRPC; only triton modes | `INFEROPS_TRITON_GRPC_PORT` |
+| Triton metrics | 8002 | `triton:8002` | Prometheus metrics; only triton modes | `INFEROPS_TRITON_METRICS_PORT` |
 
 Redpanda's container-only ports are `9092` (Kafka), `9644` (admin API and
 `/public_metrics`), `8081` (Schema Registry), `8082` (Pandaproxy), and `33145`
 (broker RPC). They are not published to the host. `prepare` and `minio-init`
 are one-shot jobs without published ports. Compose creates no additional
-frontend ports. PostgreSQL/Redis management requires a compatible client.
+frontend ports. PostgreSQL management requires a compatible client. Storage,
+broker and monitoring endpoints exist only when their optional profiles run.
 
 For native mode, changing a host port also requires its matching engine
-endpoint: `INFEROPS_S3_ENDPOINT`, `INFEROPS_PG_URL`, `INFEROPS_REDIS_URL`,
+endpoint: `INFEROPS_S3_ENDPOINT`, `INFEROPS_PG_URL`,
 `INFEROPS_TRITON_URL`, `INFEROPS_TRITON_HTTP_URL`, or transport bootstrap.
 Native monitoring health checks use `INFEROPS_GRAFANA_INTERNAL_URL` and
 `INFEROPS_PROMETHEUS_INTERNAL_URL` if their ports change. Docker supplies its

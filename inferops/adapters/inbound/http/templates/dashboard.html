@@ -1,91 +1,62 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>InferOps · Project workspace</title>
-  <link rel="stylesheet" href="/ui/static/dashboard.css" />
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light"><title>InferOps · Operations console</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239ce8c4'/%3E%3Cpath d='M9 8h5v16H9zm9 0h5v16h-5z' fill='%23121c1a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/ui/static/dashboard.css?v=20261020-2">
+  <script src="/ui/static/console.js?v=20261020-1"></script>
 </head>
 <body>
-  <a class="skip-link" href="#execution">Skip to project controls</a>
-  <div class="shell">
-    <nav class="workspace-nav" aria-label="Workspace navigation">
-      <a class="wordmark" href="/ui/">InferOps <span>Workspace</span></a>
-      <div class="nav-links">
-        <a href="#interfaces">Services</a><a href="#overview">Overview</a>
-        <a href="#execution">Execution</a><a href="#activity">Activity</a>
-        <a href="#configuration">Configuration</a><a id="guideLink" href="/ui/guide">Documentation</a>
-      </div>
-    </nav>
-    <header class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Project control center</p>
-        <h1>Run, inspect, and manage your project.</h1>
-        <p class="hero-text">
-          Run camera, image, video, and RTSP inputs. Inspect live results, review saved activity,
-          and manage the configuration for your selected project.
-        </p>
-        <div class="hero-strip">
-          <span class="chip">Core flow <span class="mono">source -&gt; decode -&gt; infer -&gt; fuse -&gt; alert</span></span>
-          <span class="chip">One workspace <span class="mono">project + services + API</span></span>
-        </div>
-      </div>
-
-      <section class="endpoint-panel">
-        <div>
-          <label for="apiBaseInput">API base</label>
-          <div class="endpoint-row">
-            <input id="apiBaseInput" type="text" placeholder="http://localhost:8080" />
-            <button class="btn" id="connectBtn">Connect</button>
-          </div>
-        </div>
-
-        <div class="inline-row">
-          <span class="status-pill status-info" id="apiConnectionBadge">Waiting</span>
-          <button class="ghost-btn is-muted" id="refreshBtn">Refresh snapshot</button>
-        </div>
-
-        <p class="note" id="dashboardNotice" role="status" aria-live="polite">
-          This workspace connects to the API serving this page. Use Connect to switch to another instance.
-        </p>
-
-        <div class="inline-row">
-          <a class="ghost-btn" id="docsLink" href="#" target="_blank" rel="noreferrer">API docs</a>
-          <a class="ghost-btn" id="evidenceLink" href="/v1/interfaces/minio" target="_blank" rel="noreferrer">MinIO Console ↗</a>
-          <a class="ghost-btn" id="healthLink" href="#" target="_blank" rel="noreferrer">Health</a>
-        </div>
-      </section>
-    </header>
-
-    <section id="interfaces" class="panel interface-panel" aria-labelledby="interfacesTitle">
-      <div class="panel-head">
-        <div><p class="eyebrow">Connected applications</p><h2 class="panel-title" id="interfacesTitle">Service interfaces</h2>
-        <p class="panel-subtitle">Open each service's original interface in a new tab.</p></div>
-        <a class="ghost-btn" href="/ui/guide">All pages &amp; ports</a>
-      </div>
-      <div class="interface-grid" id="interfaceGrid">
-        <a class="interface-card" href="/v1/interfaces/minio" target="_blank" rel="noopener noreferrer"><span class="app-icon minio-icon">M</span><strong>MinIO Console ↗</strong><span>Buckets, objects and storage administration</span></a>
-        <a class="interface-card" href="/v1/interfaces/grafana" target="_blank" rel="noopener noreferrer"><span class="app-icon grafana-icon">G</span><strong>Grafana ↗</strong><span>Metrics dashboards and exploration</span></a>
-        <a class="interface-card" href="/v1/interfaces/prometheus" target="_blank" rel="noopener noreferrer"><span class="app-icon prometheus-icon">P</span><strong>Prometheus ↗</strong><span>Metric queries and scrape targets</span></a>
-        <a class="interface-card" href="/docs" target="_blank" rel="noopener noreferrer"><span class="app-icon swagger-icon">{ }</span><strong>API reference ↗</strong><span>Explore endpoints and run API requests</span></a>
-      </div>
-      <p class="footnote">MinIO: minio / minio12345 · Grafana: admin / admin · Credentials can be changed in your environment settings.</p>
+<a class="skip-link" href="#mainContent">Skip to content</a>
+<aside class="sidebar" id="sidebar">
+  <a href="#overview" class="brand" aria-label="InferOps overview"><span class="brand-mark">ıı</span><span>inferops<span class="brand-dot">.</span><small>OPERATIONS CONSOLE</small></span></a>
+  <div class="workspace-badge"><span class="live-dot"></span><span id="workspaceProject">Connected workspace</span><span class="local-label">LOCAL</span></div>
+  <p class="nav-label">WORKSPACE</p>
+  <nav aria-label="Workspace navigation">
+    <a href="#overview" class="nav-item" data-view="overview"><span class="nav-icon" data-icon="overview"></span>Overview</a>
+    <a href="#sources" class="nav-item" data-view="sources"><span class="nav-icon" data-icon="sources"></span>Sources<span id="navCount" class="count">0</span></a>
+    <a href="#pipeline" class="nav-item" data-view="pipeline"><span class="nav-icon" data-icon="pipeline"></span>Pipeline &amp; models</a>
+    <a href="#playground" class="nav-item" data-view="playground"><span class="nav-icon" data-icon="play"></span>Inference playground</a>
+    <a href="#jobs" class="nav-item" data-view="jobs"><span class="nav-icon" data-icon="jobs"></span>Background jobs</a>
+    <a href="#activity-view" class="nav-item" data-view="activity-view"><span class="nav-icon" data-icon="activity"></span>Activity &amp; evidence</a>
+    <p class="nav-label">CONTROL</p>
+    <a href="#settings" class="nav-item" data-view="settings"><span class="nav-icon" data-icon="settings"></span>Configuration</a>
+    <a href="#services" class="nav-item" data-view="services"><span class="nav-icon" data-icon="server"></span>Services &amp; runtime</a>
+    <a href="#api" class="nav-item" data-view="api"><span class="nav-icon" data-icon="code"></span>API explorer<span class="nav-hint">HTTP</span></a>
+    <a href="#preferences" class="nav-item" data-view="preferences"><span class="nav-icon" data-icon="palette"></span>Customize workspace</a>
+    <a href="#guide" class="nav-item" id="guideLink" data-view="guide"><span class="nav-icon" data-icon="book"></span>Interface guide</a>
+  </nav>
+  <div class="sidebar-bottom"><div class="sidebar-status"><span class="live-dot" id="connectionDot"></span><span id="connectionLabel">Connecting…</span></div><p>One workspace. Every operation.</p><button id="commandSidebar" class="command-shortcut">Quick navigation <kbd>Ctrl K</kbd></button></div>
+</aside>
+<div class="workspace">
+  <header class="topbar">
+    <div class="breadcrumb"><button id="menuToggle" class="icon-button mobile-only" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">☰</button><span class="crumb">Workspace</span><span class="slash">/</span><span id="viewTitle">Overview</span></div>
+    <div class="topbar-actions"><button id="commandOpen" class="search-command" aria-label="Open quick navigation"><span data-icon="search"></span><span>Go to anything…</span><kbd>⌘ K</kbd></button><span class="server-pill" id="serverName">Connecting…</span><button id="themeToggle" class="icon-button" aria-label="Toggle color theme" title="Toggle color theme"><span data-icon="sun"></span></button></div>
+  </header>
+  <main id="mainContent" tabindex="-1">
+    <div class="page-heading"><div><p class="eyebrow" id="pageEyebrow">YOUR WORKSPACE, CONNECTED</p><h1 id="pageTitle">Everything in view.</h1><p class="subtitle" id="pageSubtitle">Your sources, pipelines and runtime. One place to take control.</p></div><div class="heading-actions"><span id="refreshMode" class="refresh-label">Live · 5s</span><button id="globalRefresh" class="button subtle"><span data-icon="refresh"></span>Refresh</button><button id="addSource" class="button primary"><span data-icon="plus"></span>Add source</button></div></div>
+    <div class="context-bar"><div class="context-pipeline"><span data-icon="pipeline"></span><label for="domainSelect">Active pipeline</label><select id="domainSelect" aria-label="Active project pipeline"></select></div><a href="#settings" class="context-config">Edit configuration <span>↗</span></a></div>
+    <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
+<section data-pane="overview" class="project-workspace" aria-label="Workspace overview">
+    <div class="overview-banner"><div><span class="status-pill status-ok"><span class="live-dot"></span>OPERATIONS WORKSPACE</span><h2>From first frame<br>to final insight<span>.</span></h2><p>Connect your inputs. Shape your pipelines. Explore every result.<br>Your inference workflow, brought together.</p><div class="stack-row"><a href="#sources" class="button primary">Manage sources <span>↗</span></a><a href="#playground" class="button">Run inference <span>→</span></a></div></div><div class="workflow-art" aria-hidden="true"><div class="art-grid"></div><div class="art-orbit"></div><div class="art-core">ıı</div><span class="art-node art-input">INPUT</span><span class="art-node art-model">INFERENCE</span><span class="art-node art-output">INSIGHT</span><span class="art-coordinate">ORDERED · CONNECTED · OBSERVABLE</span></div></div>
+    <div class="section-heading"><div><p class="eyebrow">RIGHT NOW</p><h2>Runtime at a glance</h2></div><a href="#services" class="text-button">Inspect runtime →</a></div>
+    <section class="hardware-row" aria-label="Server resources">
+      <article class="metric"><p>GPU MEMORY <span class="metric-symbol">▧</span></p><strong id="gpuMemory">—</strong><div class="meter"><i id="gpuMeter"></i></div><small id="gpuName">Waiting for server telemetry</small></article>
+      <article class="metric"><p>SYSTEM MEMORY <span class="metric-symbol">▤</span></p><strong id="ramMemory">—</strong><div class="meter"><i id="ramMeter"></i></div><small id="cpuName">—</small></article>
+      <article class="metric"><p>ACTIVE SOURCES <span class="metric-symbol">◉</span></p><strong id="activeSources">0 <em>/ — limit</em></strong><small id="registeredSources">0 registered sources</small><small>Limit is configurable; capacity is measured.</small></article>
+      <article class="metric capacity-metric"><p>TESTED CAPACITY <span class="metric-symbol">↗</span></p><strong id="capacityNumber">Unmeasured</strong><small id="capacityCaption">Choose a profile to inspect measurements.</small><button id="openCapacity" class="text-button">Inspect capacity profile →</button></article>
     </section>
-
-    <section class="summary-grid" id="overview" aria-label="Project overview">
-      <article class="summary-card">
-        <div class="summary-head">
-          <div>
-            <h2 class="summary-title">Core services</h2>
-            <p class="summary-subtitle">Live health for the API, storage, and monitoring services.</p>
-          </div>
-          <span class="status-pill status-info" id="serviceBadge">Idle</span>
-        </div>
-        <div class="service-list" id="serviceGrid">
-          <div class="empty-state">Connect to the API to load service health.</div>
-        </div>
-      </article>
-
+<div class="overview-bottom"><article class="panel"><div class="panel-head"><h2>Workspace snapshot</h2><span class="status-pill status-info" id="overviewRuntime">Connecting</span></div><div class="snapshot-grid"><div><span>Registered sources</span><strong id="overviewSources">—</strong></div><div><span>Available pipelines</span><strong id="overviewPipelines">—</strong></div><div><span>Model definitions</span><strong id="overviewModels">—</strong></div><div><span>Recent jobs</span><strong id="overviewJobs">—</strong></div></div><p class="footnote" id="overviewUpdated">Waiting for the first server snapshot.</p></article><article class="panel"><div class="panel-head"><h2>Make it yours</h2><span class="little-icon" data-icon="palette"></span></div><p class="panel-subtitle">Tune your theme, layout and refresh rate. Edit project behavior in the configuration editor.</p><div class="quick-links"><a href="#preferences">Workspace appearance <span>↗</span></a><a href="#settings">Project configuration <span>↗</span></a><a href="#api">Explore the program API <span>↗</span></a></div></article></div>
+</section>
+<section data-pane="sources" aria-label="Sources">    <section class="sources-section">
+      <div class="sources-toolbar"><div class="tabs" role="group" aria-label="Filter source state"><button class="tab active" data-filter="all">All sources <span id="allCount">0</span></button><button class="tab" data-filter="active">Active <span id="runningCount">0</span></button><button class="tab" data-filter="inactive">Inactive</button></div><div class="toolbar-right"><input id="search" type="search" placeholder="Search name or ID…" aria-label="Search sources"><button class="button subtle" id="refresh">↻ Refresh</button></div></div>
+      <div class="sources-grid" id="sourceGrid" aria-live="polite"></div>
+      <div class="empty-state" id="emptyState"><span class="empty-icon">▣</span><h2>Your sources start here</h2><p>Connect an RTSP camera or upload a video or image.<br>Each source keeps a stable ID across processing sessions.</p><button class="button primary" id="emptyAdd">＋ Add your first source</button></div>
+    </section>
+</section><section data-pane="pipeline" class="project-workspace" hidden>
+<div class="panel"><p class="eyebrow">PROCESSING CONTRACT</p><h2>From source to saved result</h2><p>Each source has a stable camera ID. Each start opens an isolated, ordered session. Stateless inference requests may batch across sessions; tracking and decisions stay isolated.</p><div id="pipelineMap"></div></div>
+    <section class="summary-grid" id="projectOverview" aria-label="Project overview">
       <article class="summary-card">
         <div class="summary-head">
           <div>
@@ -95,10 +66,7 @@
           <button class="ghost-btn is-muted" id="reloadLiveConfigsBtn">Reload live configs</button>
         </div>
 
-        <div class="field">
-          <label class="panel-label" for="domainSelect">Project pipeline</label>
-          <select id="domainSelect"></select>
-        </div>
+        <p class="note">Select the active pipeline in the workspace toolbar above.</p>
 
         <div class="metric-list">
           <div class="metric-item">
@@ -150,7 +118,13 @@
       </article>
     </section>
 
-    <section class="workspace-grid" id="execution" aria-label="Execution and results">
+<div class="panel"><h2>Model execution</h2><p>Live placement and batching capability reported by loaded backends.</p><div id="modelRuntime" class="model-grid"></div></div>
+<div class="panel"><p class="eyebrow">MODEL PREPARATION</p><h2>Checkpoint → validated ONNX</h2><p>RF-DETR detection models. Provide the trained checkpoint and preserve the project's class order. Conversion checks every weight, PyTorch foreground parity and independent batches before marking an export ready.</p>
+<form id="checkpointForm" class="form-grid"><label>Upload .pth / .pt<input id="checkpointFile" type="file" accept=".pth,.pt"></label><label>Or checkpoint path inside this project<input id="checkpointPath" placeholder="/absolute/project/path/model.pth"></label>
+<label>Architecture<select id="checkpointVariant"><option value="auto">Detect from weights</option><option value="nano">RF-DETR Nano</option><option value="small">RF-DETR Small</option><option value="medium">RF-DETR Medium</option><option value="large">RF-DETR Large</option><option value="base">RF-DETR Base</option></select></label>
+<label>Square model resolution<input id="checkpointResolution" type="number" min="32" max="2048" value="576" required></label><label>Maximum batch<select id="checkpointBatch"><option>2</option><option selected>4</option><option>8</option></select></label><button class="button primary" id="checkpointSubmit" type="submit">Convert &amp; validate</button></form>
+<p id="checkpointNotice" role="status"></p><p>Exports are versioned separately. After validation, select the artifact in Configuration; Triton requires repository preparation and an explicit reload.</p><div id="checkpointJobs"></div></div></section>
+<section data-pane="playground" class="project-workspace" hidden><div class="pane-intro"><h2>Try an input</h2><p>For persistent camera IDs, restart recovery and annotated wall previews, register the input in Sources.</p></div>    <section class="workspace-grid" id="execution" aria-label="Execution and results">
       <article class="panel">
         <div class="panel-head">
           <div>
@@ -172,7 +146,7 @@
             <div class="field-grid three">
               <div class="field">
                 <label class="panel-label" for="cameraStreamIdInput">Stream id</label>
-                <input id="cameraStreamIdInput" type="text" value="dashboard-camera" />
+                <input id="cameraStreamIdInput" type="text" value="playground-camera" />
               </div>
               <div class="field">
                 <label class="panel-label" for="cameraIntervalInput">Target FPS</label>
@@ -228,8 +202,8 @@
               <button class="btn" id="videoUploadBtn">Analyze all frames and save evidence</button>
             </div>
             <p class="note">Video mode plays the file in-browser and streams frames through the live WS endpoint — bounding boxes and face signals update on the overlay in real time.</p>
-            <p class="note">Analyze all frames uploads the complete video and waits for alerts, JSON records, snapshots and triggered clips to be saved in MinIO.</p>
-            <p class="note" id="executionModeInfo">Connect to see the active CPU, CUDA, Triton or DeepStream mode.</p>
+            <p class="note">Analyze all frames uploads the complete video and waits for alerts, JSON records, snapshots and triggered clips to be saved in the configured evidence storage.</p>
+            <p class="note" id="executionModeInfo">Connect to see the active CPU, CUDA or Triton mode.</p>
           </section>
 
           <section class="mode-panel" id="mode-rtsp">
@@ -350,8 +324,8 @@
       </aside>
     </section>
 
-    <section class="workspace-grid">
-      <article class="panel" id="activity">
+</section>
+<section data-pane="activity-view" class="project-workspace" hidden>      <article class="panel" id="activity">
         <div class="panel-head">
           <div>
             <h2 class="panel-title">Recent activity</h2>
@@ -377,26 +351,34 @@
         </div>
       </article>
 
-      <article class="panel" id="configuration">
+<article class="panel"><div class="panel-head"><div><p class="eyebrow">DURABLE RECORDS</p><h2>Incident evidence</h2></div><button id="refreshEvidence" class="btn">Refresh evidence</button></div><label>Filter by session ID <input id="evidenceSession" placeholder="All sessions"></label><div id="evidenceRecords"></div></article>
+<details class="panel"><summary>Review evidence retention</summary><p>Review completed evidence before deleting artifacts. Active captures and pending delivery are excluded. Records remain available after deletion.</p><form id="retentionForm" class="field-grid"><label>Completed before<input id="retentionBefore" type="datetime-local" required></label><label>Processing owner<select id="retentionWorker"><option value="">API / local</option></select></label><button class="btn" type="submit">Preview cleanup</button></form><div id="retentionPlan" role="status"></div></details></section>
+<section data-pane="settings" class="project-workspace" hidden>      <article class="panel" id="configuration">
         <div class="panel-head">
           <div>
             <h2 class="panel-title">Configuration</h2>
-            <p class="panel-subtitle">Edit the YAML that drives the selected project. Live sections reload immediately; project and platform changes require a restart; model source changes require preparation and restart.</p>
+            <p class="panel-subtitle">Manage your project through settings, model contracts, processing steps and policies. Changes are validated together before saving.</p>
           </div>
-          <span class="status-pill status-info" id="configBadge">Select a file</span>
+          <span class="status-pill status-info" id="configBadge">Choose settings</span>
         </div>
+        <p id="configPrecedence" class="footnote"></p>
+        <details class="config-help"><summary>Adding a project or model</summary><p>Create a project with <code>inferops project init NAME</code>, then select its root when starting InferOps. This editor discovers its settings automatically. Add a model contract and a pipeline below, prepare the model artifact, then connect a source. Existing projects with an explicit pipeline list must enable new pipelines in Project settings.</p><p>Each model has shared settings and optional runtime overrides. Pipelines use the logical model name; the selected runtime chooses its implementation. Source rates, preview and input settings are managed in <a href="#sources">Sources</a>.</p></details>
 
         <div class="config-shell">
           <div class="config-column">
             <section class="stack-card">
-              <h4>Pipeline configuration</h4>
+              <h4>Selected pipeline</h4>
+              <p id="configPipelineDescription" class="footnote"></p>
               <div class="config-quick-links" id="domainConfigLinks">
-                <div class="empty-state">Choose a pipeline to load its linked config files.</div>
+                <div class="empty-state">Choose a pipeline to see its models and policies.</div>
               </div>
             </section>
 
             <section class="stack-card">
-              <h4>All config files</h4>
+              <h4>Project configuration</h4>
+              <label class="sr-only" for="configSearch">Find settings</label>
+              <input id="configSearch" type="search" placeholder="Find settings…">
+              <button type="button" class="button subtle" id="configNewBtn">Add configuration</button>
               <div class="config-list" id="configList">
                 <div class="empty-state">Connect to load the config index.</div>
               </div>
@@ -407,27 +389,172 @@
             <section class="stack-card">
               <div class="config-header">
                 <div>
-                  <div class="panel-label">Selected file</div>
+                  <div class="panel-label">Settings</div>
                   <h4 id="configTitle">Nothing loaded</h4>
                   <div class="meta-row" id="configMeta">Pick a config entry from the left side.</div>
                 </div>
                 <div class="config-actions">
-                  <label class="checkbox"><input id="configReloadToggle" type="checkbox" checked /> Reload after save</label>
-                  <button class="btn" id="configSaveReloadBtn">Save config</button>
-                  <button class="ghost-btn is-muted" id="configReloadSectionBtn">Reload section</button>
+                  <label class="checkbox"><input id="configReloadToggle" type="checkbox" checked /> Apply after save</label>
+                  <button class="btn" id="configSaveReloadBtn">Save changes</button>
+                  <button class="ghost-btn is-muted" id="configValidateBtn">Validate</button>
+                  <button class="ghost-btn is-muted" id="configReloadSectionBtn">Apply saved settings</button>
                   <button class="ghost-btn is-muted" id="configReloadAllBtn">Reload all live</button>
                 </div>
               </div>
 
-              <textarea aria-label="YAML configuration content" id="configEditor" spellcheck="false" placeholder="Config content loads here."></textarea>
-              <p class="footnote" id="configStatus">The editor validates YAML before it is saved.</p>
+              <p id="configDescription" class="footnote"></p>
+              <label class="config-mode">Editor<select id="configMode"><option value="form">Settings form</option><option value="yaml">Advanced YAML</option></select></label>
+              <div id="configForm" class="config-form"></div>
+              <textarea aria-label="YAML configuration content" id="configEditor" spellcheck="false" placeholder="Config content loads here." hidden></textarea>
+              <p class="footnote" id="configStatus" role="status">Choose settings to edit. Validation does not save changes.</p>
             </section>
           </div>
         </div>
       </article>
-    </section>
-  </div>
+</section>
+<section data-pane="services" class="project-workspace" hidden>      <section class="endpoint-panel">
+        <div>
+          <label for="apiBaseInput">API base</label>
+          <div class="endpoint-row">
+            <input id="apiBaseInput" readonly type="text" placeholder="http://localhost:8080" />
+            <button class="btn" id="connectBtn">Reconnect</button>
+          </div>
+        </div>
 
-  <script src="/ui/static/dashboard.js" defer></script>
-</body>
-</html>
+        <div class="inline-row">
+          <span class="status-pill status-info" id="apiConnectionBadge">Waiting</span>
+          <button class="ghost-btn is-muted" id="refreshBtn">Refresh snapshot</button>
+        </div>
+
+        <p class="note" id="dashboardNotice" role="status" aria-live="polite">
+          All controls use this server. External components are optional.
+        </p>
+
+        <div class="inline-row">
+          <a class="ghost-btn" id="docsLink" href="#api">API explorer</a>
+          <a class="ghost-btn" id="evidenceLink" href="/v1/interfaces/minio" target="_blank" rel="noreferrer">MinIO Console ↗</a>
+          <a class="ghost-btn" id="healthLink" href="#api" data-api-path="/healthz">Health</a>
+        </div>
+      </section>
+      <article class="summary-card">
+        <div class="summary-head">
+          <div>
+            <h2 class="summary-title">Core services</h2>
+            <p class="summary-subtitle">Live health for the API, media router, storage, and monitoring services.</p>
+          </div>
+          <span class="status-pill status-info" id="serviceBadge">Idle</span>
+        </div>
+        <div class="service-list" id="serviceGrid">
+          <div class="empty-state">Connect to the API to load service health.</div>
+        </div>
+      </article>
+      <section id="interfaces" class="panel interface-panel" aria-labelledby="interfacesTitle">
+      <div class="panel-head">
+        <div><p class="eyebrow">Connected applications</p><h2 class="panel-title" id="interfacesTitle">Service interfaces</h2>
+        <p class="panel-subtitle">Open each service's original interface in a new tab.</p></div>
+        <a class="ghost-btn" href="#guide">Interface guide</a>
+      </div>
+      <div class="interface-grid" id="interfaceGrid">
+        <a class="interface-card" href="/v1/interfaces/minio" target="_blank" rel="noopener noreferrer"><span class="app-icon minio-icon">M</span><strong>MinIO Console ↗</strong><span>Buckets, objects and storage administration</span></a>
+        <a class="interface-card" href="/v1/interfaces/grafana" target="_blank" rel="noopener noreferrer"><span class="app-icon grafana-icon">G</span><strong>Grafana ↗</strong><span>Metrics dashboards and exploration</span></a>
+        <a class="interface-card" href="/v1/interfaces/prometheus" target="_blank" rel="noopener noreferrer"><span class="app-icon prometheus-icon">P</span><strong>Prometheus ↗</strong><span>Metric queries and scrape targets</span></a>
+        <a class="interface-card" href="#api"><span class="app-icon swagger-icon">{ }</span><strong>API explorer →</strong><span>Explore endpoints and run API requests</span></a>
+      </div>
+      <p class="footnote">Storage and monitoring interfaces are available when their optional deployment profiles are enabled.</p>
+    </section>
+
+<article class="panel"><h2>Deployment components</h2><div id="componentList"></div><h2>Triton scheduling</h2><div id="tritonStatistics">No remote model statistics loaded.</div><p>One API process owns sessions and the source catalog. Adding replicas requires leases and request routing.</p></article></section>
+    <section data-pane="jobs" class="project-workspace" hidden>
+      <div class="workspace-grid">
+        <article class="panel"><div class="panel-head"><div><p class="eyebrow">ASYNC EXECUTION</p><h2>Submit a background job</h2></div><span class="little-icon" data-icon="jobs"></span></div><p class="panel-subtitle">Run a pipeline with a JSON payload. The server keeps processing while you work elsewhere.</p>
+          <form id="jobForm" class="form-stack"><label>Pipeline<select id="jobPipeline" required></select></label><label>JSON payload<textarea id="jobPayload" class="code-input" spellcheck="false" required>{
+  "stream_id": "console-job"
+}</textarea></label><p class="footnote">Use the payload expected by your pipeline, such as a server-local <code>video_path</code> or <code>image_base64</code>. Upload media from the Playground.</p><button class="button primary" type="submit" id="jobSubmit">Submit job →</button><p id="jobStatus" role="status"></p></form>
+        </article>
+        <article class="panel"><div class="panel-head"><h2>Inspect job</h2><span class="status-pill status-info" id="jobDetailStatus">No selection</span></div><p class="panel-subtitle">Select a job to inspect its result, errors and linked retry attempts.</p><pre id="jobDetail">Select a job from the list below.</pre></article>
+      </div>
+      <article class="panel"><div class="panel-head"><h2>Recent jobs</h2><button id="refreshJobs" class="button subtle">Refresh jobs</button></div><div class="table-wrap"><table><thead><tr><th>Job / pipeline</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="jobsBody"><tr><td colspan="4">Loading jobs…</td></tr></tbody></table></div></article>
+    </section>
+    <section data-pane="api" class="project-workspace" hidden>
+      <div class="api-shell">
+        <aside class="panel endpoint-browser"><div class="panel-head"><h2>Endpoints</h2><span id="endpointCount" class="count">—</span></div><label class="sr-only" for="endpointSearch">Search API endpoints</label><input id="endpointSearch" type="search" placeholder="Search method, path or tag…"><div id="endpointList" class="endpoint-list" aria-label="API endpoints">Loading API schema…</div></aside>
+        <div class="api-main"><article class="panel"><div class="panel-head"><div><p class="eyebrow" id="apiTag">PROGRAM API</p><h2 id="apiSummary">Explore your running API</h2></div><a href="/openapi.json" class="text-button" target="_blank" rel="noreferrer">OpenAPI ↗</a></div><p id="apiDescription" class="panel-subtitle">Select an endpoint to generate its parameters and request body.</p>
+          <form id="apiForm" class="form-stack"><div class="request-line"><span id="apiMethod" class="method method-get">GET</span><label class="sr-only" for="apiPath">Request path</label><input id="apiPath" value="/healthz" required spellcheck="false"><button id="apiSend" class="button primary" type="submit">Send request →</button><button id="apiCancel" class="button" type="button" hidden>Cancel request</button></div>
+            <div id="apiParameters" class="form-grid"></div><div id="apiFileFields" class="form-grid"></div><label id="apiBodyLabel" hidden>JSON request body<textarea id="apiBody" class="code-input" spellcheck="false"></textarea></label><details class="request-headers"><summary>Request headers</summary><label class="sr-only" for="apiHeaders">Request headers as JSON</label><textarea id="apiHeaders" class="code-input" spellcheck="false" placeholder='{"X-Session-Capability": "…"}'>{}</textarea><p class="footnote">Headers and request bodies stay in memory for this visit.</p></details><p id="apiRequestError" class="form-error" role="alert"></p>
+          </form>
+        </article>
+        <article class="panel"><div class="panel-head"><div class="inline-row"><h2>Response</h2><span id="apiResponseStatus" class="status-pill status-info">Ready</span><span id="apiResponseTime" class="footnote"></span></div><div class="stack-row"><a id="apiDownload" class="button subtle" hidden download>Download response</a><button id="apiCopyResponse" class="button subtle">Copy response</button><button id="apiCopyCurl" class="button subtle">Copy cURL</button></div></div><pre id="apiResponse" tabindex="0">Send a request to see the response here.</pre><details><summary>Response headers</summary><pre id="apiResponseHeaders">No response yet.</pre></details></article>
+        <details class="panel"><summary>Request history <span class="footnote">· this visit only</span></summary><div id="apiHistory" class="request-history"><p class="footnote">Your last 15 requests appear here. Bodies and headers are never recorded.</p></div></details></div>
+      </div>
+    </section>
+    <section data-pane="preferences" class="project-workspace" hidden>
+      <div class="preferences-layout"><div><article class="panel"><div class="panel-head"><div><p class="eyebrow">PERSONALIZE YOUR SPACE</p><h2>Built around the way you work.</h2></div><span data-icon="palette" class="little-icon"></span></div><p class="panel-subtitle">Preferences apply immediately and are saved in this browser.</p>
+        <form id="preferencesForm" class="form-stack"><fieldset><legend>Appearance</legend><div class="form-grid"><label>Color theme<select name="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Follow system</option></select></label><label>Accent color<select name="accent"><option value="mint">Mint</option><option value="blue">Ocean blue</option><option value="violet">Violet</option></select></label><label>Interface density<select name="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label><label>Source layout<select name="sourceLayout"><option value="grid">Preview grid</option><option value="list">Compact list</option></select></label></div></fieldset><fieldset><legend>Workspace behavior</legend><div class="form-grid"><label>Automatic refresh<select name="refresh"><option value="0">Manual only</option><option value="2">Every 2 seconds</option><option value="5">Every 5 seconds</option><option value="10">Every 10 seconds</option><option value="30">Every 30 seconds</option></select></label><label>Default view<select name="landing"><option value="overview">Overview</option><option value="sources">Sources</option><option value="playground">Inference playground</option><option value="api">API explorer</option></select></label></div><label class="check"><input type="checkbox" name="telemetry"> Show resource cards on the overview</label></fieldset><div class="inline-row"><span class="status-pill status-ok" id="preferencesStatus">Saved automatically</span><button id="resetPreferences" class="button subtle" type="button">Restore defaults</button></div></form>
+      </article></div><aside class="panel"><p class="eyebrow">DEEPER CONTROL</p><h2>Configure the engine.</h2><p class="panel-subtitle">Change pipeline stages, model selection, thresholds, fusion rules, alert policies and platform settings through configuration forms.</p><div class="quick-links"><a href="#settings">Open configuration editor <span>→</span></a><a href="#sources">Tune each source <span>→</span></a><a href="#api">Call any program endpoint <span>→</span></a></div><p class="footnote">Live sections can reload after save. Startup settings take effect after an engine restart.</p></aside></div>
+    </section>
+    <section data-pane="guide" class="project-workspace" hidden>
+      <div class="guide-cards"><article class="panel"><span data-icon="sources" class="little-icon"></span><h2>Connect &amp; process</h2><p class="panel-subtitle">Register a camera, image or video in Sources. Set the pipeline, sampling rates and preview options, then start a processing session.</p><a href="#sources" class="text-button">Open sources →</a></article><article class="panel"><span data-icon="settings" class="little-icon"></span><h2>Tune &amp; customize</h2><p class="panel-subtitle">Configure models, stages and policies in Configuration. Use Customize workspace for appearance, layout and refresh preferences.</p><a href="#settings" class="text-button">Open configuration →</a></article><article class="panel"><span data-icon="code" class="little-icon"></span><h2>Build with the API</h2><p class="panel-subtitle">Explore the running OpenAPI schema, send JSON or multipart requests, inspect responses and copy cURL commands without leaving the console.</p><a href="#api" class="text-button">Open API explorer →</a></article></div>
+      <article class="panel"><div class="panel-head"><h2>Interfaces &amp; ports</h2><span class="status-pill status-info">Running instance</span></div><p class="panel-subtitle">Optional storage and monitoring services keep their own administration interfaces. Their availability depends on your deployment.</p><div class="table-wrap"><table><thead><tr><th>Service</th><th>Host port</th><th>Protocol / purpose</th><th>Environment override</th></tr></thead><tbody id="guidePorts"><tr><td colspan="4">Loading interfaces…</td></tr></tbody></table></div></article>
+      <article class="panel"><h2>Session &amp; evidence lifecycle</h2><p class="panel-subtitle">Source IDs stay stable. Each start creates an isolated session and timeline. Evidence records expose saved, incomplete or failed captures with their reasons. Removing a source preserves its history. Session continuation and stream stop calls require the capability returned when that session was created.</p><div class="stack-row"><a href="#activity-view" class="button">Review evidence</a><a href="#api" class="button">Inspect API contracts</a><a href="/docs" target="_blank" rel="noreferrer" class="button subtle">Swagger reference ↗</a></div></article>
+    </section>
+    <footer><span>INFEROPS <span class="footer-divider">/</span> Operations console</span><span><span class="live-dot"></span>Source → Session → Insight</span></footer>
+  </main>
+</div>
+<dialog id="commandDialog" class="command-dialog" aria-labelledby="commandTitle"><div class="dialog-heading"><h2 id="commandTitle">Go to anything</h2><button class="icon-button" data-close="commandDialog" aria-label="Close quick navigation">×</button></div><label class="sr-only" for="commandInput">Search workspace</label><input id="commandInput" type="search" placeholder="Search views and actions…" autocomplete="off"><div id="commandResults" class="command-results"></div><p class="footnote">↑ ↓ to move · Enter to open · Esc to close</p></dialog>
+<dialog id="sourceDialog" aria-labelledby="sourceDialogTitle">
+  <form id="sourceForm">
+    <div class="dialog-heading"><div><p class="eyebrow">SOURCE REGISTRY</p><h2 id="sourceDialogTitle">Add a source</h2></div><button type="button" class="icon-button" data-close="sourceDialog" aria-label="Close">×</button></div>
+    <div class="form-grid">
+      <label>Source ID<input name="camera_id" required pattern="[a-zA-Z0-9][a-zA-Z0-9_\-]{0,63}" placeholder="entrance-01"><small>Permanent identity for sessions, results and evidence.</small></label>
+      <label>Display name<input name="name" required maxlength="120" placeholder="Main entrance"></label>
+      <label>Input type<select name="kind" id="sourceKind"><option value="rtsp">RTSP camera</option><option value="video">Video file</option><option value="image">Image</option></select></label>
+      <label>Pipeline<select name="pipeline" id="pipelineSelect" required></select></label>
+      <label id="workerLabel" hidden>Processing owner<select id="sourceWorker"><option value="">API / local</option></select><small>Assignment stays fixed when the source is edited.</small></label>
+      <label class="wide" id="uriLabel">RTSP URL / server file path<input name="uri" id="sourceUri" placeholder="rtsp://camera/stream"><small id="uriHelp">Credentials are stored on the server and omitted from API responses.</small></label>
+      <label class="wide hidden" id="fileLabel">Or upload a file<input type="file" id="sourceFile" accept="image/*,video/*"><small>Uploaded files are retained on this server; removing a source preserves its history.</small></label>
+      <label>Inference FPS<input name="inference_fps" type="number" value="5" min="0.1" max="120" step="0.1" required></label>
+      <label>Evidence sampling FPS<input name="evidence_fps" type="number" min="0.1" max="120" step="0.1" placeholder="Follow inference rate"><small>Set 10 for a 10 FPS history. Higher sampling uses more CPU and memory.</small></label>
+      <label>Maximum waiting frame age (ms)<input name="max_frame_age_ms" type="number" value="500" min="1" max="30000" required></label>
+      <label>Processing resolution limit<select id="sourceResolution"><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="640x480">640 × 480</option><option value="3840x2160">3840 × 2160</option></select><small>Preserves aspect ratio. Camera encoding settings stay at the source.</small></label>
+      <label>Preview FPS<input name="preview_fps" type="number" value="2" min="0.1" max="15" step="0.1" required></label>
+      <label>Preview JPEG quality<input name="jpeg_quality" type="number" value="75" min="30" max="95" required></label>
+      <label class="check wide"><input type="checkbox" name="preview_enabled" checked> Annotated wall previews <small>Turn off to skip preview drawing, JPEG encoding and preview writes. Analysis, results and incident evidence continue.</small></label>
+      <label>RTSP transport<select name="rtsp_transport"><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
+      <label>Connection/read timeout (seconds)<input name="timeout_s" type="number" value="5" min="1" max="30" step="0.5" required></label>
+      <label class="check"><input type="checkbox" name="loop"> Loop video</label><label class="check"><input type="checkbox" name="autostart"> Start on server restart</label>
+    </div>
+    <p id="formError" class="form-error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" class="button subtle" data-close="sourceDialog">Cancel</button><button type="submit" class="button primary" id="saveSource">Register source</button></div>
+  </form>
+</dialog>
+<dialog id="capacityDialog">
+  <div class="dialog-heading"><div><p class="eyebrow">MEASURE, THEN SIZE</p><h2>Server capacity</h2></div><button class="icon-button" data-close="capacityDialog" aria-label="Close">×</button></div>
+  <p class="dialog-intro">Capacity depends on the model, decode cost, evidence and previews. Choose the exact processing profile to see matching local measurements.</p>
+  <form id="capacityForm" class="capacity-form">
+    <label>Pipeline<select id="capacityPipeline"></select></label>
+    <label>Resolution<select id="capacityResolution"><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="640x480">640 × 480</option></select></label>
+    <label>Inference FPS<input type="number" id="capacityFps" value="5" min="0.1" max="120" step="0.1"></label>
+    <label>Evidence sampling FPS<input type="number" id="capacityEvidenceFps" min="0.1" max="120" step="0.1" placeholder="Follows inference FPS"></label>
+    <button class="button primary">Calculate</button>
+  </form>
+  <p class="dialog-intro">Evidence sampling must match the source setting. Higher rates require their own measured profile.</p>
+  <div id="capacityDetails" class="capacity-details"></div>
+</dialog>
+<dialog id="historyDialog" class="history-dialog"><div class="dialog-heading"><h2 id="historyTitle">Source history</h2><button class="icon-button" data-close="historyDialog" aria-label="Close">×</button></div><div id="historyBody"></div></dialog>
+<dialog id="recordingsDialog" class="live-dialog">
+  <div class="dialog-heading"><h2 id="recordingsTitle">Original recordings</h2><button class="icon-button" data-close="recordingsDialog" aria-label="Close">×</button></div>
+  <p>Original camera video. Annotated incident evidence is available in Activity. Recording retention is configured on MediaMTX.</p>
+  <video id="recordingPlayer" controls playsinline style="width:100%;max-height:60vh"></video>
+  <div id="recordingsList" class="stack-row"></div>
+</dialog>
+<dialog id="liveDialog" class="live-dialog">
+  <div class="dialog-heading"><h2 id="liveTitle">Live video</h2><button class="icon-button" data-close="liveDialog" aria-label="Close">×</button></div>
+  <p class="dialog-intro">Original camera video through MediaMTX. Annotations are shown separately in the processed wall preview. Live viewing can continue while analysis is stopped.</p>
+  <div class="live-controls"><label>Playback<select id="liveProtocol"><option value="webrtc">WebRTC · low latency</option><option value="hls">HLS · compatibility</option></select></label><a id="liveExternal" class="button" target="_blank" rel="noreferrer">Open player ↗</a></div>
+  <iframe id="liveFrame" title="Original live camera video" allow="autoplay; fullscreen; picture-in-picture"></iframe>
+  <p class="dialog-intro">The camera codec must be supported by your browser. Close this view to release its stream connection.</p>
+</dialog>
+<dialog id="evidencePlayer"><div class="dialog-heading"><h2>Incident clip</h2><button class="icon-button" data-close="evidencePlayer" aria-label="Close">×</button></div><video id="evidenceVideo" controls playsinline style="width:100%;max-height:65vh"></video></dialog>
+<dialog id="configNewDialog" aria-labelledby="configNewTitle"><form id="configNewForm"><div class="dialog-heading"><h2 id="configNewTitle">Add configuration</h2><button type="button" class="icon-button" data-close="configNewDialog" aria-label="Close">×</button></div><div class="form-grid"><label>Section<select id="configNewSection"><option value="models">Model with runtime variants</option><option value="pipelines">Pipeline</option><option value="fusion">Signals &amp; rules</option><option value="alerts">Alerts &amp; actions</option></select></label><label>Name<input id="configNewName" required pattern="[A-Za-z_][A-Za-z0-9_]*" placeholder="inspection"></label></div><p class="footnote">Configure the draft in the editor, validate it, then save to add it to this project.</p><button class="button primary" type="submit">Create draft</button></form></dialog>
+<script src="/ui/static/configuration.js?v=3" defer></script><script src="/ui/static/cameras.js?v=20261020-1" defer></script><script src="/ui/static/dashboard.js?v=20261020-2" defer></script><script src="/ui/static/workspace.js?v=20261020-2" defer></script><script src="/ui/static/console-views.js?v=20261020-2" defer></script>
+</body></html>

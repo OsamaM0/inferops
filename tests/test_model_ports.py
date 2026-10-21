@@ -17,7 +17,7 @@ from inferops.testing import PROJECT_ROOT, TINY_MODEL_PATH
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "tensorrt", "triton", "deepstream"])
+@pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "tensorrt", "triton"])
 async def test_logical_models_group_variants_and_select_runtime(mode, monkeypatch):
     monkeypatch.setattr(settings, "execution_mode", mode)
     definition = ProjectLoader(PROJECT_ROOT / "projects/driver_behaviour", mode=mode).load()
@@ -26,7 +26,7 @@ async def test_logical_models_group_variants_and_select_runtime(mode, monkeypatc
         assert len(definition.models) == 6
         models = registry.logical_models()
         assert [model["name"] for model in models] == ["face_mesh", "rfdetr_driver"]
-        suffix = "triton" if mode in {"triton", "deepstream"} else "tensorrt" if mode == "tensorrt" else "onnx"
+        suffix = "triton" if mode in {"triton"} else "tensorrt" if mode == "tensorrt" else "onnx"
         assert all(model["selected_variant"] == f"{model['name']}_{suffix}" for model in models)
         assert all(len(model["variants"]) == 3 and not model["loaded_variants"] for model in models)
     finally:

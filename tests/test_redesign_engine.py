@@ -12,6 +12,7 @@ from inferops.adapters.outbound.persistence.sql import SqlRepository
 from inferops.adapters.outbound.storage.filesystem import FilesystemStorage
 from inferops.domain.evidence import EvidenceConfig
 from inferops.domain.processing import MediaFrame
+from inferops.testing.postgres import test_database_url
 
 
 def project(tmp_path):
@@ -35,7 +36,7 @@ class Features(Stage):
 
 
 def engine(tmp_path, *, evidence=True):
-    return Engine.from_project(project(tmp_path), repository=SqlRepository(f"sqlite+aiosqlite:///{tmp_path}/db.sqlite"),
+    return Engine.from_project(project(tmp_path), repository=SqlRepository(test_database_url(tmp_path)),
                                storage=FilesystemStorage(tmp_path / "objects"), evidence=evidence,
                                spool_path=tmp_path / "spool", evidence_config=EvidenceConfig(
                                    pre_seconds=0, post_seconds=0, disk_reserve_bytes=0, retry_delays=()))
@@ -61,6 +62,71 @@ async def test_generated_session_names_are_isolated_and_media_cooldown(tmp_path)
         assert len(records) == 3 and {row['state'] for row in records} == {'Saved'}
         assert all([await selected.application.evidence.storage.verify(a['uri'], a['sha256'])
                     for row in records for a in row['artifacts'].values()])
+
+
+async def test_server_default_disk_evidence_survives_reconstruction_and_http_serves_it(tmp_path, monkeypatch):
+    from inferops.adapters.outbound.projects.settings import Settings
+    from inferops.bootstrap import build_server_engine
+    from inferops.testing import PROJECT_ROOT
+
+    # Exercise the bootstrap fallback without reading the operator's .env.
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("INFEROPS_STORAGE_KIND", raising=False)
+    monkeypatch.setenv("INFEROPS_DATA_PATH", str(tmp_path / "persistent-data"))
+    monkeypatch.setenv("INFEROPS_SPOOL_PATH", str(tmp_path / "spool"))
+    monkeypatch.setenv("INFEROPS_DATABASE_URL", test_database_url(tmp_path))
+    monkeypatch.setenv("INFEROPS_ROLE", "combined")
+    for option in ("PRE_SECONDS", "POST_SECONDS", "DISK_RESERVE_BYTES"):
+        monkeypatch.setenv(f"INFEROPS_EVIDENCE_{option}", "0")
+    settings = Settings(domain_root=str(project(tmp_path)),
+                        configs_dir=str(PROJECT_ROOT / "inferops/testing/configs"))
+    first, _ = build_server_engine(settings=settings)
+    async with first:
+        storage = first.application.evidence.storage
+        assert isinstance(storage, FilesystemStorage)
+        assert storage.root == tmp_path / "persistent-data/evidence"
+        await first.run("test", np.zeros((32, 32, 3), np.uint8))
+        await first.application.evidence.wait_idle()
+        [saved] = await first.application.repository.list_evidence()
+        assert saved["state"] == "Saved"
+        original = await storage.read(saved["artifacts"]["snapshot"]["uri"])
+
+    second, hub = build_server_engine(settings=settings)
+    app = create_application(second, hub=hub)
+    async with app.router.lifespan_context(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        records = (await client.get("/v1/evidence/records")).json()
+        assert [row["id"] for row in records] == [saved["id"]]
+        response = await client.get(f'/v1/evidence/records/{saved["id"]}/assets/snapshot')
+        assert response.status_code == 200 and response.content == original
+        for artifact in saved["artifacts"].values():
+            assert await second.application.evidence.storage.verify(artifact["uri"], artifact["sha256"])
+
+
+async def test_cancelling_processing_closes_as_cancelled_instead_of_processing_failure(tmp_path):
+    selected = engine(tmp_path)
+    entered = asyncio.Event()
+    reasons = []
+    async with selected:
+        session = await selected.open_session("test")
+        original_finish = selected.application.evidence.finish_session
+
+        async def finish(session_id, reason):
+            reasons.append(reason)
+            await original_finish(session_id, reason)
+
+        async def blocking(frame, *, observed=False):
+            entered.set()
+            await asyncio.Event().wait()
+
+        selected.application.evidence.finish_session = finish
+        session._process = blocking
+        pending = asyncio.create_task(session.process(MediaFrame(np.zeros((8, 8, 3), np.uint8))))
+        await entered.wait()
+        pending.cancel()
+        result = await asyncio.gather(pending, return_exceptions=True)
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert reasons == ["cancelled"]
+        assert session.closed and session.id not in selected.application.sessions
 
 
 async def test_python_and_http_share_services_and_capability(tmp_path):

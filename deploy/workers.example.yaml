@@ -1,0 +1,19 @@
+version: 1
+workers:
+  - {worker_id: a, endpoint: 'http://camera-a:8080', max_active_sources: 12}
+  - {worker_id: b, endpoint: 'http://camera-b:8080', max_active_sources: 12}
+# Register sources in the dashboard, selecting their owner. To seed a fixed list:
+# cameras:
+#   - worker_id: a
+#     source:
+#       camera_id: loading-bay
+#       name: Loading bay
+#       kind: rtsp
+#       uri: ${LOADING_BAY_RTSP_URL}
+#       pipeline: driver_behaviour
+#       inference_fps: 2
+#       evidence_fps: 10
+#       max_width: 640
+#       max_height: 480
+#       autostart: true
+cameras: []

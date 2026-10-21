@@ -52,10 +52,6 @@ class DecodeAny(Stage):
         # ── 3. video file path ───────────────────────────────────────────────
         path = item.payload.get("video_path")
         if path:
-            from inferops.adapters.outbound.projects.settings import settings
-            if settings.execution_mode == "deepstream":
-                from inferops.adapters.outbound.media.deepstream import decode_video
-                return await asyncio.to_thread(decode_video, item, path, self.every_n)
             return await asyncio.to_thread(self._decode_video, item, path)
 
         return None  # nothing to decode

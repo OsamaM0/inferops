@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from inferops.application.admission import FairAdmission
 from inferops.domain.errors import RegistryError
 from inferops.domain.models import ModelSpec
 from inferops.domain.types import Frame, Result
@@ -15,9 +16,9 @@ from inferops.ports.projects import ProjectDefinition
 
 
 class _BoundedBackend:
-    def __init__(self, backend: InferenceBackend, concurrency: int) -> None:
+    def __init__(self, backend: InferenceBackend, concurrency: int, *, slots=None) -> None:
         self._backend = backend
-        self._slots = asyncio.Semaphore(concurrency)
+        self._slots = slots if slots is not None else FairAdmission(concurrency)
         self._active: set[asyncio.Task] = set()
         self._closed = False
 
@@ -30,13 +31,22 @@ class _BoundedBackend:
     @property
     def device_info(self): return self._backend.device_info
 
+    async def statistics(self):
+        return await self._backend.statistics() if hasattr(self._backend, "statistics") else None
+
     async def infer(self, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+        return await self._execute(self._backend.infer, inputs)
+
+    async def warmup(self):
+        await self._execute(self._backend.warmup)
+
+    async def _execute(self, operation, *args):
         async with self._slots:
             if self._closed:
                 raise RuntimeError("backend pool is closed")
             # Cancelling an await cannot interrupt a thread/CUDA call safely.
             # Wait for it before releasing a slot or allowing backend teardown.
-            task = asyncio.create_task(self._backend.infer(inputs))
+            task = asyncio.create_task(operation(*args))
             self._active.add(task)
             try:
                 return await asyncio.shield(task)
@@ -54,11 +64,18 @@ class _BoundedBackend:
 
 
 class ModelPool:
-    def __init__(self, definition: ProjectDefinition, *, max_concurrency: int = 1) -> None:
-        if max_concurrency < 1:
+    def __init__(self, definition: ProjectDefinition, *, max_concurrency: int = 1,
+                 triton_concurrency: int = 64, admission_pending: int = 1024,
+                 admission_queue_ms: float = 5000) -> None:
+        if max_concurrency < 1 or triton_concurrency < 1:
             raise ValueError("model concurrency must be positive")
         self.definition = definition
         self.max_concurrency = max_concurrency
+        self.triton_concurrency = triton_concurrency
+        self.admission_pending, self.admission_queue_ms = admission_pending, admission_queue_ms
+        self._admission_options = {"max_pending": admission_pending, "max_queue_ms": admission_queue_ms}
+        self._gpu_slots: dict[int, FairAdmission] = {}
+        self._rpc_slots = FairAdmission(triton_concurrency, **self._admission_options)
         self._backends: dict[str, _BoundedBackend] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._plugins: dict[str, tuple[Any, Any]] = {}
@@ -67,11 +84,6 @@ class ModelPool:
     @property
     def closed(self) -> bool:
         return self._closed
-
-    @property
-    def _loaded(self) -> dict[str, _BoundedBackend]:
-        """Compatibility view for migrated project stages/status adapters."""
-        return self._backends
 
     def get_spec(self, name: str) -> ModelSpec:
         resolved = self.resolve_name(name)
@@ -89,9 +101,6 @@ class ModelPool:
 
     def loaded_backends(self):
         return dict(self._backends)
-
-    def list_models(self):
-        return self.list_specs()
 
     def list_specs(self) -> list[ModelSpec]:
         return [spec.model_copy(deep=True) for spec in self.definition.models.values()]
@@ -120,12 +129,24 @@ class ModelPool:
                 backend = self.definition.backend_factory(spec, self.definition.source_dirs.get(name))
                 try:
                     await backend.load(spec)
-                    if spec.warmup.iterations and hasattr(backend, "warmup"):
-                        await backend.warmup()
                 except BaseException:
                     await backend.close()
                     raise
-                self._backends[name] = _BoundedBackend(backend, self.max_concurrency)
+                slots = FairAdmission(self.max_concurrency, **self._admission_options)
+                concurrency = self.max_concurrency
+                if backend.device == "remote":
+                    # Bounded RPCs must overlap for Triton to assemble batches.
+                    concurrency, slots = self.triton_concurrency, self._rpc_slots
+                elif backend.device in {"gpu", "cuda"}:
+                    slots = self._gpu_slots.setdefault(spec.device.gpu_id, FairAdmission(self.max_concurrency, **self._admission_options))
+                bounded = _BoundedBackend(backend, concurrency, slots=slots)
+                try:
+                    if spec.warmup.iterations and hasattr(backend, "warmup"):
+                        await bounded.warmup()
+                except BaseException:
+                    await bounded.close()
+                    raise
+                self._backends[name] = bounded
             return self._backends[name]
 
     async def infer(self, name: str, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:

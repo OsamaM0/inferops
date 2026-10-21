@@ -3,8 +3,8 @@
 Open [index.html](index.html) for the offline gallery with fit and zoom controls.
 Use the [documentation tour](../README.md), [Hexagonal architecture](../architecture.md),
 [full lifecycle](../lifecycle.md) and [Redpanda guide](../messaging.md) for the
-source-linked explanations. [repository-tree.md](repository-tree.md) is the
-complete source inventory.
+source-linked explanations. The [package structure](../structure.md) maps the
+source modules to their responsibilities.
 
 ## Reading order
 
@@ -22,8 +22,8 @@ complete source inventory.
 
 Each `.mmd` is the editable Mermaid source for the same-named `.svg`. Diagrams
 show logical calls and ownership; an arrow is not automatically a source-code
-import or a separate process. The shared-engine and deployment drawings explicitly
-mark Redis as a provisioned cache service outside current session/evidence state.
+import or a separate process. Deployment shows PostgreSQL, persistent-disk evidence and MediaMTX defaults, with optional MinIO/S3
+and optional broker, monitoring and static workers. Redis is removed.
 
 The checked-in SVGs were rendered with Mermaid CLI **11.12.0**. With that
 version installed in a development tooling environment:
@@ -43,6 +43,4 @@ controls remain accurate.
 Keep the gallery self-contained: no CDN, remote fonts or runtime Mermaid library.
 After editing, open it locally and check desktop/mobile fit, zoom, navigation,
 image loading and console errors. Verify relative links and Markdown examples
-against the checked-in source. Runtime correctness evidence is recorded separately
-in [cleanup verification](../cleanup-verification.md); editing diagrams does not
-establish new CPU/CUDA or live-capacity results.
+against the checked-in source.

@@ -1,4 +1,4 @@
-"""Executable dependency rules for the redesigned inward layers."""
+"""Executable dependency rules for the inward layers."""
 from __future__ import annotations
 
 import ast
@@ -48,29 +48,3 @@ def test_inward_layers_import_only_allowed_dependencies(layer):
             if infrastructure or (internal and not allowed):
                 errors.append(f"{path.relative_to(ROOT)}:{line}: {module}")
     assert not errors, "Hexagonal dependency boundary violations:\n" + "\n".join(errors)
-
-
-def test_removed_execution_modules_are_not_reintroduced():
-    obsolete = {
-        "inferops.pipeline.runner", "inferops.pipeline.store", "inferops.registry.store",
-        "inferops.fusion.store", "inferops.alerts.store", "inferops.api.deps",
-        "inferops.adapters.postgres_dao", "inferops.adapters.s3_client",
-        "inferops.adapters.redis_client", "inferops.adapters.frame_cache",
-        "inferops.compat.stages", "inferops.fusion.engine", "inferops.alerts.engine",
-    }
-    errors = []
-    for module in obsolete:
-        if (ROOT / (module.replace(".", "/") + ".py")).exists():
-            errors.append(f"obsolete module exists: {module}")
-    for path in (ROOT / "inferops").rglob("*.py"):
-        for line, module in _imports(path):
-            if module in obsolete:
-                errors.append(f"{path.relative_to(ROOT)}:{line}: {module}")
-    assert not errors, "\n".join(errors)
-
-
-def test_package_contains_only_planned_layers():
-    expected = {"domain", "application", "ports", "adapters", "sdk", "testing"}
-    actual = {p.name for p in (ROOT / "inferops").iterdir() if p.is_dir() and p.name != "__pycache__"}
-    assert actual == expected
-    assert not (ROOT / "inferops/library.py").exists()

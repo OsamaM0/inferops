@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import tempfile
 import time
@@ -86,7 +87,7 @@ class RuntimeCORS:
                              allow_headers=["*"])(scope, receive, send)
 
 
-def create_application(engine=None, *, hub=None):
+def create_application(engine=None, *, hub=None, source_store=None, source_root=None):
     streams = {}
 
     @asynccontextmanager
@@ -96,18 +97,84 @@ def create_application(engine=None, *, hub=None):
             from inferops.bootstrap import build_server_engine
             selected, selected_hub = build_server_engine(hub=hub)
         else:
-            from inferops.adapters.outbound.messaging.delivery import DeliveryHub
+            from inferops.adapters.outbound.messaging.delivery import DeliveryHub, ServerDelivery
             selected, selected_hub = engine, hub or DeliveryHub()
+            if (hasattr(selected.application, "delivery") and selected.application.delivery is None
+                    and getattr(selected.application, "role", "combined") != "camera-worker"):
+                selected.application.delivery = ServerDelivery(selected_hub, definitions=selected.application.definition,
+                                                               broker_enabled=False)
+                if hasattr(selected.application.repository, "outbox_transform"):
+                    selected.application.repository.outbox_transform = selected.application.delivery.prepare
         app.state.engine, app.state.hub = selected, selected_hub
         jobs = None
+        sources = None
+        checkpoints = None
+        controls = {}
+        watchdog = None
         try:
+            import cv2
+            cv2.setNumThreads(int(os.environ.get("INFEROPS_OPENCV_THREADS", "1")))
             await selected.start()
-            jobs = JobService(selected)
-            app.state.jobs = jobs
-            if hasattr(selected.application.repository, "interrupt_jobs"):
-                await jobs.start()
+            role = getattr(selected.application, "role", "combined")
+            if role in {"api", "camera-worker"}:
+                from inferops.adapters.inbound.workers.camera_worker import start_watchdog
+                watchdog = start_watchdog(selected.application,
+                    timeout_s=float(os.environ.get("INFEROPS_WORKER_WATCHDOG_SECONDS", "60")))
+            app.state.role = role
+            app.state.worker_controls = controls
+            if role != "camera-worker":
+                jobs = JobService(selected)
+                app.state.jobs = jobs
+                if hasattr(selected.application.repository, "interrupt_jobs"):
+                    await jobs.start()
+            from inferops.adapters.inbound.http.cameras import build_source_manager
+            sources = build_source_manager(selected.application, store=source_store, root=source_root)
+            app.state.sources = sources
+            if role == "camera-worker" and os.environ.get("INFEROPS_WORKER_MANIFEST"):
+                from inferops.adapters.outbound.persistence.worker_manifest import load_worker_manifest
+                manifest = load_worker_manifest(os.environ["INFEROPS_WORKER_MANIFEST"])
+                sources.max_active = next(w.max_active_sources for w in manifest.workers
+                                          if w.worker_id == os.environ["INFEROPS_WORKER_ID"])
+            await sources.start()
+            manifest_path = os.environ.get("INFEROPS_WORKER_MANIFEST")
+            if manifest_path and role != "combined":
+                from inferops.adapters.outbound.persistence.worker_manifest import load_worker_manifest
+                manifest = load_worker_manifest(manifest_path, control_only=role == "api")
+                if role == "api":
+                    from inferops.adapters.outbound.messaging.worker_control import HTTPWorkerControl
+                    token = os.environ.get("INFEROPS_WORKER_TOKEN")
+                    if not token:
+                        raise ValueError("API worker routing requires INFEROPS_WORKER_TOKEN")
+                    for worker in manifest.workers:
+                        controls[worker.worker_id] = HTTPWorkerControl(worker, token)
+                else:
+                    worker_id = os.environ["INFEROPS_WORKER_ID"]
+                    sources.max_active = next(w.max_active_sources for w in manifest.workers if w.worker_id == worker_id)
+                    for assignment in manifest.cameras:
+                        if assignment.worker_id == worker_id and assignment.source.camera_id not in sources.specs:
+                            await sources.put(assignment.source)
+                            if assignment.source.autostart:
+                                await sources.run(assignment.source.camera_id)
+            from inferops.adapters.outbound.inference.checkpoint_jobs import CheckpointJobs
+            if role != "camera-worker":
+                checkpoints = CheckpointJobs(sources.root / "models")
+                app.state.checkpoints = checkpoints
+                await checkpoints.start()
             yield
         finally:
+            if watchdog:
+                watchdog[0].set()
+                await asyncio.to_thread(watchdog[1].join, 2)
+            for control in controls.values():
+                await control.close()
+            if checkpoints:
+                await checkpoints.close()
+            source_error=None
+            if sources:
+                try:
+                    await sources.close()
+                except Exception as error:
+                    source_error=error
             for task in list(streams.values()):
                 task.cancel()
             await asyncio.gather(*list(streams.values()), return_exceptions=True)
@@ -116,12 +183,34 @@ def create_application(engine=None, *, hub=None):
                     await jobs.close()
             finally:
                 await selected.close()
+            if source_error:
+                raise RuntimeError("source history shutdown failed") from source_error
 
     app = FastAPI(title="InferOps", version=__version__, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def internal_worker_security(request, call_next):
+        import secrets
+        if (getattr(request.app.state, "role", "combined") == "camera-worker"
+                and request.url.path not in {"/healthz", "/readyz"}):
+            actual = request.headers.get("x-worker-token", "")
+            expected = os.environ.get("INFEROPS_WORKER_TOKEN", "")
+            if not expected or not secrets.compare_digest(actual, expected):
+                return JSONResponse(status_code=403, content={"detail": "worker control token required"})
+            if not request.url.path.startswith(("/v1/cameras", "/v1/evidence/records", "/v1/retention", "/metrics")):
+                return JSONResponse(status_code=403, content={"detail": "endpoint belongs to the API role"})
+        return await call_next(request)
+    from inferops.adapters.inbound.http.cameras import router as camera_router
     from inferops.adapters.inbound.http.configs import router as config_router
+    from inferops.adapters.inbound.http.model_preparation import router as preparation_router
+    app.include_router(preparation_router, prefix="/v1", tags=["model-preparation"])
+    from inferops.adapters.inbound.http.retention import router as retention_router
+    app.include_router(retention_router, prefix="/v1", tags=["retention"])
     app.include_router(config_router, prefix="/v1", tags=["configs"])
+    app.include_router(camera_router, prefix="/v1", tags=["cameras"])
     app.add_middleware(RuntimeCORS)
-    for exception in (BackendError, PipelineError):
+    from inferops.ports.ownership import OwnershipLost
+    for exception in (BackendError, PipelineError, OwnershipLost):
         async def unavailable(request, exc):
             return JSONResponse(status_code=503, content={"detail": str(exc)})
         app.add_exception_handler(exception, unavailable)
@@ -146,12 +235,26 @@ def create_application(engine=None, *, hub=None):
 
     @app.get("/readyz")
     async def ready(request: Request):
-        return {"status": "ready" if active(request).application.started else "starting"}
+        application = active(request).application
+        ready = application.started and not getattr(application, "ownership_error", None)
+        return JSONResponse(status_code=200 if ready else 503,
+                            content={"status": "ready" if ready else "unavailable",
+                                     "ownership_error": getattr(application, "ownership_error", None)})
 
     @app.get("/metrics")
     async def metrics(request: Request):
         from inferops.adapters.outbound.observability import metrics_text
         data = metrics_text()
+        sources = getattr(request.app.state, "sources", None)
+        if sources:
+            for camera_id, state in sources.states.items():
+                for name in ("decoded", "processed", "dropped", "sampling_skips", "capture_overwrites",
+                             "admission_expired", "decode_errors", "reconnects", "receive_to_result_ms"):
+                    value = state.get(name, 0)
+                    data += f'inferops_camera_{name}{{camera_id="{camera_id}"}} {value}\n'.encode()
+        for device, gate in getattr(active(request).application.models, "_gpu_slots", {}).items():
+            for name, value in gate.diagnostics().items():
+                data += f'inferops_admission_{name}{{device="gpu-{device}"}} {value}\n'.encode()
         evidence = active(request).application.evidence
         if evidence:
             data += f"\ninferops_evidence_frames_dropped {evidence.dropped_frames}\n".encode()
@@ -284,6 +387,10 @@ def create_application(engine=None, *, hub=None):
 
     @app.post("/v1/evidence/records/{evidence_id}/retry")
     async def evidence_retry(request: Request, evidence_id: str):
+        from inferops.adapters.inbound.http.cameras import forward_owned
+        forwarded = await forward_owned(request, "evidence", evidence_id)
+        if forwarded is not None:
+            return forwarded
         captures = active(request).application.evidence
         if captures is None:
             raise HTTPException(409, "evidence capture disabled")
@@ -291,6 +398,10 @@ def create_application(engine=None, *, hub=None):
 
     @app.delete("/v1/evidence/records/{evidence_id}")
     async def evidence_delete(request: Request, evidence_id: str):
+        from inferops.adapters.inbound.http.cameras import forward_owned
+        forwarded = await forward_owned(request, "evidence", evidence_id)
+        if forwarded is not None:
+            return forwarded
         captures = active(request).application.evidence
         if captures is None:
             raise HTTPException(409, "evidence capture disabled")

@@ -36,7 +36,7 @@ async def verify(args):
         return value
 
     ort.SessionOptions = options
-    repository = SqlRepository(f"sqlite+aiosqlite:///{output / 'records.sqlite'}")
+    repository = SqlRepository(args.database_url)
     storage = FilesystemStorage(output / "artifacts")
     selected = Engine.from_project(
         args.project,
@@ -112,4 +112,5 @@ if __name__ == "__main__":
     parser.add_argument("--pipeline", default="driver_behaviour")
     parser.add_argument("--video", type=Path, default=Path("research/driver_training/test.mp4"))
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--database-url", required=True, help="Dedicated disposable PostgreSQL verification database")
     asyncio.run(verify(parser.parse_args()))

@@ -142,5 +142,5 @@ with patch('inferops.adapters.outbound.projects.settings.load_settings', side_ef
     import inferops.adapters.inbound.http.main
 """
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                            env={"PATH": "/usr/bin:/bin", "INFEROPS_ENGINE": "hexagonal"})
+                            env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 0, result.stderr

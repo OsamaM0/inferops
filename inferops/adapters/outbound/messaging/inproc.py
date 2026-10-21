@@ -18,7 +18,7 @@ class _InProcProducer:
     async def send(self, topic, value, *, key=None, headers=None):
         if len(value) > self._bus.max_value_bytes:
             raise PayloadTooLarge(
-                f"value {len(value)}B > limit {self._bus.max_value_bytes}B (use Redis/S3 ref)"
+                f"value {len(value)}B > limit {self._bus.max_value_bytes}B (use a storage reference)"
             )
         await self._bus._deliver(Message(topic=topic, value=value, key=key, headers=headers or {}))
 

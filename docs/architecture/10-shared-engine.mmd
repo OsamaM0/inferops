@@ -13,11 +13,13 @@ flowchart LR
     end
     subgraph outbound["Outbound adapters"]
         runtime["Existing inference runtimes<br/>existing pre/postprocessing and project plugins"]
-        pg["PostgreSQL<br/>sessions / jobs / incidents / evidence<br/>transactional inbox + outbox"]
+        pg["PostgreSQL<br/>required for distributed ownership<br/>sessions / incidents / evidence / inbox / outbox"]
+        router["MediaMTX<br/>RTSP relay / WebRTC / HLS<br/>original recording + playback"]
         media["Incremental decoding + encoding<br/>persistent checksummed capture spool"]
-        minio["MinIO<br/>snapshot + clip + artifact manifest"]
+        disk["Default FilesystemStorage<br/>persistent disk: snapshot + clip + manifest"]
+        minio["Optional S3Storage / MinIO<br/>shared snapshot + clip + artifact manifest"]
         redpanda["Redpanda<br/>at-least-once transport"]
-        dev["Optional memory / SQLite<br/>filesystem evidence adapters"]
+        dev["Explicit embedded memory repository"]
     end
     boot["Explicit bootstrap<br/>construct, start, recover, quiesce, close"]
     python --> app
@@ -28,15 +30,15 @@ flowchart LR
     app --> ports
     ports -. implemented by .-> runtime
     ports -. implemented by .-> pg
+    ports -. implemented by .-> router
     ports -. implemented by .-> media
+    ports -. implemented by .-> disk
     ports -. implemented by .-> minio
     ports -. implemented by .-> redpanda
     ports -. implemented by .-> dev
     boot --> app
     boot --> outbound
-    redis["Redis: provisioned cache service<br/>not used by current session/evidence path"]
     monitoring["Prometheus + Grafana<br/>latency, drops, states, spool, delivery lag"]
-    boot -. startup health gate in Compose .-> redis
     http --> monitoring
     bridge["Public API exports<br/>Model / InferenceSession / project extension contracts<br/>previous release artifact for rollback"]
     bridge --> app

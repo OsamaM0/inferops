@@ -1,33 +1,37 @@
-"""OpenTelemetry tracing setup (no-op if endpoint not configured)."""
+"""Optional tracing; SDK initialization occurs only at explicit server startup."""
 from __future__ import annotations
 
-from opentelemetry import trace
+from contextlib import nullcontext
 
 _initialised = False
 
 
-def init_tracing() -> None:
-    from inferops.adapters.outbound.projects.settings import settings
-    global _initialised
-    if _initialised:
-        return
-    if not settings.obs.otel_endpoint:
-        return
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+class _NoopTracer:
+    def start_as_current_span(self, *args, **kwargs):
+        return nullcontext()
 
-    provider = TracerProvider(resource=Resource.create({"service.name": settings.obs.service_name}))
-    if settings.obs.otel_endpoint:
-        try:
-            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-            provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.obs.otel_endpoint, insecure=True)))
-        except Exception:
-            pass
+
+def init_tracing(*, endpoint=None, service_name="inferops"):
+    global _initialised
+    if _initialised or not endpoint:
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    except ImportError as error:
+        raise RuntimeError("tracing endpoint requires inferops[tracing]") from error
+    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=True)))
     trace.set_tracer_provider(provider)
     _initialised = True
 
 
-def tracer(name: str = "inferops") -> trace.Tracer:
-    init_tracing()
+def tracer(name="inferops"):
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        return _NoopTracer()
     return trace.get_tracer(name)

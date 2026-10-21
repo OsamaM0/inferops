@@ -21,6 +21,7 @@ extract:
   # Head-pose distraction from face mesh (overrides legacy distracted signal).
   distracted_score: "payload.get('distracted_score', payload.get('distracted', 0.0)) or 0.0"
 
+  # Requires an external hand_on_wheel input; the supplied video models do not produce it.
   hand_on_wheel:  "payload.get('hand_on_wheel', 1.0)"
 derived:
   phone: "phone_score.fraction_above(0.5)"

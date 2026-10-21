@@ -1,0 +1,5 @@
+# Separate CPU-only environment. Never install alongside the CUDA ORT runtime.
+# uv pip install --torch-backend cpu -r requirements/export-rfdetr.txt
+torch==2.10.0
+torchvision==0.25.0
+rfdetr[onnx]==1.11.2

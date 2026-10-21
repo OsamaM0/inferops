@@ -289,7 +289,7 @@ def prepare_project(stack: ConfigStack, mode: str, *, force: bool = False) -> in
         target = artifact_target(spec, owner, stack)
         prepare_artifact(spec, target, root, force=force and target not in prepared)
         prepared.add(target)
-        if canonical_mode(mode) in {"triton", "deepstream"} and spec.backend == "triton":
+        if canonical_mode(mode) in {"triton"} and spec.backend == "triton":
             repository = stack.model_repository(settings.model_repository).resolve()
             expected = repository / spec.artifact.triton_model_name / str(spec.version) / "model.onnx"
             if expected.resolve() != target:

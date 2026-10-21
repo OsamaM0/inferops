@@ -9,7 +9,6 @@ API_PORT ?= 8080
 GPU ?= 0
 LABELS ?= person,helmet,vest
 FORMAT ?= yolo
-INFEROPS_API_URL ?= http://127.0.0.1:$(API_PORT)
 SELECT = $(if $(PROJECT_ROOT),--domain-root "$(abspath $(PROJECT_ROOT))",$(if $(PROJECT),--domain "$(PROJECT)",))
 SELECT_ENV = $(if $(PROJECT_ROOT),INFEROPS_DOMAIN_ROOT="$(abspath $(PROJECT_ROOT))",$(if $(PROJECT),INFEROPS_ACTIVE_DOMAIN="$(PROJECT)",))
 LAUNCH = $(PY) $(APP_DIR)/scripts/run_mode.py --mode $(MODE) --port $(API_PORT) $(SELECT)
@@ -19,7 +18,7 @@ GPU_ARG = $(if $(filter 1,$(GPU)),--gpu,)
 .PHONY: help setup install dev-install setup-models projects domains new-project new-domain new-model
 .PHONY: test test-core test-project test-domain test-all lint fmt validate preflight
 .PHONY: run run-container serve serve-api stop stop-mode up down logs status
-.PHONY: configure-accelerated setup-container-runtime worker-pipeline worker-topic scenario clean
+.PHONY: configure-accelerated setup-container-runtime worker-pipeline worker-topic clean
 
 help: ## Show common commands; select PROJECT=<name> or PROJECT_ROOT=/path/to/project
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {print $$1 "  " $$2}' $(MAKEFILE_LIST)
@@ -58,7 +57,7 @@ validate: ## Validate YAML and references between models, pipelines, fusion and 
 preflight: ## Check configuration, plugins, dependencies and artifacts for MODE
 	cd $(APP_DIR) && INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli preflight $(SELECT)
 
-run: ## Start the native API and Docker storage; MODE=auto|cpu|cuda|triton|deepstream
+run: ## Start the native API; optional services via RUN_ARGS='--profiles storage,broker,monitoring'
 	$(LAUNCH) $(RUN_ARGS)
 
 run-container: ## Start the reusable Docker engine with the selected project mounted
@@ -66,7 +65,7 @@ run-container: ## Start the reusable Docker engine with the selected project mou
 
 serve: run
 
-serve-api: ## Start only the native API, using storage services that are already running
+serve-api: ## Start only the native API, using local storage or already running optional services
 	$(LAUNCH) --no-services $(RUN_ARGS)
 
 up: run-container
@@ -85,7 +84,7 @@ logs: ## Follow Docker service logs
 status: ## Show Docker service status
 	$(LAUNCH) --status
 
-configure-accelerated: ## Validate Compose configuration for MODE=cuda|triton|deepstream
+configure-accelerated: ## Validate Compose configuration for MODE=cuda|triton
 	$(LAUNCH) --compose-check
 
 setup-container-runtime: ## Install NVIDIA Container Toolkit (sudo; restarts Docker)
@@ -123,9 +122,6 @@ worker-pipeline: ## Run a source-driven worker: PIPELINE=<name>
 
 worker-topic: ## Run a topic worker: PIPELINE=<name> INPUT=<topic> OUTPUT=<topic>
 	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli worker topic "$(PIPELINE)" --input-topic "$(INPUT)" --output-topic "$(OUTPUT)"
-
-scenario: ## Exercise the dashboard in a browser and save screenshots
-	cd $(APP_DIR) && $(PY) tests/scenarios/e2e_dashboard_scenario.py --api "$(INFEROPS_API_URL)" --out "$(CURDIR)/$(APP_DIR)/.run/scenario" $(SCENARIO_ARGS)
 
 clean: ## Remove caches and Python packaging output (CLEAN_ARGS=--dry-run)
 	$(PY) $(APP_DIR)/scripts/clean_workspace.py $(CLEAN_ARGS)

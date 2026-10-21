@@ -1,4 +1,4 @@
-"""The packaged API UI links to reachable native service interfaces."""
+"""One packaged console, with compatibility bookmarks and service discovery."""
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -8,20 +8,32 @@ from inferops.adapters.inbound.http.main import create_app
 @pytest.mark.asyncio
 async def test_ui_assets_guide_and_legacy_bookmarks():
     async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://test") as client:
-        for path in ("/ui/", "/frontend/", "/frontend"):
+        shell = (await client.get("/ui/")).text
+        for path in ("/ui", "/ui/", "/frontend/", "/frontend", "/ui/cameras", "/ui/guide"):
             response = await client.get(path)
             assert response.status_code == 200
+            assert response.text == shell
+            assert response.headers["cache-control"] == "no-cache"
             assert "/ui/static/dashboard.js" in response.text
             assert "Service interfaces" in response.text
+        for view in ("overview", "sources", "pipeline", "playground", "jobs", "activity-view",
+                     "settings", "services", "api", "preferences", "guide"):
+            assert f'data-pane="{view}"' in shell
+            assert f'data-view="{view}"' in shell
+        assert shell.count('rel="stylesheet"') == 1
+        for filename in ("console.js", "cameras.js", "dashboard.js", "workspace.js", "console-views.js", "configuration.js"):
+            assert (await client.get(f"/ui/static/{filename}")).status_code == 200
         script = await client.get("/ui/static/dashboard.js")
         assert script.status_code == 200
         assert "decodeSocketPayload" in script.text
         assert (await client.get("/ui/static/dashboard.css")).status_code == 200
-        guide = await client.get("/ui/guide")
-        assert guide.status_code == 200
-        assert "/v1/run/{pipeline}/upload" in guide.text
-        assert "INFEROPS_MINIO_CONSOLE_PORT" in guide.text
-        assert "9644" in guide.text
+        # Both the embedded guide and request composer discover this running API.
+        schema = (await client.get("/openapi.json")).json()
+        assert "/v1/run/{pipeline}/upload" in schema["paths"]
+        catalog = (await client.get("/v1/interfaces")).json()
+        ports = {row["name"]: row for row in catalog["ports"]}
+        assert ports["MinIO Console"]["override"] == "INFEROPS_MINIO_CONSOLE_PORT"
+        assert ports["Redpanda admin"]["internal"] == "9644"
         browser = await client.get("/", headers={"accept": "text/html"})
         assert browser.status_code == 307
         assert browser.headers["location"] == "/ui/"
@@ -39,6 +51,8 @@ async def test_service_links_use_browser_host_and_configured_ports(monkeypatch):
         assert urls["minio"] == "http://remote.example:19001/"
         assert urls["grafana"].startswith("http://remote.example:3000/d/")
         assert urls["swagger"] == "http://remote.example:18080/docs"
+        ports = (await client.get("/v1/interfaces")).json()["ports"]
+        assert next(row for row in ports if row["name"] == "MinIO Console")["host"] == "19001"
         for path in ("/v1/interfaces/minio", "/v1/evidence"):
             response = await client.get(path)
             assert response.status_code == 307

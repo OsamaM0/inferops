@@ -13,6 +13,7 @@ from inferops.domain.fusion import FusionEngine
 from inferops.domain.fusion.spec import FusionSpec
 from inferops.domain.processing import MediaFrame
 from inferops.domain.types import StageItem
+from inferops.testing.postgres import test_database_url
 from tests.test_redesign_engine import project
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +40,7 @@ def application(tmp_path):
     data["stages"].insert(1, {"name": "fusion", "stage": "fuse", "params": {"fusion": "unit_fusion"}})
     path.write_text(yaml.safe_dump(data))
     return Engine.from_project(
-        root, repository=SqlRepository(f"sqlite+aiosqlite:///{tmp_path}/events.sqlite")
+        root, repository=SqlRepository(test_database_url(tmp_path))
     )
 
 

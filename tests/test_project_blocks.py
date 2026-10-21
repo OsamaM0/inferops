@@ -15,6 +15,7 @@ from inferops.adapters.outbound.projects.validation import validate_config_stack
 from inferops.domain.errors import ConfigError
 from inferops.domain.pipeline import PipelineSpec
 from inferops.testing import PROJECT_ROOT
+from inferops.testing.postgres import test_database_url
 
 
 def test_selected_project_never_inherits_core_sections(tmp_path):
@@ -103,7 +104,7 @@ def test_external_project_runs_inference_rules_alerts_and_custom_action(tmp_path
     path = mounted / "configs/alerts/inspection.yaml"
     alerts = yaml.safe_load(path.read_text())
     action_output = tmp_path / "actions.jsonl"
-    alerts["persistence_enabled"] = False
+    alerts["persistence_enabled"] = True  # Durable HTTP server configuration.
     alerts["sinks"] = [{"name": "record", "kind": "plugin", "params": {
         "target": ".plugins.record_alert:RecordAlert", "path": str(action_output),
     }}]
@@ -119,7 +120,12 @@ def test_external_project_runs_inference_rules_alerts_and_custom_action(tmp_path
         "INFEROPS_ACTIVE_DOMAIN": "inspection",
         "INFEROPS_EXECUTION_MODE": "auto",
         "INFEROPS_TRANSPORT_KIND": "inproc",
-        "INFEROPS_PG_URL": f"sqlite+aiosqlite:///{tmp_path}/project.db",
+        "INFEROPS_DATABASE_URL": test_database_url(tmp_path),
+        "INFEROPS_STORAGE_KIND": "filesystem",
+        "INFEROPS_DATA_PATH": str(tmp_path / "data"),
+        "INFEROPS_SPOOL_PATH": str(tmp_path / "spool"),
+        "INFEROPS_SOURCES_PATH": str(tmp_path / "sources"),
+        "INFEROPS_MEDIA_ROUTER": "direct",
         "INFEROPS_PREWARM_MODELS": "",
         "INFEROPS_PREWARM_PIPELINES": "",
         "PYTHONPATH": str(PROJECT_ROOT),
@@ -204,7 +210,7 @@ def test_launcher_resolves_an_external_project_without_driver_paths(tmp_path, mo
     assert env["INFEROPS_DOMAIN_ROOT"] == str(root)
     assert env["INFEROPS_PROJECT_ROOT"] == str(root)
     assert env["INFEROPS_MODEL_REPOSITORY"] == str(root / "model_repository")
-    assert env["INFEROPS_TRITON_MODEL_REPOSITORY"] == str(root / "model_repository")
+    assert env["INFEROPS_TRITON_REPOSITORY"] == str(root / "model_repository")
 
 
 def test_production_mode_rejects_unsupported_choices_and_disables_fallback():
@@ -223,7 +229,10 @@ def test_empty_project_opens_dashboard_without_inference(tmp_path):
     scaffold_domain(root, "empty", [])
     env = {key: value for key, value in os.environ.items() if not key.startswith("INFEROPS_")}
     env.update({"INFEROPS_DOMAIN_ROOT": str(root), "INFEROPS_CONFIGS_DIR": str(PROJECT_ROOT / "configs"),
-                "INFEROPS_PG_URL": f"sqlite+aiosqlite:///{tmp_path}/empty.db", "INFEROPS_TRANSPORT_KIND": "inproc",
+                "INFEROPS_DATABASE_URL": test_database_url(tmp_path), "INFEROPS_TRANSPORT_KIND": "inproc",
+                "INFEROPS_STORAGE_KIND": "filesystem", "INFEROPS_DATA_PATH": str(tmp_path / "data"),
+                "INFEROPS_SPOOL_PATH": str(tmp_path / "spool"), "INFEROPS_SOURCES_PATH": str(tmp_path / "sources"),
+                "INFEROPS_MEDIA_ROUTER": "direct",
                 "PYTHONPATH": str(PROJECT_ROOT)})
     script = """
 import asyncio

@@ -34,7 +34,7 @@ class ModelResolver:
             self.variants[name] = [spec.name for spec in specs]
             choices = {}
             for mode, key, backend in (("cpu", "onnx", "onnxruntime"), ("cuda", "onnx", "onnxruntime"),
-                                       ("triton", "triton", "triton"), ("deepstream", "triton", "triton"),
+                                       ("triton", "triton", "triton"),
                                        ("tensorrt", "tensorrt", "tensorrt")):
                 chosen = variants.get(key)
                 candidates = [spec for spec in specs if spec.backend == backend]

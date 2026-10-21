@@ -51,7 +51,7 @@ def test_manifest_prefers_project_and_merges_platform(tmp_path):
 
 
 @pytest.mark.parametrize("mode,expected", [("auto", "onnx"), ("cpu", "onnx"), ("cuda", "onnx"),
-                                         ("triton", "triton"), ("deepstream", "triton")])
+                                         ("triton", "triton")])
 def test_logical_models_and_tracking_share_selection(mode, expected):
     stack = ConfigStack(PROJECT_ROOT / "configs", active_domain="driver_behaviour")
     pipelines, models = selected_surface(stack, mode)
@@ -67,7 +67,9 @@ def test_logical_models_and_tracking_share_selection(mode, expected):
 def test_empty_scaffold_prepares_no_models(tmp_path):
     root = tmp_path / "empty"
     scaffold_domain(root, "empty", ["person"])
-    assert load_domain_manifest(root).pipelines == []
+    # New projects discover pipelines as they are added; an empty directory still
+    # prepares nothing, without a second manifest list to maintain.
+    assert load_domain_manifest(root).pipelines is None
     assert prepare_project(ConfigStack(domain_root=root), "cpu") == 0
     assert not list((root / "models").glob("*/model.yaml"))
 

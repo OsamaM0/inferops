@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NVIDIA's Debian/Ubuntu installation path. Installs the toolkit only;
-# starts no Triton or DeepStream container.
+# starts no Triton container.
 set -euo pipefail
 
 printf '%s\n' 'Installing NVIDIA Container Toolkit; Docker will be restarted.'
@@ -21,4 +21,4 @@ sudo apt-get install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 docker info --format '{{range $name, $runtime := .Runtimes}}{{$name}} {{end}}'
-printf '%s\n' 'Toolkit configured. Triton and DeepStream have not been started.'
+printf '%s\n' 'Toolkit configured. Triton has not been started.'

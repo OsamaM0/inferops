@@ -1,7 +1,8 @@
 name: driver_behaviour
 version: 1
 tags:
-  label: Driver Behaviour
+  label: Full driver monitoring
+  description: RF-DETR detection, face landmarks, drowsiness and head-pose signals, tracking, alerts and incident evidence. Use for full in-cab monitoring with both models prepared.
 
 source:
   name: src
@@ -43,7 +44,6 @@ sinks:
       annotator: .plugins.frame_annotator:DriverAnnotator
       # Application evidence policy captures every accepted incident.
 
-limits: { max_concurrency: 2, queue_size: 64 }
 
 tracking:
   enabled: true

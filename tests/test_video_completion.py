@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from inferops.adapters.inbound.http.app import create_application
 from inferops.adapters.outbound.media.annotations import _encode_mp4
 from inferops.adapters.outbound.persistence.sql import SqlRepository
+from inferops.testing.postgres import test_database_url
 from tests.test_redesign_engine import engine
 
 
@@ -77,7 +78,7 @@ def test_evidence_mp4_is_h264_at_the_source_rate(tmp_path):
 
 
 async def test_alert_storage_is_idempotent_and_retains_evidence_links(tmp_path):
-    repo = SqlRepository(f"sqlite+aiosqlite:///{tmp_path}/records.sqlite")
+    repo = SqlRepository(test_database_url(tmp_path))
     await repo.start()
     try:
         row = {

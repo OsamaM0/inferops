@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich import print as rprint
@@ -25,6 +26,62 @@ app.add_typer(domain_app, name="domain")
 app.add_typer(domain_app, name="project")
 adapters_app = typer.Typer(help="Independently installed project adapters")
 app.add_typer(adapters_app, name="adapters")
+ownership_app = typer.Typer(help="Explicit distributed ownership migrations")
+app.add_typer(ownership_app, name="ownership")
+evidence_app = typer.Typer(help="Evidence retention and recovery")
+app.add_typer(evidence_app, name="evidence")
+
+
+@ownership_app.command("adopt-legacy")
+def ownership_adopt_legacy(scope: str = typer.Option(...), owners_stopped: bool = False):
+    """Assign legacy durable records after stopping old owners and backing up state."""
+    import os
+
+    from inferops.adapters.outbound.persistence.ownership import adopt_legacy
+    from inferops.adapters.outbound.persistence.sql import SqlRepository
+    url = os.environ.get("INFEROPS_DATABASE_URL", "")
+    if not url.startswith("postgresql") or not owners_stopped:
+        raise typer.BadParameter("PostgreSQL INFEROPS_DATABASE_URL and --owners-stopped are required")
+    async def execute():
+        repository = SqlRepository(url, maintenance=True)
+        await repository.start()
+        try:
+            rprint(await adopt_legacy(repository, scope, owners_stopped=owners_stopped))
+        finally:
+            await repository.close()
+    asyncio.run(execute())
+
+
+@evidence_app.command("retention")
+def evidence_retention(before: str = typer.Option(...), url: str = "http://127.0.0.1:8080",
+                       worker_id: str | None = None, apply: bool = False, limit: int = 100):
+    """List a bounded cleanup plan; --apply uses the owner's tombstone workflow."""
+    import httpx
+    params = {"before": before, "limit": limit}
+    if worker_id:
+        params["worker_id"] = worker_id
+    with httpx.Client(base_url=url, timeout=30) as client:
+        response = client.get("/v1/retention/evidence", params=params)
+        response.raise_for_status()
+        plan = response.json()
+        if apply:
+            plan["results"] = []
+            for row in plan["candidates"]:
+                result = client.post(f"/v1/retention/evidence/{row['id']}", params={"before": before})
+                result.raise_for_status()
+                plan["results"].extend(result.json())
+            plan["dry_run"] = False
+        print(json.dumps(plan, indent=2, default=str))
+
+
+@evidence_app.command("prune-outbox")
+def prune_outbox(before: str = typer.Option(...), url: str = "http://127.0.0.1:8080", apply: bool = False):
+    """Dry-run delivered-message cleanup by delivery age; inbox retention stays disabled."""
+    import httpx
+    response = httpx.request("POST" if apply else "GET", f"{url}/v1/retention/outbox",
+                            params={"before": before}, timeout=30)
+    response.raise_for_status()
+    print(json.dumps(response.json(), indent=2))
 
 
 @adapters_app.command("list")
@@ -44,10 +101,6 @@ def adapters_init(name: str, destination: Path):
         rprint(f"[red]{exc}[/red]")
         raise typer.Exit(2) from exc
     rprint(f"Created {root}; select it with INFEROPS_PROJECT_ROOT={root}")
-
-
-
-_SPEC_TYPES = ("models", "pipelines", "fusion", "alerts")
 
 
 def _stack_for(
@@ -114,19 +167,6 @@ def _validate_specs(stack: ConfigStack) -> int:
 
 def _module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
-
-
-def _artifact_candidates(path: str, *, spec_dir: Path, model_repository: Path, stack: ConfigStack) -> list[Path]:
-    """Delegate to the shared resolver so preflight and runtime always agree."""
-    from inferops.adapters.outbound.projects.artifacts import artifact_candidates
-
-    return artifact_candidates(
-        path,
-        base_dir=spec_dir,
-        model_repository=model_repository,
-        domain_root=stack.domain_root,
-        configs_dir=stack.configs_dir,
-    )
 
 
 @app.callback(invoke_without_command=True)
@@ -414,6 +454,14 @@ def worker_pipeline(name: str, max_concurrency: int | None = typer.Option(None))
     """Run a source-driven pipeline worker."""
     from inferops.adapters.inbound.workers.pipeline_worker import run_pipeline_worker
     asyncio.run(run_pipeline_worker(name, max_concurrency=max_concurrency))
+
+
+@worker_app.command("cameras")
+def worker_cameras(manifest: Annotated[Path, typer.Option()], worker_id: Annotated[str, typer.Option()],
+                   host: str = "0.0.0.0", port: int = 8080):
+    """Run assigned sources in a fenced shard with authenticated owner controls."""
+    from inferops.adapters.inbound.workers.camera_worker import run_camera_worker
+    run_camera_worker(manifest, worker_id, host=host, port=port)
 
 
 @worker_app.command("topic")

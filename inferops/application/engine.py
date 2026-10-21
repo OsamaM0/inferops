@@ -32,6 +32,10 @@ class PipelineApplication:
         self.idle_timeout_s = idle_timeout_s
         self.recover_sessions = recover_sessions
         self.prewarm_models = tuple(prewarm_models)
+        self._heartbeat = None
+        self.ownership_error = None
+        self.observer = None
+        self.last_ownership_renewal = time.monotonic()
 
     async def start(self):
         async with self._start_lock:
@@ -49,6 +53,22 @@ class PipelineApplication:
         if self.started:
             return self
         await self.repository.start()
+        if hasattr(self.repository, "renew_ownership"):
+            async def heartbeat():
+                while True:
+                    try:
+                        await self.repository.renew_ownership()
+                        self.last_ownership_renewal = time.monotonic()
+                    except Exception:
+                        self.ownership_error = "ownership renewal failed; restart this owner"
+                        self.started = False
+                        # Fence first; then close native work without renewing.
+                        for session in list(self.sessions.values()):
+                            with suppress(Exception):
+                                await session.close("ownership_lost")
+                        return
+                    await asyncio.sleep(self.repository.lease_s / 4)
+            self._heartbeat = asyncio.create_task(heartbeat(), name="owner-heartbeat")
         if self.recover_sessions and hasattr(self.repository, "interrupt_other_sessions"):
             await self.repository.interrupt_other_sessions(self.owner)
         for model in self.prewarm_models:
@@ -71,6 +91,8 @@ class PipelineApplication:
         return self
 
     async def open_session(self, pipeline, *, stream_name="", owner_kind="python"):
+        if self.ownership_error:
+            raise PipelineError(self.ownership_error)
         if pipeline not in self.definition.pipelines:
             raise RegistryError(f"unknown pipeline: {pipeline}")
         await self.start()
@@ -106,12 +128,19 @@ class PipelineApplication:
             except Exception as exc:
                 errors.append(exc)
         storage = self.evidence.storage if self.evidence else None
-        for resource in (self.evidence, self.relay, self.models, *self.retired_models, self.transport, storage, self.repository):
+        for resource in (self.evidence, self.relay, self.models, *self.retired_models, self.transport, storage):
             if resource is not None:
                 try:
                     await resource.close()
                 except Exception as exc:
                     errors.append(exc)
+        if self._heartbeat:
+            self._heartbeat.cancel()
+            await asyncio.gather(self._heartbeat, return_exceptions=True)
+        try:
+            await self.repository.close()
+        except Exception as exc:
+            errors.append(exc)
         self.started = False
         if errors:
             raise RuntimeError(f"application shutdown failures: {errors}") from errors[0]

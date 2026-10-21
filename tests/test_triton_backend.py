@@ -5,11 +5,13 @@ import numpy as np
 import pytest
 
 from inferops.adapters.outbound.inference.triton_backend import TritonBackend
+from inferops.domain.errors import BackendError
 from inferops.domain.models import ModelSpec
 
 
 @pytest.mark.asyncio
-async def test_triton_backend_reuses_loaded_output_requests(monkeypatch):
+@pytest.mark.parametrize("dynamic", [False, True])
+async def test_triton_backend_reuses_loaded_output_requests(monkeypatch, dynamic):
     requested_outputs: list[str] = []
     infer_outputs: list[list[object]] = []
 
@@ -46,9 +48,18 @@ async def test_triton_backend_reuses_loaded_output_requests(monkeypatch):
             }
 
         async def get_model_config(self, *, model_name, as_json):
-            return {"config": {"input": [{"name": "input", "dims": [1, 3, 2, 2]}]}}
+            config = {"input": [{"name": "input", "dims": [3, 2, 2] if dynamic else [1, 3, 2, 2]}]}
+            if dynamic:
+                config.update(max_batch_size=4, dynamic_batching={})
+            return {"config": config}
 
-        async def infer(self, *, model_name, inputs, outputs):
+        async def get_inference_statistics(self, **kwargs):
+            return {"model_stats": [{"name": "rfdetr", "version": "1", "inference_count": "32", "execution_count": "8"}]}
+
+        async def infer(self, *, model_name, inputs, outputs, request_id, timeout, client_timeout):
+            assert len(request_id) == 32
+            assert timeout == 10_000_000
+            assert client_timeout == 10
             infer_outputs.append(outputs)
             assert inputs[0].datatype == "FP32"
             return FakeResult()
@@ -95,3 +106,11 @@ async def test_triton_backend_reuses_loaded_output_requests(monkeypatch):
     assert requested_outputs == ["dets", "labels"]
     assert len(infer_outputs) == 2
     assert infer_outputs[0] is infer_outputs[1]
+    for invalid in ({"wrong": feeds["input"]}, {"input": feeds["input"].astype("float64")},
+                    {"input": np.zeros((5, 3, 2, 2), np.float32)}):
+        with pytest.raises(BackendError):
+            await backend.infer(invalid)
+    assert len(infer_outputs) == 2
+    stats = await backend.statistics()
+    assert stats["dynamic_batching"] is dynamic
+    assert stats["versions"][0]["average_execution_batch_size"] == 4

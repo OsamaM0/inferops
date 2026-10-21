@@ -9,12 +9,10 @@ from inferops.domain.fusion import FusionEngine
 from inferops.domain.incidents import IncidentPolicy
 
 
-async def build_steps(session):
-    session.steps = []
-    session.fusions = {}
-    session.policies = {}
-    declarations = list(session.spec.stages)
-    tracking = session.spec.tracking
+def execution_declarations(spec):
+    """The same ordered stages used by execution and the dashboard inspector."""
+    declarations = list(spec.stages)
+    tracking = spec.tracking
     if tracking and tracking.enabled and not any(d.stage == "track" for d in declarations):
         from inferops.domain.pipeline import StageDecl
         anchor = tracking.insert_after or next((d.name for d in declarations if d.stage == "infer"), "")
@@ -22,10 +20,16 @@ async def build_steps(session):
             values = tracking.model_dump(exclude={"enabled", "insert_after"})
             declarations.insert(next(i for i, d in enumerate(declarations) if d.name == anchor) + 1,
                                 StageDecl(name="auto_track", stage="track", params=values))
+    return [d for d in declarations if d.stage not in {"decode_any", "decode_image", "decode_video"}]
+
+
+async def build_steps(session):
+    session.steps = []
+    session.fusions = {}
+    session.policies = {}
+    declarations = execution_declarations(session.spec)
     for declaration in declarations:
         alias = declaration.stage
-        if alias in {"decode_any", "decode_image", "decode_video"}:
-            continue  # Source adapters already produce frames incrementally.
         if alias == "fuse":
             name = declaration.params["fusion"]
             session.fusions[declaration.name] = FusionEngine(session.definition.fusion[name])

@@ -1,0 +1,1715 @@
+{
+  "date": "2026-10-19",
+  "scope": "implementation audit; distinct capture, model-only, worker fault and short application tests",
+  "capture": {
+    "raw": {
+      "path": ".run/load/20261019-140228-216565/report.json",
+      "sha256": "51b27f0fda65812e225a4e615db470c4849534836bc75ed7f9d56b7d9bae2414"
+    },
+    "manifest": {
+      "mode": "capture_only",
+      "cameras": 60,
+      "seconds": 3600.0,
+      "sample_fps": 5.0,
+      "width": 640,
+      "height": 360,
+      "video": "/mnt/L/Work/SandBox/inferops/.run/capacity/fixtures/driver-360p-15-gop15.mp4",
+      "video_sha256": "a3b28f3e82714bfaaa9e719a481d512c1ee8520ad3d450652a08a175e5cf08a4",
+      "restart_camera": 0,
+      "outage_seconds": 5.0,
+      "recovery_limit_seconds": 15,
+      "python": "3.12.14 (main, Sep  1 2026, 14:16:52) [Clang 22.1.3 ]",
+      "started_at": "20261019-140228",
+      "mediamtx": ".run/tools/mediamtx/mediamtx",
+      "ffmpeg": "ffmpeg version 8.0.1-3ubuntu2 Copyright (c) 2000-2025 the FFmpeg developers",
+      "video_metadata": {
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_long_name": "H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10",
+            "profile": "Constrained Baseline",
+            "codec_type": "video",
+            "codec_tag_string": "avc1",
+            "codec_tag": "0x31637661",
+            "width": 640,
+            "height": 360,
+            "coded_width": 640,
+            "coded_height": 360,
+            "has_b_frames": 0,
+            "sample_aspect_ratio": "1215:1216",
+            "display_aspect_ratio": "135:76",
+            "pix_fmt": "yuv420p",
+            "level": 22,
+            "color_range": "tv",
+            "color_space": "smpte170m",
+            "color_transfer": "bt709",
+            "color_primaries": "bt470bg",
+            "chroma_location": "left",
+            "field_order": "progressive",
+            "refs": 1,
+            "is_avc": "true",
+            "nal_length_size": "4",
+            "id": "0x1",
+            "r_frame_rate": "15/1",
+            "avg_frame_rate": "15/1",
+            "time_base": "1/15360",
+            "start_pts": 0,
+            "start_time": "0.000000",
+            "duration_ts": 230400,
+            "duration": "15.000000",
+            "bit_rate": "772266",
+            "bits_per_raw_sample": "8",
+            "nb_frames": "225",
+            "extradata_size": 47,
+            "disposition": {
+              "default": 1,
+              "dub": 0,
+              "original": 0,
+              "comment": 0,
+              "lyrics": 0,
+              "karaoke": 0,
+              "forced": 0,
+              "hearing_impaired": 0,
+              "visual_impaired": 0,
+              "clean_effects": 0,
+              "attached_pic": 0,
+              "timed_thumbnails": 0,
+              "non_diegetic": 0,
+              "captions": 0,
+              "descriptions": 0,
+              "metadata": 0,
+              "dependent": 0,
+              "still_image": 0,
+              "multilayer": 0
+            },
+            "tags": {
+              "language": "und",
+              "handler_name": "ISO Media file produced by Google Inc. Created on: 06/13/2024.",
+              "vendor_id": "[0][0][0][0]",
+              "encoder": "Lavc62.11.100 libx264"
+            }
+          }
+        ],
+        "format": {
+          "filename": ".run/capacity/fixtures/driver-360p-15-gop15.mp4",
+          "nb_streams": 1,
+          "nb_programs": 0,
+          "nb_stream_groups": 0,
+          "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+          "format_long_name": "QuickTime / MOV",
+          "start_time": "0.000000",
+          "duration": "15.000000",
+          "size": "1449899",
+          "bit_rate": "773279",
+          "probe_score": 100,
+          "tags": {
+            "major_brand": "isom",
+            "minor_version": "512",
+            "compatible_brands": "isomiso2avc1mp41",
+            "encoder": "Lavf62.3.100"
+          }
+        }
+      },
+      "revision": "a34e1b7105fd9a6f42df1badcb013a53071b02a5"
+    },
+    "passed": true,
+    "measurement_seconds": 3602.705368142,
+    "sample_fps_range": [
+      4.957661428905667,
+      4.9690417613946165
+    ],
+    "rss_peak_mib": 448.9375,
+    "rss_final_mib": 387.96484375,
+    "threads_range": [
+      107,
+      108
+    ],
+    "recovery": {
+      "old_generation": 1,
+      "reachable_at": 8031.581415795,
+      "recovered_seconds": 3.067940457000077
+    },
+    "close_seconds": 0.098594327999308,
+    "remaining_reader_threads": []
+  },
+  "worker_faults": {
+    "raw": {
+      "path": ".run/worker-acceptance/20261019-173207/report.json",
+      "sha256": "349b584d512ca7187b155c388073a64d14164ed9f60b2e89fe3e1fffe28a4252"
+    },
+    "passed": true,
+    "checks": [
+      {
+        "name": "healthy_streams_previews_and_history",
+        "seconds": 15.85996579499988,
+        "passed": true
+      },
+      {
+        "name": "API_restart_preserves_worker_sessions",
+        "seconds": 1.423714659000325,
+        "passed": true
+      },
+      {
+        "name": "worker_kill_recovers_own_shard_only",
+        "seconds": 35.48505609200038,
+        "passed": true
+      },
+      {
+        "name": "MinIO_30_second_outage",
+        "seconds": 30.155010881000635,
+        "passed": true
+      },
+      {
+        "name": "PostgreSQL_lease_expiry",
+        "seconds": 63.39856388500084,
+        "passed": true
+      }
+    ],
+    "evidence_records": 281,
+    "evidence_states": {
+      "Saved": 2,
+      "Incomplete": 279,
+      "Failed": 0
+    },
+    "checksum_playback_verified": 2,
+    "scope_note": "Isolated test evidence ledger includes earlier fault rehearsals; terminal completeness outcomes, not normal-recording success rate."
+  },
+  "tests": {
+    "core": {
+      "raw": {
+        "path": ".run/verification/plan-audit/core-final.xml",
+        "sha256": "b009b9e1c0579588d8ad3884aeab62bfc3587a051517f87ef780aa8455996bfd"
+      },
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "377",
+      "time": "32.099",
+      "timestamp": "2026-10-19T20:53:28.276227+03:00",
+      "hostname": "OsamaM0"
+    },
+    "project": {
+      "raw": {
+        "path": ".run/verification/plan-audit/project-current.xml",
+        "sha256": "c55a8447222fd4fcd2d65cf22bfd170889d42dac3ac8e522bafe74f082f7136b"
+      },
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "16",
+      "time": "113.642",
+      "timestamp": "2026-10-19T20:37:20.785146+03:00",
+      "hostname": "OsamaM0"
+    }
+  },
+  "perf_analyzer": [
+    {
+      "raw": {
+        "path": ".run/perf/20261019-141309/report.json",
+        "sha256": "5221bdef221b2b2bfb3f4d2fb74a1796d0e8511768e6b5cb07bd3a13d69e46ab"
+      },
+      "model": "rfdetr_driver_triton",
+      "tool_package": "perf-analyzer 2.60.0",
+      "binary_version": "0.0.0 (commit 3a49a23)",
+      "triton_server": "2.73.0",
+      "scope": "model_only",
+      "context": "co-ran capture-only soak; no camera capacity/accuracy claim",
+      "cases": [
+        {
+          "concurrency": 1,
+          "passed": true,
+          "inferences_per_second": 39.8347,
+          "p95_ms": 22.756,
+          "average_executed_batch": 1.0,
+          "csv": {
+            "path": ".run/perf/20261019-141309/concurrency-1.csv",
+            "sha256": "3842752e243e338cc1cfc1dc9b2f6195706cd234c32167af2a25a07eb5258c9e"
+          }
+        },
+        {
+          "concurrency": 4,
+          "passed": true,
+          "inferences_per_second": 50.4512,
+          "p95_ms": 78.042,
+          "average_executed_batch": 2.0,
+          "csv": {
+            "path": ".run/perf/20261019-141309/concurrency-4.csv",
+            "sha256": "6544f857bab4d23c946db05cf5c097ed6b8764aac8789e0cb4226eacb61f28a8"
+          }
+        },
+        {
+          "concurrency": 8,
+          "passed": true,
+          "inferences_per_second": 49.8671,
+          "p95_ms": 158.383,
+          "average_executed_batch": 4.0,
+          "csv": {
+            "path": ".run/perf/20261019-141309/concurrency-8.csv",
+            "sha256": "21fbf155e6b3f96741af84a243907ab85152895698eef8098d841af9718c0bb3"
+          }
+        }
+      ]
+    },
+    {
+      "raw": {
+        "path": ".run/perf/20261019-141645/report.json",
+        "sha256": "4eea36028e0ba01b81a1e2a1c075140402293acf8b47837e1c22c1b49b3c3ffe"
+      },
+      "model": "face_mesh_triton",
+      "tool_package": "perf-analyzer 2.60.0",
+      "binary_version": "0.0.0 (commit 3a49a23)",
+      "triton_server": "2.73.0",
+      "scope": "model_only",
+      "context": "co-ran capture-only soak; no camera capacity/accuracy claim",
+      "cases": [
+        {
+          "concurrency": 1,
+          "passed": true,
+          "inferences_per_second": 150.991,
+          "p95_ms": 7.054,
+          "average_executed_batch": 1.0,
+          "csv": {
+            "path": ".run/perf/20261019-141645/concurrency-1.csv",
+            "sha256": "fa000dcc9522132346e7a43b532edcdac6d41b7c8c2ae6f6d7767531f4c67433"
+          }
+        },
+        {
+          "concurrency": 4,
+          "passed": true,
+          "inferences_per_second": 32.1698,
+          "p95_ms": 128.614,
+          "average_executed_batch": 2.0031847133757963,
+          "csv": {
+            "path": ".run/perf/20261019-141645/concurrency-4.csv",
+            "sha256": "315f4a2bd771c9584c63d2b7eceffa11a81db406bf1d75a3ce6526c59eaf5419"
+          }
+        },
+        {
+          "concurrency": 8,
+          "passed": true,
+          "inferences_per_second": 881.404,
+          "p95_ms": 8.13,
+          "average_executed_batch": 3.993455046503617,
+          "csv": {
+            "path": ".run/perf/20261019-141645/concurrency-8.csv",
+            "sha256": "26a1815cfb92d0f9304988b8da47a49a105ace0271a6e7d740c4648abf077d98"
+          }
+        }
+      ]
+    }
+  ],
+  "application_capacity": [
+    {
+      "name": "matched-model-cpu",
+      "raw": {
+        "path": ".run/capacity/20261019-175734/report.json",
+        "sha256": "e531d84cbafe449c0ef3a80daf478d66ccb1222ab594b919eaad6abc990de8ae"
+      },
+      "runtime": "cpu",
+      "software_fingerprint": "faa34d63f50359b6c39d8244888959d57a9a6787a49c84fcddc7b509c0cdb111",
+      "workload_fingerprint": "b52285433cffb800086bdf6c06d0d7976fd3c3db95d3140c0e76b89dd3567520",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "admission_pending": 1024,
+        "admission_queue_ms": 5000,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 1397.0,
+            "free_mib": 6410.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_triton": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        }
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/research/driver_training/test.mp4",
+        "sha256": "e45dced12684ae6155fa30d34ce796288ace8ff5b64a8285d5646a6965462dc8",
+        "provenance": "Final cadence/accounting fix; repeated portrait repository footage; 10 FPS evidence observation; identical qualified model bytes in all runtimes; idle Triton remains resident for CPU/CUDA"
+      },
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.8
+          ],
+          "total_fps": 1.8,
+          "p95_ms": 513.8,
+          "p99_ms": 546.4,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 779.33203125,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 51,
+            "face_mesh_onnx": 45
+          },
+          "dropped_before_processing": [
+            5
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": false
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            0.25
+          ],
+          "total_fps": 0.25,
+          "p95_ms": 620.9,
+          "p99_ms": 632.0,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 836.89453125,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 62,
+            "face_mesh_onnx": 7
+          },
+          "dropped_before_processing": [
+            118
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": false
+        }
+      ]
+    },
+    {
+      "name": "matched-model-cuda",
+      "raw": {
+        "path": ".run/capacity/20261019-175827/report.json",
+        "sha256": "f9e57fb31abb1f70b82cc683f842a682d3b44ac2dbc60676dd575bad3c98fc54"
+      },
+      "runtime": "cuda",
+      "software_fingerprint": "faa34d63f50359b6c39d8244888959d57a9a6787a49c84fcddc7b509c0cdb111",
+      "workload_fingerprint": "d1fabf58519e0183ff8abec1528959a51794f462da046365db09a0fb14984701",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "admission_pending": 1024,
+        "admission_queue_ms": 5000,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 1734.0,
+            "free_mib": 6073.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_triton": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        }
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "gpu",
+          "effective": "gpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "CUDAExecutionProvider available",
+          "active_providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "gpu",
+          "effective": "gpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "CUDAExecutionProvider available",
+          "active_providers": [
+            "CUDAExecutionProvider",
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/research/driver_training/test.mp4",
+        "sha256": "e45dced12684ae6155fa30d34ce796288ace8ff5b64a8285d5646a6965462dc8",
+        "provenance": "Final cadence/accounting fix; repeated portrait repository footage; 10 FPS evidence observation; identical qualified model bytes in all runtimes; idle Triton remains resident for CPU/CUDA"
+      },
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.05
+          ],
+          "total_fps": 2.05,
+          "p95_ms": 251.5,
+          "p99_ms": 307.9,
+          "gpu_used_peak_mib": 2549.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 1336.7109375,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 51,
+            "face_mesh_onnx": 51
+          },
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 2,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.05,
+            2.05
+          ],
+          "total_fps": 4.1,
+          "p95_ms": 346.2,
+          "p99_ms": 401.0,
+          "gpu_used_peak_mib": 5133.0,
+          "gpu_utilization_mean": 36.72,
+          "rss_peak_mib": 1759.39453125,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 102,
+            "face_mesh_onnx": 102
+          },
+          "dropped_before_processing": [
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 4,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.0,
+            2.0,
+            2.05,
+            2.05
+          ],
+          "total_fps": 8.1,
+          "p95_ms": 521.2,
+          "p99_ms": 662.3,
+          "gpu_used_peak_mib": 5269.0,
+          "gpu_utilization_mean": 3.8461538461538463,
+          "rss_peak_mib": 1997.98046875,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 204,
+            "face_mesh_onnx": 202
+          },
+          "dropped_before_processing": [
+            1,
+            1,
+            0,
+            0
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            5.0
+          ],
+          "total_fps": 5.0,
+          "p95_ms": 243.4,
+          "p99_ms": 263.9,
+          "gpu_used_peak_mib": 5269.0,
+          "gpu_utilization_mean": 14.36,
+          "rss_peak_mib": 2031.48046875,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 125,
+            "face_mesh_onnx": 66
+          },
+          "dropped_before_processing": [
+            1
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "evidence_fps": 10.0,
+          "cameras": 2,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            4.65,
+            4.6
+          ],
+          "total_fps": 9.25,
+          "p95_ms": 426.6,
+          "p99_ms": 551.4,
+          "gpu_used_peak_mib": 5267.0,
+          "gpu_utilization_mean": 16.2,
+          "rss_peak_mib": 2191.56640625,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 233,
+            "face_mesh_onnx": 132
+          },
+          "dropped_before_processing": [
+            9,
+            10
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": false
+        }
+      ]
+    },
+    {
+      "name": "matched-model-triton",
+      "raw": {
+        "path": ".run/capacity/20261019-180037/report.json",
+        "sha256": "e6b72958be321cc23703ca29abc229bd2a93215a22c44e3f0636cbbe0948a8ba"
+      },
+      "runtime": "triton",
+      "software_fingerprint": "faa34d63f50359b6c39d8244888959d57a9a6787a49c84fcddc7b509c0cdb111",
+      "workload_fingerprint": "ba8df71998efc4ee227e85093f9ef6007f1b3019a929647ba41ba7bff381ac93",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "admission_pending": 1024,
+        "admission_queue_ms": 5000,
+        "triton_configurations": {
+          "face_mesh_triton": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "rfdetr_driver_triton": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee"
+        },
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 1397.0,
+            "free_mib": 6410.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_triton": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        }
+      },
+      "providers": {
+        "face_mesh_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "face_mesh_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        },
+        "rfdetr_driver_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "rfdetr_driver_behaviour_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        }
+      },
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/research/driver_training/test.mp4",
+        "sha256": "e45dced12684ae6155fa30d34ce796288ace8ff5b64a8285d5646a6965462dc8",
+        "provenance": "Final cadence/accounting fix; repeated portrait repository footage; 10 FPS evidence observation; identical qualified model bytes in all runtimes; idle Triton remains resident for CPU/CUDA"
+      },
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.05
+          ],
+          "total_fps": 2.05,
+          "p95_ms": 380.7,
+          "p99_ms": 501.9,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 3.76,
+          "rss_peak_mib": 402.25390625,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 51,
+            "face_mesh_triton": 51
+          },
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 2,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.95,
+            1.95
+          ],
+          "total_fps": 3.9,
+          "p95_ms": 630.6,
+          "p99_ms": 830.7,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 16.076923076923077,
+          "rss_peak_mib": 690.5390625,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 101,
+            "face_mesh_triton": 98
+          },
+          "dropped_before_processing": [
+            1,
+            1
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 4,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.7,
+            1.75,
+            1.7,
+            1.7
+          ],
+          "total_fps": 6.85,
+          "p95_ms": 956.6,
+          "p99_ms": 1465.6,
+          "gpu_used_peak_mib": 1568.0,
+          "gpu_utilization_mean": 6.576923076923077,
+          "rss_peak_mib": 1017.33984375,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 186,
+            "face_mesh_triton": 177
+          },
+          "dropped_before_processing": [
+            5,
+            4,
+            5,
+            5
+          ],
+          "dropped_at_capture": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": false
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            4.8
+          ],
+          "total_fps": 4.8,
+          "p95_ms": 383.7,
+          "p99_ms": 457.9,
+          "gpu_used_peak_mib": 1498.0,
+          "gpu_utilization_mean": 17.52,
+          "rss_peak_mib": 1113.2109375,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 118,
+            "face_mesh_triton": 65
+          },
+          "dropped_before_processing": [
+            8
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 5.0,
+          "evidence_fps": 10.0,
+          "cameras": 2,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            4.0,
+            4.0
+          ],
+          "total_fps": 8.0,
+          "p95_ms": 523.3,
+          "p99_ms": 893.3,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 16.08,
+          "rss_peak_mib": 1213.2265625,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 206,
+            "face_mesh_triton": 125
+          },
+          "dropped_before_processing": [
+            25,
+            26
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": false
+        }
+      ]
+    },
+    {
+      "name": "cpu-low-rate",
+      "raw": {
+        "path": ".run/capacity/20261019-180336/report.json",
+        "sha256": "25cc1ff43bcd7eafc0bbea6b22849b567d618c17c03c5a9d6ca54042b0cdee3c"
+      },
+      "runtime": "cpu",
+      "software_fingerprint": "faa34d63f50359b6c39d8244888959d57a9a6787a49c84fcddc7b509c0cdb111",
+      "workload_fingerprint": "b52285433cffb800086bdf6c06d0d7976fd3c3db95d3140c0e76b89dd3567520",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "admission_pending": 1024,
+        "admission_queue_ms": 5000,
+        "triton_configurations": {},
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 1397.0,
+            "free_mib": 6410.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "face_mesh_triton": {
+          "sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "bytes": 4919957
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "bytes": 120932039
+        }
+      },
+      "providers": {
+        "face_mesh_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        },
+        "rfdetr_driver_onnx": {
+          "requested": "cpu",
+          "effective": "cpu",
+          "gpu_id": 0,
+          "downgraded": false,
+          "reason": "spec requested cpu",
+          "active_providers": [
+            "CPUExecutionProvider"
+          ]
+        }
+      },
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/research/driver_training/test.mp4",
+        "sha256": "e45dced12684ae6155fa30d34ce796288ace8ff5b64a8285d5646a6965462dc8",
+        "provenance": "Final follow-up; corrected cadence/admission accounting; repeated portrait clip; 10 FPS evidence observation"
+      },
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 1.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.0
+          ],
+          "total_fps": 1.0,
+          "p95_ms": 557.7,
+          "p99_ms": 712.4,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 686.5234375,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 26,
+            "face_mesh_onnx": 24
+          },
+          "dropped_before_processing": [
+            2
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 1.0,
+          "evidence_fps": 10.0,
+          "cameras": 2,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            0.35,
+            0.5
+          ],
+          "total_fps": 0.85,
+          "p95_ms": 822.8,
+          "p99_ms": 863.9,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 0.0,
+          "rss_peak_mib": 981.05078125,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_onnx": 51,
+            "face_mesh_onnx": 22
+          },
+          "dropped_before_processing": [
+            17,
+            13
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": false
+        }
+      ]
+    },
+    {
+      "name": "triton-dashboard",
+      "raw": {
+        "path": ".run/capacity/20261019-180428/report.json",
+        "sha256": "39c989b2d8d890cbdb96f9d179a8522c5485658370cf2b85a1e22216000fa130"
+      },
+      "runtime": "triton",
+      "software_fingerprint": "faa34d63f50359b6c39d8244888959d57a9a6787a49c84fcddc7b509c0cdb111",
+      "workload_fingerprint": "6c672fba4c41f8f5d7621c9172869044669e7b938c252692df6f78e902df28ca",
+      "service_profile": {
+        "repository": "SqlRepository",
+        "sql_dialect": "sqlite",
+        "evidence_storage": "FilesystemStorage",
+        "model_concurrency": 1,
+        "triton_concurrency": 64,
+        "admission_pending": 1024,
+        "admission_queue_ms": 5000,
+        "triton_configurations": {
+          "face_mesh_triton": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "rfdetr_driver_triton": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee"
+        },
+        "opencv_threads": 1,
+        "ort_threads": 4,
+        "cudnn_max_workspace": 0,
+        "preview_fps": 2,
+        "preview_width": 640,
+        "jpeg_quality": 75
+      },
+      "hardware": {
+        "hostname": "OsamaM0",
+        "cpu_count": 24,
+        "cpu_model": "13th Gen Intel(R) Core(TM) i7-13700HX",
+        "ram_bytes": 15948365824,
+        "data_filesystem": "fuseblk",
+        "available": true,
+        "gpus": [
+          {
+            "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "uuid": "GPU-9b655ad5-4ec2-e574-71bf-265afd2de441",
+            "total_mib": 8188.0,
+            "used_mib": 1397.0,
+            "free_mib": 6410.0,
+            "utilization_percent": 0.0,
+            "driver": "580.178.04"
+          }
+        ]
+      },
+      "model_artifacts": {
+        "face_mesh_onnx": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_tensorrt": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "face_mesh_triton": {
+          "sha256": "70fe4e14169ca084b03b8103077a4051296e07939a19c1fdfd1f18b3792b4048",
+          "bytes": 4955225
+        },
+        "rfdetr_driver_onnx": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_tensorrt": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        },
+        "rfdetr_driver_triton": {
+          "sha256": "3a494c345106396152126a90280736f8f4dba8e835136954307a251720b6bc8c",
+          "bytes": 125468266
+        }
+      },
+      "providers": {
+        "face_mesh_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "face_mesh_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "c9101d8a36adc7f4533412b4462796085ef7704268110762e4527a8993ed9162",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "5038dd22687c0e670abae0bda8e46d0e292e9d5d34952a50ffc3b5655ecd7743",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        },
+        "rfdetr_driver_triton": {
+          "requested": "gpu",
+          "effective": "remote",
+          "server": "127.0.0.1:8001",
+          "triton_model": "rfdetr_driver_behaviour_onnx",
+          "instance_kinds": [
+            "KIND_GPU"
+          ],
+          "max_batch_size": 4,
+          "dynamic_batching": true,
+          "artifact_sha256": "5a4ac1e8200ea2d7a7aa006c003c4244b6f4bbc20f7be91b7967ce91020162a3",
+          "request_timeout_s": 10.0,
+          "configuration_sha256": "420922ef86ded6c1eef4d51f3bd520359edf86476f5845ac54fa571d64ff15ee",
+          "downgraded": false,
+          "reason": "placement decided by Triton instance_group (KIND_GPU)"
+        }
+      },
+      "fixture": {
+        "path": "/mnt/L/Work/SandBox/inferops/research/driver_training/test.mp4",
+        "sha256": "e45dced12684ae6155fa30d34ce796288ace8ff5b64a8285d5646a6965462dc8",
+        "provenance": "Final follow-up; corrected cadence/admission accounting; repeated portrait clip; 10 FPS evidence observation"
+      },
+      "limitations": [
+        "Repeated local footage; not independent real RTSP cameras",
+        "Short sweep, not a stability/incident burst qualification",
+        "Image quality/accuracy was not measured; model tensor sizes stay fixed"
+      ],
+      "cases": [
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 1,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            2.0
+          ],
+          "total_fps": 2.0,
+          "p95_ms": 378.7,
+          "p99_ms": 516.2,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 4.76,
+          "rss_peak_mib": 378.40234375,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 51,
+            "face_mesh_triton": 51
+          },
+          "dropped_before_processing": [
+            0
+          ],
+          "dropped_at_capture": [
+            0
+          ],
+          "errors": [],
+          "passed": true
+        },
+        {
+          "width": 640,
+          "height": 480,
+          "inference_fps": 2.0,
+          "evidence_fps": 10.0,
+          "cameras": 2,
+          "seconds": 20.0,
+          "warmup_seconds": 5.0,
+          "per_camera_fps": [
+            1.95,
+            1.95
+          ],
+          "total_fps": 3.9,
+          "p95_ms": 626.6,
+          "p99_ms": 800.9,
+          "gpu_used_peak_mib": 1496.0,
+          "gpu_utilization_mean": 6.769230769230769,
+          "rss_peak_mib": 655.9140625,
+          "actual_processing_shapes": [
+            [
+              270,
+              480
+            ]
+          ],
+          "actual_source_shapes": [
+            [
+              360,
+              640
+            ]
+          ],
+          "model_calls": {
+            "rfdetr_driver_triton": 101,
+            "face_mesh_triton": 98
+          },
+          "dropped_before_processing": [
+            1,
+            1
+          ],
+          "dropped_at_capture": [
+            0,
+            0
+          ],
+          "errors": [],
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Repeated repository footage, not independent representative cameras",
+    "Capture-only one-hour soak does not certify full inference/evidence capacity",
+    "Short application sweeps and model-only rates are not a maximum camera guarantee",
+    "Production-sized evidence burst, complete deployment fault/layout matrix, compatible release rollback and production cutover remain open",
+    "CUDA and Triton serving graphs/precision/provider contexts must be compared using recorded fingerprints",
+    "Full cold CUDA image build not qualified; root filesystem space is limited"
+  ],
+  "runtime_versions": {
+    "onnxruntime-gpu": "1.26.0",
+    "tritonclient": "2.73.0",
+    "av": "19.0.1",
+    "numpy": "2.5.3"
+  },
+  "wheel": {
+    "path": ".run/verification/plan-audit/dist/inferops-0.1.0-py3-none-any.whl",
+    "sha256": "69852cf2ce0966c98db12ffb26059f58f02ca7fe7c229ea7cc138f21f6fbc706"
+  },
+  "image_checks": {
+    "cpu": {
+      "build_log": {
+        "path": ".run/verification/plan-audit/docker-build-cpu-final.log",
+        "sha256": "9839accf7027415cb3c1c9579815fbf5ca675962568b08ae5656227aa6036047"
+      },
+      "smoke_log": {
+        "path": ".run/verification/plan-audit/image-cpu-final.log",
+        "sha256": "2fff441194988076ec4c3e974c4bd418636b9499f5f1ad2a0d050abafc7b532c"
+      }
+    },
+    "triton": {
+      "build_log": {
+        "path": ".run/verification/plan-audit/docker-build-triton-final.log",
+        "sha256": "14ef10a2588a98f7acad9cd223070b108197916bd3cfd70c0a94f2f693ef91f0"
+      },
+      "smoke_log": {
+        "path": ".run/verification/plan-audit/image-triton-final.log",
+        "sha256": "e8451a1c8e89c609670e640d1d9e0a216586e40f79601ee644c4bc3deb76193a"
+      }
+    }
+  },
+  "clean_installs": {
+    "cpu": {
+      "check": {
+        "path": ".run/verification/plan-audit/check-final-cpu.json",
+        "sha256": "d345d2bc605617882932f6e4c1f0379a182e8136a7be44f1eb01764f7fd1d8ea"
+      },
+      "passed": true
+    },
+    "triton": {
+      "check": {
+        "path": ".run/verification/plan-audit/check-final-triton.json",
+        "sha256": "056a31bc5fc774f3ad7f688f8c4930043b0c054e0c38968ad3153a3e554d10c8"
+      },
+      "passed": true
+    }
+  },
+  "compose_checks": [
+    {
+      "mode": "cpu",
+      "profiles": [],
+      "passed": true,
+      "errors": ""
+    },
+    {
+      "mode": "cpu",
+      "profiles": [
+        "storage",
+        "broker",
+        "monitoring"
+      ],
+      "passed": true,
+      "errors": ""
+    },
+    {
+      "mode": "cuda",
+      "profiles": [],
+      "passed": true,
+      "errors": ""
+    },
+    {
+      "mode": "cuda",
+      "profiles": [
+        "storage",
+        "broker",
+        "monitoring"
+      ],
+      "passed": true,
+      "errors": ""
+    },
+    {
+      "mode": "triton",
+      "profiles": [],
+      "passed": true,
+      "errors": ""
+    },
+    {
+      "mode": "triton",
+      "profiles": [
+        "storage",
+        "broker",
+        "monitoring"
+      ],
+      "passed": true,
+      "errors": ""
+    }
+  ],
+  "live_dashboard_capacity": {
+    "raw": {
+      "path": ".run/verification/plan-audit/live-capacity-final.json",
+      "sha256": "61d1756a5c6eb653cb1871fd0ea4ec20b708338ee47c09451e4ea4e45d83da77"
+    },
+    "tested_passing_cameras": 2,
+    "inference_fps": 2,
+    "evidence_fps": 10,
+    "maximum_cameras": null
+  },
+  "registered_demo_check": {
+    "path": ".run/verification/plan-audit/registered-demo-final.json",
+    "sha256": "29b596ab017213b79175a375b985637c766d51e8ca1de5715868dea2ff5d97d1",
+    "results": [
+      {
+        "camera_id": "demo-driver-image",
+        "session_id": "53ea7606447d443f8c670002ebcd8dc9",
+        "status": "completed",
+        "processed": 1,
+        "fps": 2.48,
+        "latency_ms": 399.9,
+        "admission_expired": 0,
+        "sampling_skips": 0,
+        "last_result_at": 1792433241.0012665
+      },
+      {
+        "camera_id": "demo-driver-video",
+        "session_id": "934ca014129c48e88232d0d3e1bb4587",
+        "status": "completed",
+        "processed": 30,
+        "fps": 2.02,
+        "latency_ms": 298.4,
+        "admission_expired": 0,
+        "sampling_skips": 0,
+        "last_result_at": 1792433323.4416454
+      }
+    ]
+  }
+}

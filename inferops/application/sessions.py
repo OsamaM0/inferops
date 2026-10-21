@@ -29,6 +29,7 @@ class ProcessingSession:
         self.generation = 1
         self.ingress_timeline = self.timeline_id
         self.last_observed_ns = None
+        self.connection_generation = None
         self.lock = asyncio.Lock()
         self.last_media_ns = None
         self.last_sequence = -1
@@ -61,8 +62,12 @@ class ProcessingSession:
 
     async def observe(self, frame: MediaFrame):
         media_ns = frame.media_time_ns if frame.media_time_ns is not None else time.monotonic_ns() - self.origin
-        if self.last_observed_ns is not None and media_ns < self.last_observed_ns:
+        generation = frame.payload.get("connection_generation")
+        reconnected = (generation is not None and self.connection_generation is not None
+                       and generation != self.connection_generation)
+        if reconnected or (self.last_observed_ns is not None and media_ns < self.last_observed_ns):
             self.ingress_timeline = uuid.uuid4().hex
+        self.connection_generation = generation
         self.last_observed_ns = media_ns
         frame.payload["_ingress_timeline"] = self.ingress_timeline
         if self.application.evidence:
@@ -71,18 +76,36 @@ class ProcessingSession:
         return media_ns
 
     async def process(self, frame: MediaFrame, *, observed: bool = False):
+        from inferops.application.admission import AdmissionExpired, execution_deadline, execution_key
         if self.closed:
             raise PipelineError("session is closed")
+        key = execution_key.set(self.id)
+        deadline = execution_deadline.set(frame.payload.get("_admission_deadline"))
+        outcome = "ok"
         try:
             timeout = self.spec.limits.timeout_ms
             if timeout:
                 return await asyncio.wait_for(self._process(frame, observed=observed), timeout / 1000)
             return await self._process(frame, observed=observed)
+        except AdmissionExpired:
+            outcome = "admission_expired"
+            frame.payload["_admission_expired"] = True
+            return []
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            await self.close("cancelled")
+            raise
         except BaseException as exc:
+            outcome = "error"
             await self.close("processing_failed")
             if isinstance(exc, asyncio.TimeoutError):
                 raise PipelineError("processing deadline exceeded") from exc
             raise
+        finally:
+            if self.application.observer:
+                self.application.observer.completed(self.spec.name, outcome)
+            execution_deadline.reset(deadline)
+            execution_key.reset(key)
 
     async def _process(self, frame: MediaFrame, *, observed: bool = False):
         async with self.lock:
@@ -141,7 +164,8 @@ class ProcessingSession:
             await accept_incidents(current, repository=self.application.repository, evidence=self.application.evidence,
                                    definition=self.definition, pipeline=self.spec, session_id=self.id,
                                    timeline_id=self.timeline_id, stream_name=self.stream_name, fusions=self.fusions,
-                                   broker_context=frame.payload.get("_broker_event"))
+                                   broker_context=frame.payload.get("_broker_event"),
+                                   camera_id=self.stream_name if self.owner_kind == "camera" else None)
             if any(value.payload.get("incident_error") for value in current):
                 for name, checkpoint in checkpoints.items():
                     self.policies[name].restore(checkpoint)
@@ -156,6 +180,8 @@ class ProcessingSession:
                     if declaration.stage == "sink_ws" and self.application.delivery is not None:
                         channel = declaration.params.get("channel", "live.{stream_id}").format(stream_id=self.id)
                         await self.application.delivery.publish_transient(channel, wire_result(value))
+            if self.application.observer:
+                self.application.observer.accepted(current)
             # Cache only wire-safe fields, with a fixed entry bound, for same-session retry safety.
             self.replies[frame.sequence] = [v.model_copy(update={"payload": {
                 k: value for k, value in v.payload.items() if k not in {"image_np", "image_bytes", "feeds", "frame_meta"}

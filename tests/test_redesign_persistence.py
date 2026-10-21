@@ -1,7 +1,7 @@
 """Transactions, owner fencing, recovery and legacy-reader contracts.
 
 PostgreSQL runs use an isolated disposable schema, enabled explicitly with
-INFEROPS_TEST_PG_URL. SQLite runs require no external database.
+INFEROPS_TEST_PG_URL.
 """
 from __future__ import annotations
 
@@ -18,25 +18,17 @@ from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from inferops.adapters.outbound.persistence.sql import SqlRepository
+from inferops.testing.postgres import test_database_url
 
 
-@pytest_asyncio.fixture(params=["sqlite", "postgresql"])
+@pytest_asyncio.fixture
 async def repository(request, tmp_path):
-    schema = None
-    admin = None
-    if request.param == "postgresql":
-        url = os.environ.get("INFEROPS_TEST_PG_URL")
-        if not url:
-            pytest.skip("set INFEROPS_TEST_PG_URL for disposable PostgreSQL schema tests")
-        if not url.startswith("postgresql"):
-            pytest.skip("INFEROPS_TEST_PG_URL must select PostgreSQL")
-        normalized = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        admin = create_async_engine(normalized)
-        schema = f"inferops_test_{uuid4().hex}"
-        async with admin.begin() as conn:
-            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
-    else:
-        url = f"sqlite+aiosqlite:///{tmp_path / 'records.db'}"
+    url = os.environ["INFEROPS_TEST_PG_URL"]
+    normalized = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    admin = create_async_engine(normalized)
+    schema = f"inferops_test_{uuid4().hex}"
+    async with admin.begin() as conn:
+        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
     repo = SqlRepository(url)
     if schema:
         for table in repo.metadata.tables.values():
@@ -239,15 +231,15 @@ async def test_legacy_job_without_new_input_is_readable(repository):
 async def test_schema_version_marker_survives_idempotent_startup(repository):
     async with repository.engine.connect() as conn:
         versions = (await conn.execute(select(repository.schema_versions))).mappings().all()
-    assert [row["version"] for row in versions] == [1]
+    assert sorted(row["version"] for row in versions) == [1, 2, 3]
     assert versions[0]["applied_at"]
     await repository.close()
     await repository.start()
-    assert await count(repository, repository.schema_versions) == 1
+    assert await count(repository, repository.schema_versions) == 3
 
 
 async def test_schema_failure_does_not_record_migration(tmp_path, monkeypatch):
-    repo = SqlRepository(f"sqlite+aiosqlite:///{tmp_path / 'failed-start.db'}")
+    repo = SqlRepository(test_database_url(tmp_path))
     create_all = repo.metadata.create_all
 
     def create_then_fail(connection):
@@ -258,18 +250,17 @@ async def test_schema_failure_does_not_record_migration(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="migration failure"):
         await repo.start()
     assert repo._engine is None
-    # SQLite can retain DDL after rollback, but an unapplied version must never
-    # appear successful. PostgreSQL rolls back the transaction's DDL as well.
+    # PostgreSQL rolls back schema creation and version rows together.
     engine = create_async_engine(repo.url)
     try:
         async with engine.connect() as conn:
-            assert await conn.scalar(select(func.count()).select_from(repo.schema_versions)) == 0
+            assert await conn.scalar(text("SELECT to_regclass('inferops_schema_versions')")) is None
     finally:
         await engine.dispose()
     monkeypatch.setattr(repo.metadata, "create_all", create_all)
     await repo.start()
     try:
-        assert await count(repo, repo.schema_versions) == 1
+        assert await count(repo, repo.schema_versions) == 3
     finally:
         await repo.close()
 

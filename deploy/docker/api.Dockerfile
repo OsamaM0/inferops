@@ -7,7 +7,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Build from the project root. Only the engine and generic UI belong to
 # this image; project configs, plugins and weights arrive through a mount.
 COPY pyproject.toml ./
-RUN python -c "import pathlib,tomllib; p=tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']; pathlib.Path('/tmp/requirements.txt').write_text('\n'.join(p['dependencies'] + p['optional-dependencies']['server'] + p['optional-dependencies']['cpu'] + p['optional-dependencies']['triton'] + p['optional-dependencies']['video']))" \
+ARG INFERENCE_EXTRAS=cpu
+ARG SERVER_EXTRAS=server,video
+ENV INFEROPS_IMAGE_RUNTIME=${INFERENCE_EXTRAS}
+RUN INFERENCE_EXTRAS="$INFERENCE_EXTRAS" SERVER_EXTRAS="$SERVER_EXTRAS" python -c "import os,pathlib,tomllib; p=tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']; extras=(os.environ['SERVER_EXTRAS']+','+os.environ['INFERENCE_EXTRAS']).split(','); pathlib.Path('/tmp/requirements.txt').write_text('\n'.join(p['dependencies'] + [d for extra in extras for d in p['optional-dependencies'][extra]]))" \
     && pip install --no-cache-dir -r /tmp/requirements.txt
 ARG INSTALL_CUDA=false
 RUN if [ "$INSTALL_CUDA" = "true" ]; then \
@@ -21,5 +24,5 @@ RUN mkdir -p /app/model_repository /project
 
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=120s --retries=12 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz', timeout=2)"
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://localhost:'+os.environ.get('INFEROPS_API_PORT','8080')+'/readyz', timeout=2)"
 CMD ["inferops", "serve"]

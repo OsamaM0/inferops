@@ -27,5 +27,3 @@ sinks:
     stage: sink_s3
     params:
       evidence_mode: json
-
-limits: { max_concurrency: 4, queue_size: 32 }

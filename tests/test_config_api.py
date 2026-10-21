@@ -23,6 +23,8 @@ async def test_config_routes_round_trip_and_reload_reset_cached_runners():
         assert data["domain_pack"] is None
         assert any(domain["id"] == PIPELINE for domain in data["domains"])
         assert any(f["section"] == "pipelines" and f["name"] == PIPELINE for f in data["files"])
+        assert all(f["reload_behavior"] == "live" for f in data["files"] if f["section"] == "pipelines")
+        assert all(f["reload_behavior"] == "conditional" for f in data["files"] if f["section"] == "models")
 
         response = await ac.get(f"/v1/configs/pipelines/{PIPELINE}")
         assert response.status_code == 200, response.text

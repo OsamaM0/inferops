@@ -179,6 +179,9 @@ def resolve_onnx_providers(preferred: str, gpu_id: int = 0, *, respect_env: bool
         "arena_extend_strategy": "kSameAsRequested",
         "cudnn_conv_algo_search": "EXHAUSTIVE",
         "do_copy_in_default_stream": True,
+        # Keep cuDNN from borrowing several GiB for convolution search on an
+        # 8-GB serving GPU. Higher workspace remains an explicit experiment.
+        "cudnn_conv_use_max_workspace": int(os.getenv("INFEROPS_CUDNN_MAX_WORKSPACE", "0")),
     }
     return DeviceResolution(
         providers=[("CUDAExecutionProvider", cuda_options), "CPUExecutionProvider"],

@@ -35,7 +35,7 @@ class Frame:
     stream_id: str
     ts_ms: int
     image: np.ndarray | None = None       # HxWxC uint8 BGR or None if only ref
-    ref: str | None = None                # redis://, s3://, file://
+    ref: str | None = None                # s3://, file://
     width: int = 0
     height: int = 0
     seq: int = 0

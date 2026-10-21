@@ -11,13 +11,20 @@ the engine owns execution, isolated sessions, incident acceptance and evidence.
 | Understand the design and why each layer exists | [Architecture and Hexagonal design](architecture.md) |
 | Follow startup, a frame, an incident and shutdown | [Full application lifecycle](lifecycle.md) |
 | Understand Redpanda, topics, outbox, inbox and retries | [Messaging and Redpanda](messaging.md) |
-| Find a module or decide where new code belongs | [Package structure](structure.md) and [complete file inventory](architecture/repository-tree.md) |
+| Find a module or decide where new code belongs | [Package structure](structure.md) |
 | Explore the drawings | [Offline architecture gallery](architecture/index.html) |
 | Install and call the Python library | [Python guide](python-library.md) |
 | Start and operate the server | [Deployment guide](../deploy/README.md) and [server requirements](../README.md#hosting-server-requirements) |
 | Call HTTP or WebSocket endpoints | [API reference](api.md) and the running server's `/docs` |
 | Create a project or an adapter | [Project configuration](project-blocks.md) and [adapter authoring](adapters.md) |
-| Review recovery, migration and release evidence | [Redesign contracts](redesign.md) and [verification record](cleanup-verification.md) |
+| Upgrade, recover or roll back a release | [Release lifecycle](lifecycle.md#upgrade-and-rollback) |
+| Use the unified UI, optional services and CPU/GPU/Triton controls | [Unified dashboard](unified-dashboard.md) and [Triton serving](triton-serving.md) |
+| Register sources, view annotations and measure this server | [Source control and capacity](source-control.md) |
+| Review main and optional technologies | [Technology stack](technology-stack.md) |
+| Share camera connections and use upstream live players | [MediaMTX routing and recording](media-router.md) |
+| Run fixed camera shards with scoped PostgreSQL ownership | [Static workers](static-workers.md) |
+| Convert RF-DETR checkpoints | [Checkpoint conversion and prerequisites](checkpoint-conversion.md) |
+| Inspect recorded hardware measurements | [RTX 4060 data](benchmarks/rtx4060-2026-10-19.json), [runtime data](benchmarks/unified-2026-10-19.json) and [VRAM data](benchmarks/vram-saturation-2026-10-19.json) |
 
 For a first reading, follow **architecture → lifecycle → messaging → deployment**.
 These guides describe the checked-in implementation. Operational limits are
@@ -31,9 +38,9 @@ Project configuration + model artifacts
   → Python / HTTP / WebSocket / CLI / worker input
   → generated session and media timeline
   → model inference → tracking → fusion → incident policy
-  → PostgreSQL acceptance transaction
-      ├─ evidence request → persistent spool → MinIO artifacts
-      └─ outbox → Redpanda / configured delivery targets
+  → SQL acceptance transaction (PostgreSQL)
+      ├─ evidence request → persistent spool → filesystem / optional S3 artifacts
+      └─ outbox → local notifications / optional broker and external targets
   → status queries, live notifications and operational metrics
   → session close → bounded drain → resource shutdown
 ```

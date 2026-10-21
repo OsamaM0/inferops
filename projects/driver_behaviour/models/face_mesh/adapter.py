@@ -21,6 +21,7 @@ and ``eating_face_score`` extract expressions.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any
@@ -707,7 +708,15 @@ class FaceMeshStage(Stage):
         detection_face_box = _get_face_box(item.results, w, h)
         haar_face = None
         if detection_face_box is None or not _box_looks_like_face(detection_face_box):
-            haar_face = self._detect_face_with_haar(img)
+            # Cascade scanning can take hundreds of milliseconds at 1080p.
+            # Keep capture/control and other camera sessions responsive while
+            # it runs, and drain native work before session teardown on cancel.
+            detecting = asyncio.create_task(asyncio.to_thread(self._detect_face_with_haar, img))
+            try:
+                haar_face = await asyncio.shield(detecting)
+            except asyncio.CancelledError:
+                await asyncio.gather(detecting, return_exceptions=True)
+                raise
         face_box = _select_face_box(detection_face_box, haar_face)
         if face_box is None:
             return item

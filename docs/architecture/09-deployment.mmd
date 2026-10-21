@@ -2,21 +2,28 @@ flowchart LR
     CLIENT["Browser / SDK<br/>host port 8080"] --> API
     subgraph STACK["Docker Compose network"]
         PREP["prepare: one-shot artifact preparation"] -. "startup gate" .-> API["api: FastAPI + pipeline execution<br/>container port 8080"]
-        MININIT["minio-init: readiness wait"] -. "startup gate" .-> API
-        API --> RP["Redpanda<br/>internal Kafka 9092<br/>host Kafka 19092"]
-        API -. "startup health gate; reserved cache service" .-> REDIS["Redis<br/>6379<br/>not used for current session/evidence state"]
-        API --> PG["PostgreSQL<br/>5432"]
-        API --> MINIO["MinIO<br/>S3 9000 / console 9001"]
-        API -->|"triton / deepstream modes only"| TRITON["Triton<br/>HTTP 8000 / gRPC 8001 / metrics 8002"]
+        MININIT["Optional minio-init: readiness wait"] -. "storage profile startup gate" .-> API
+        API -. broker profile .-> RP["Optional Redpanda<br/>internal Kafka 9092<br/>host Kafka 19092"]
+        API --> PG["PostgreSQL<br/>5432 / required for static workers"]
+        API --> DISK["Default evidence: persistent disk<br/>engine-data volume<br/>snapshots / annotated clips / manifests"]
+        API -. "optional S3 adapter" .-> MINIO["Optional MinIO: storage profile<br/>S3 9000 / console 9001"]
+        API --> MEDIA["MediaMTX<br/>RTSP 8554 / WebRTC 8889 / HLS 8888<br/>recording + playback 9996 / API 9997"]
+        CLIENT -->|"live + recorded video"| MEDIA
+        API -. authenticated routed controls .-> WORKERS["Optional fixed camera shards<br/>separate locked persistent spools<br/>PostgreSQL leases / restart watchdog"]
+        WORKERS --> PG
+        WORKERS --> MINIO
+        WORKERS --> TRITON
+        API -->|"triton mode only"| TRITON["Triton<br/>HTTP 8000 / gRPC 8001 / metrics 8002"]
         PREP --> MODELS["Bind-mounted project<br/>manifest + YAML + plugins + model_repository"]
         MODELS -. "read-only model repository" .-> TRITON
         MODELS -. "project mounted read/write" .-> API
         PROM["Prometheus<br/>9090"] -->|"scrape /metrics"| API
+        PROM -->|"scrape metrics"| MEDIA
         PROM -->|"scrape metrics"| TRITON
         PROM -->|"scrape cluster metrics"| MINIO
         PROM -->|"scrape public_metrics on 9644"| RP
         GRAF["Grafana<br/>3000"] -->|"query metrics"| PROM
-        VOL["Named volumes<br/>broker / Redis / PostgreSQL / MinIO / Grafana<br/>persistent capture spool / Hugging Face cache / Triton cache"]
+        VOL["Persistent volumes<br/>PostgreSQL / evidence disk / recordings / spool / uploads<br/>optional MinIO / broker / Grafana / Triton cache"]
     end
     ADMIN["Browser service tabs"] --> GRAF
     ADMIN --> MINIO

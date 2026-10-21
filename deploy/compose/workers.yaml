@@ -1,0 +1,88 @@
+# Optional two-shard deployment. Requires storage+triton profiles and a token.
+# Camera count comes from the manifest/UI; this file makes no capacity claim.
+x-camera-worker: &camera-worker
+  image: inferops-engine:triton
+  command: [inferops, worker, cameras, --manifest, /run/inferops/workers.yaml, --worker-id, a]
+  environment: &worker-environment
+    INFEROPS_DOMAIN_ROOT: /project
+    INFEROPS_EXECUTION_MODE: triton
+    INFEROPS_ROLE: camera-worker
+    INFEROPS_WORKER_TOKEN: ${INFEROPS_WORKER_TOKEN:?set an internal worker token}
+    INFEROPS_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/inferops
+    INFEROPS_STORAGE_KIND: s3
+    INFEROPS_S3_ENDPOINT: http://minio:9000
+    INFEROPS_S3_ACCESS_KEY: ${INFEROPS_S3_ACCESS_KEY:-minio}
+    INFEROPS_S3_SECRET_KEY: ${INFEROPS_S3_SECRET_KEY:-minio12345}
+    INFEROPS_S3_BUCKET: inferops
+    INFEROPS_TRITON_URL: triton:8001
+    INFEROPS_TRITON_HTTP_URL: http://triton:8000
+    INFEROPS_TRITON_METRICS_URL: http://triton:8002
+    INFEROPS_MEDIA_ROUTER: ${INFEROPS_MEDIA_ROUTER:-mediamtx}
+    INFEROPS_MEDIAMTX_API_URL: http://mediamtx:9997
+    INFEROPS_MEDIAMTX_RTSP_URL: rtsp://mediamtx:8554
+    INFEROPS_MEDIAMTX_PLAYBACK_URL: http://mediamtx:9996
+    INFEROPS_MEDIAMTX_RECORD: ${INFEROPS_MEDIAMTX_RECORD:-true}
+    INFEROPS_MEDIAMTX_API_USER: ${INFEROPS_MEDIAMTX_API_USER:-inferops}
+    INFEROPS_MEDIAMTX_API_PASSWORD: ${INFEROPS_MEDIAMTX_API_PASSWORD:-inferops-local-api}
+    INFEROPS_SOURCES_PATH: /var/lib/inferops/sources
+    INFEROPS_SPOOL_PATH: /var/lib/inferops/spool
+    INFEROPS_DATA_PATH: /var/lib/inferops/data
+    INFEROPS_TRITON_CONCURRENCY: '32'
+    INFEROPS_OPENCV_THREADS: '1'
+    INFEROPS_EVIDENCE_SAMPLE_FPS: '10'
+    # Provisional 12-camera / 250KiB p95 / 10-second-history budgets, 20% overhead.
+    INFEROPS_EVIDENCE_PER_SESSION_BYTES: '30720000'
+    INFEROPS_EVIDENCE_GLOBAL_BYTES: '368640000'
+    INFEROPS_EVIDENCE_MAX_ACTIVE_CAPTURES: '36'
+    INFEROPS_EVIDENCE_MAX_SPOOL_BYTES: '4294967296'
+    INFEROPS_EVIDENCE_DISK_RESERVE_BYTES: '1073741824'
+    INFEROPS_WORKER_WATCHDOG_SECONDS: '60'
+  volumes:
+    - ${INFEROPS_PROJECT_ROOT:-./projects/driver_behaviour}:/project:ro
+    - ${INFEROPS_WORKER_MANIFEST_FILE:-./deploy/workers.example.yaml}:/run/inferops/workers.yaml:ro
+    - source-data:/var/lib/inferops/sources
+    - worker-spool-a:/var/lib/inferops/spool
+  depends_on:
+    postgres: {condition: service_healthy}
+    minio-init: {condition: service_completed_successfully}
+    triton: {condition: service_healthy}
+  restart: always
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8080/readyz', timeout=2)"]
+    interval: 5s
+    timeout: 3s
+    start_period: 120s
+    retries: 3
+services:
+  api:
+    image: inferops-engine:triton
+    build:
+      args: {INFERENCE_EXTRAS: triton}
+    environment:
+      INFEROPS_ROLE: api
+      INFEROPS_EXECUTION_MODE: triton
+      INFEROPS_DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/inferops
+      INFEROPS_STORAGE_KIND: s3
+      INFEROPS_WORKER_MANIFEST: /run/inferops/workers.yaml
+      INFEROPS_WORKER_TOKEN: ${INFEROPS_WORKER_TOKEN:?set an internal worker token}
+    volumes:
+      - ${INFEROPS_WORKER_MANIFEST_FILE:-./deploy/workers.example.yaml}:/run/inferops/workers.yaml:ro
+  camera-a:
+    <<: *camera-worker
+    environment:
+      <<: *worker-environment
+      INFEROPS_WORKER_ID: a
+  camera-b:
+    <<: *camera-worker
+    command: [inferops, worker, cameras, --manifest, /run/inferops/workers.yaml, --worker-id, b]
+    environment:
+      <<: *worker-environment
+      INFEROPS_WORKER_ID: b
+    volumes:
+      - ${INFEROPS_PROJECT_ROOT:-./projects/driver_behaviour}:/project:ro
+      - ${INFEROPS_WORKER_MANIFEST_FILE:-./deploy/workers.example.yaml}:/run/inferops/workers.yaml:ro
+      - source-data:/var/lib/inferops/sources
+      - worker-spool-b:/var/lib/inferops/spool
+volumes:
+  worker-spool-a: {}
+  worker-spool-b: {}

@@ -6,11 +6,15 @@ import time
 from pathlib import Path
 
 from inferops.domain.processing import MediaFrame
+from inferops.domain.sources import FrameCadence
 
 
 def _video_frames(path, every_n=1):
     import av
+
+    from inferops.adapters.outbound.media.camera import bgr_array
     with av.open(str(path)) as container:
+        container.streams.video[0].thread_count = 1
         for sequence, frame in enumerate(container.decode(video=0)):
             if sequence % every_n:
                 continue
@@ -23,7 +27,7 @@ def _video_frames(path, every_n=1):
             else:
                 media = int(frame.pts * frame.time_base * 1_000_000_000)
                 provenance = "presentation_timestamp"
-            yield MediaFrame(frame.to_ndarray(format="bgr24"), media, sequence, provenance)
+            yield MediaFrame(bgr_array(frame), media, sequence, provenance)
 
 
 def _next(iterator):
@@ -49,7 +53,15 @@ async def source_frames(source, *, every_n=1):
             frames = _video_frames(path, every_n)
             try:
                 while True:
-                    frame = await asyncio.to_thread(_next, frames)
+                    # Closing a generator while its native decoder is still
+                    # running raises "generator already executing". Drain that
+                    # native read before cancellation reaches the close path.
+                    reading = asyncio.create_task(asyncio.to_thread(_next, frames))
+                    try:
+                        frame = await asyncio.shield(reading)
+                    except asyncio.CancelledError:
+                        await asyncio.gather(reading, return_exceptions=True)
+                        raise
                     if frame is None:
                         break
                     yield frame
@@ -77,29 +89,29 @@ async def source_frames(source, *, every_n=1):
         yield MediaFrame(None, payload.pop("media_time_ns", None), payload.pop("seq", 0), provenance, payload=payload)
 
 
-async def camera_frames(url, *, fps=5, kind="rtsp"):
-    import cv2
-    capture = await asyncio.to_thread(cv2.VideoCapture, url)
-    origin = time.monotonic_ns()
-    sequence = 0
+async def camera_frames(url, *, fps=5, kind="rtsp", transport="tcp", timeout_s=5,
+                        max_width=7680, max_height=4320):
+    """Compatibility entry point using the same bounded reader as the registry."""
+    from types import SimpleNamespace
+
+    from inferops.adapters.outbound.media.camera import capture_frames
+    spec = SimpleNamespace(uri=url, camera_id="legacy", kind=kind, inference_fps=fps or 120,
+                           evidence_fps=None, rtsp_transport=transport, timeout_s=timeout_s,
+                           max_width=max_width, max_height=max_height)
+    frames = capture_frames(spec, {"decoded": 0, "dropped": 0})
     try:
-        while True:
-            ok, image = await asyncio.to_thread(capture.read)
-            if not ok:
-                raise ValueError("camera source disconnected")
-            yield MediaFrame(image, time.monotonic_ns() - origin, sequence, "estimated_capture_interval")
-            sequence += 1
-            if fps:
-                await asyncio.sleep(1 / fps)
+        async for frame in frames:
+            yield frame
     finally:
-        await asyncio.to_thread(capture.release)
+        await frames.aclose()
 
 
-async def process_live_frames(session, frames, *, on_drop=None, on_result=None):
+async def process_live_frames(session, frames, *, on_drop=None, on_result=None, inference_fps=None):
     """Observe capture independently of bounded latest-frame inference admission."""
     queue = asyncio.Queue(maxsize=1)
     stop = object()
     dropped = 0
+    cadence = FrameCadence(inference_fps) if inference_fps is not None else None
 
     async def receive():
         nonlocal dropped
@@ -108,6 +120,8 @@ async def process_live_frames(session, frames, *, on_drop=None, on_result=None):
                 received = time.monotonic()
                 frame.payload["live_mode"] = True
                 await session.observe(frame)
+                if cadence and not cadence.due(frame.media_time_ns or 0, frame.payload.get("connection_generation")):
+                    continue
                 if queue.full():
                     queue.get_nowait()
                     dropped += 1
@@ -117,7 +131,11 @@ async def process_live_frames(session, frames, *, on_drop=None, on_result=None):
         except asyncio.CancelledError:
             raise
         except BaseException:
-            await queue.put(stop)
+            # A cancelled consumer cannot drain a full queue. Error signaling
+            # must not block reader cleanup on that same consumer.
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(stop)
             raise
         else:
             await queue.put(stop)
@@ -130,10 +148,24 @@ async def process_live_frames(session, frames, *, on_drop=None, on_result=None):
                 await reader
                 return dropped
             frame, received = pending
+            captured = frame.payload.get("_captured_monotonic_ns", int(received * 1e9)) / 1e9
+            if time.monotonic() - captured >= .5:
+                dropped += 1
+                if on_drop:
+                    on_drop()
+                continue
+            frame.payload["_admission_deadline"] = captured + .5
             frame.payload["source_frames_dropped"] = dropped
             outputs = await session.process(frame, observed=True)
+            if frame.payload.get("_admission_expired"):
+                dropped += 1
+                if on_drop:
+                    on_drop()
+                continue
             if on_result:
                 await on_result(outputs, time.monotonic() - received)
     finally:
         reader.cancel()
         await asyncio.gather(reader, return_exceptions=True)
+        if hasattr(frames, "aclose"):
+            await frames.aclose()

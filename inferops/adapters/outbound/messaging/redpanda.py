@@ -10,12 +10,10 @@ from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import TopicAlreadyExistsError
 from aiokafka.structs import TopicPartition
 
-from inferops.adapters.outbound.observability import TRANSPORT_CONSUME, TRANSPORT_PRODUCE, get_logger
+from inferops.adapters.outbound.observability import TRANSPORT_CONSUME, TRANSPORT_PRODUCE
 from inferops.adapters.outbound.projects.settings import settings
 from inferops.domain.errors import PayloadTooLarge, TransportError
 from inferops.ports.messaging import Consumer, Message, Producer, Transport
-
-log = get_logger(__name__)
 
 
 class _RPProducer:
@@ -26,7 +24,7 @@ class _RPProducer:
     async def send(self, topic, value, *, key=None, headers=None):
         if len(value) > self._max:
             TRANSPORT_PRODUCE.labels(topic=topic, result="too_large").inc()
-            raise PayloadTooLarge(f"value {len(value)}B > limit {self._max}B (use Redis/S3 ref)")
+            raise PayloadTooLarge(f"value {len(value)}B > limit {self._max}B (use a storage reference)")
         hdrs = [(k, v) for k, v in (headers or {}).items()]
         try:
             await self._p.send_and_wait(topic, value=value, key=key, headers=hdrs)

@@ -67,7 +67,7 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
                 errors.append(f"{location}: model_modes must map execution modes to model names")
             else:
                 for mode, name in choices.items():
-                    if mode not in {"auto", "cpu", "cuda", "tensorrt", "triton", "deepstream"}:
+                    if mode not in {"auto", "cpu", "cuda", "tensorrt", "triton"}:
                         errors.append(f"{location}: unknown execution mode {mode!r}")
                     check("models", name, f"{location}, mode {mode!r}")
         if pipeline.tracking:

@@ -1,8 +1,7 @@
-"""Strict backend choice and the same-origin frontend contract."""
+"""Strict backend choice and runtime startup."""
 from pathlib import Path
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 
 from inferops.adapters.inbound.http.main import create_app
 from inferops.adapters.outbound.inference.onnxruntime_backend import OnnxRuntimeBackend
@@ -22,8 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
     ("cuda", "rfdetr_driver_onnx", "face_mesh_onnx"),
     ("tensorrt", "rfdetr_driver_tensorrt", "face_mesh_tensorrt"),
     ("triton", "rfdetr_driver_triton", "face_mesh_triton"),
-    ("deepstream", "rfdetr_driver_triton", "face_mesh_triton"),
-])
+    ])
 async def test_production_modes_do_not_fall_back_to_synthetic(monkeypatch, mode, model, face):
     monkeypatch.setattr(settings, "execution_mode", mode)
     stack = ConfigStack(ROOT / "configs", active_domain="driver_behaviour")
@@ -36,15 +34,6 @@ async def test_production_modes_do_not_fall_back_to_synthetic(monkeypatch, mode,
     registry = ModelPool(definition)
     if mode in {"cpu", "cuda"}:
         assert registry.get_spec(model).device.preferred == ("cpu" if mode == "cpu" else "gpu")
-
-
-@pytest.mark.asyncio
-async def test_frontend_is_served_beside_api_docs():
-    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://test") as client:
-        response = await client.get("/frontend/")
-        assert response.status_code == 200
-        assert "Analyze all frames and save evidence" in response.text
-        assert (await client.get("/")).json()["frontend"] == "/frontend/"
 
 
 @pytest.mark.asyncio

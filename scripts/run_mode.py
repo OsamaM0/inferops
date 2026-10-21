@@ -71,8 +71,9 @@ def runtime_environment(
     sys.path.insert(0, str(APP))
     from inferops.adapters.outbound.projects.settings import ConfigStack, settings
 
-    selected_root = domain_root or (None if domain else settings.domain_root)
-    selected_name = domain or settings.active_domain
+    selected_root, selected_name = domain_root, domain
+    if selected_root is None and selected_name is None:
+        selected_root, selected_name = settings.domain_root, settings.active_domain
     stack = ConfigStack(APP / "configs", active_domain=selected_name, domain_root=selected_root)
     repository = stack.model_repository("model_repository").resolve()
     if stack.domain_root is None:
@@ -82,10 +83,10 @@ def runtime_environment(
         "INFEROPS_EXECUTION_MODE": mode,
         "INFEROPS_CONFIGS_DIR": str(APP / "configs"),
         "INFEROPS_MODEL_REPOSITORY": str(repository),
-        "INFEROPS_TRITON_MODEL_REPOSITORY": str(repository),
-        "INFEROPS_TRANSPORT_KIND": "inproc",
         "INFEROPS_API_PORT": str(port),
     })
+    env.setdefault("INFEROPS_TRITON_REPOSITORY", env.get("INFEROPS_TRITON_MODEL_REPOSITORY") or str(repository))
+    env.setdefault("INFEROPS_TRANSPORT_KIND", "inproc")
     # Relative plugins resolve against the selected folder's package.
     env.pop("INFEROPS_DOMAIN_PACKAGE", None)
     if stack.domain_root is not None:
@@ -100,13 +101,14 @@ def runtime_environment(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=["auto", "cpu", "cuda", "triton", "deepstream"], default="cpu")
+    parser.add_argument("--mode", choices=["auto", "cpu", "cuda", "triton"], default="cpu")
     parser.add_argument("--domain", "--project", help="Project block under projects/")
     parser.add_argument("--domain-root", help="Project block folder, including outside this repository")
     parser.add_argument("--container", action="store_true", help="Run the API in the reusable engine image")
     parser.add_argument("--build", action="store_true", help="Rebuild the engine image (not needed to swap projects)")
+    parser.add_argument("--profiles", default="", help="Additional services: storage (MinIO/S3),broker,monitoring")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--no-services", action="store_true", help="Use already running storage services")
+    parser.add_argument("--no-services", action="store_true", help="Use already running optional services")
     parser.add_argument("--stop", action="store_true", help="Stop this repository's native API")
     maintenance = parser.add_mutually_exclusive_group()
     maintenance.add_argument("--services-down", action="store_true", help="Stop Docker services; preserve volumes")
@@ -118,16 +120,39 @@ def main() -> None:
         stop_native_api()
         return
     env = runtime_environment(args.mode, args.port, domain=args.domain, domain_root=args.domain_root)
-    if (args.container or args.mode == "deepstream") and "INFEROPS_TRANSPORT_KIND" not in os.environ:
-        env.pop("INFEROPS_TRANSPORT_KIND", None)
+    optional = {name.strip() for name in args.profiles.split(",") if name.strip()}
+    if optional - {"storage", "broker", "monitoring", "media"}:
+        parser.error("profiles must be storage,broker,monitoring,media")
+    container = args.container
+    env.setdefault("INFEROPS_STORAGE_KIND", "filesystem")
+    if "storage" in optional:
+        env["INFEROPS_STORAGE_KIND"] = "s3"
+    if not container:
+        env.setdefault("INFEROPS_S3_ENDPOINT", "http://127.0.0.1:" + env.get("INFEROPS_S3_PORT", "9000"))
+    host = "postgres" if container else "127.0.0.1"
+    pg_port = "5432" if container else env.get("INFEROPS_PG_PORT", "5432")
+    if not env.get("INFEROPS_DATABASE_URL") and not env.get("INFEROPS_PG_URL"):
+        env["INFEROPS_DATABASE_URL"] = f"postgresql+asyncpg://postgres:postgres@{host}:{pg_port}/inferops"
+    if "broker" in optional:
+        env["INFEROPS_TRANSPORT_KIND"] = "redpanda"
+        env.setdefault("INFEROPS_TRANSPORT_BOOTSTRAP", "redpanda:9092" if container else "127.0.0.1:" + env.get("INFEROPS_KAFKA_PORT", "19092"))
+    if "monitoring" in optional:
+        env["INFEROPS_MONITORING_ENABLED"] = "true"
+    env.setdefault("INFEROPS_MEDIA_ROUTER", "mediamtx")
+    if env["INFEROPS_MEDIA_ROUTER"] == "mediamtx" and not container:
+        env.setdefault("INFEROPS_MEDIAMTX_API_URL", "http://127.0.0.1:" + env.get("INFEROPS_MEDIAMTX_API_PORT", "9997"))
+        env.setdefault("INFEROPS_MEDIAMTX_RTSP_URL", "rtsp://127.0.0.1:" + env.get("INFEROPS_MEDIAMTX_RTSP_PORT", "8554"))
+        env.setdefault("INFEROPS_MEDIAMTX_PLAYBACK_URL", "http://127.0.0.1:" + env.get("INFEROPS_MEDIAMTX_PLAYBACK_PORT", "9996"))
     compose = ["docker", "compose", "-f", str(APP / "compose.yaml")]
     compose += ["--profile", args.mode]
+    for profile in sorted(optional):
+        compose += ["--profile", profile]
     action = (["stop"] if args.services_down else ["logs", "-f", "--tail=200"] if args.logs else
               ["ps"] if args.status else ["config", "--quiet"] if args.compose_check else None)
     if action:
         subprocess.run([*compose, *action], env=env, cwd=APP, check=True)
         return
-    if not args.container and args.mode != "deepstream":
+    if not args.container:
         monitoring = APP / ".run/prometheus-native.yml"
         monitoring.parent.mkdir(parents=True, exist_ok=True)
         monitoring.write_text((APP / "deploy/observability/prometheus-native.yml").read_text().replace(
@@ -135,26 +160,16 @@ def main() -> None:
         ))
         env.setdefault("INFEROPS_PROMETHEUS_CONFIG", str(monitoring))
     # Container preparation belongs in Docker, so host Python needs no model dependencies.
-    if not args.container and args.mode != "deepstream":
+    if not args.container:
         if "INFEROPS_PROJECT_ROOT" in env:
             subprocess.run([sys.executable, "-m", "inferops.adapters.inbound.cli", "project", "prepare"], cwd=APP, env=env, check=True)
         subprocess.run([sys.executable, "-m", "inferops.adapters.inbound.cli", "preflight"], cwd=APP, env=env, check=True)
-    if args.mode in {"triton", "deepstream"} or (args.container and args.mode == "cuda"):
+    if args.mode in {"triton"} or (args.container and args.mode == "cuda"):
         runtimes = subprocess.check_output(
             ["docker", "info", "--format", "{{range $name, $runtime := .Runtimes}}{{$name}} {{end}}"], text=True
         ).split()
         if "nvidia" not in runtimes:
             raise SystemExit("NVIDIA Docker runtime is missing. Run make setup-container-runtime in a terminal with sudo access.")
-    if args.mode == "deepstream":
-        if "INFEROPS_PROJECT_ROOT" not in env:
-            raise SystemExit("DeepStream requires a project: pass --domain or --domain-root")
-        ensure_container_port(args.port)
-        command = [*compose, "up", "-d", "--wait"]
-        if args.build:
-            command.append("--build")
-        subprocess.run([*command, "api", "prometheus", "grafana"], env=env, cwd=APP, check=True)
-        print(f"DeepStream workspace: http://localhost:{args.port}/ui/")
-        return
     if args.container:
         ensure_container_port(args.port)
         command = [*compose, "up", "-d", "--wait"]
@@ -162,15 +177,24 @@ def main() -> None:
             command.append("--build")
         if args.no_services:
             command.append("--no-deps")
-        subprocess.run([*command, "api", "prometheus", "grafana"], env=env, cwd=APP, check=True)
+        subprocess.run([*command, "api", *(["prometheus", "grafana"] if "monitoring" in optional else [])], env=env, cwd=APP, check=True)
         print(f"{args.mode.upper()} Docker workspace: http://localhost:{args.port}/ui/")
         return
     if not args.no_services:
-        services = ["postgres", "redis", "minio", "prometheus", "grafana"]
+        services = ["postgres"]
+        if "storage" in optional:
+            services.extend(["minio", "minio-init"])
+        if "broker" in optional:
+            services.append("redpanda")
+        if "monitoring" in optional:
+            services.extend(["prometheus", "grafana"])
+        if env["INFEROPS_MEDIA_ROUTER"] == "mediamtx":
+            services.append("mediamtx")
         if args.mode == "triton":
             services.append("triton")
-        subprocess.run([*compose, "up", "-d", "--wait", *services], env=env, cwd=APP, check=True)
-        if args.port == 8080:
+        if services:
+            subprocess.run([*compose, "up", "-d", "--wait", *services], env=env, cwd=APP, check=True)
+        if services and args.port == 8080:
             subprocess.run([*compose, "stop", "api"], env=env, cwd=APP, check=True)
     os.chdir(APP)
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)

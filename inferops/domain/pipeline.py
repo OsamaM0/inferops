@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from inferops.domain.errors import ConfigError
 from inferops.domain.tracking import TrackingSpec
@@ -20,6 +20,15 @@ class LimitsSpec(BaseModel):
     queue_size: int = 32
     timeout_ms: int | None = None
 
+    @model_validator(mode="after")
+    def legacy_limits(self):
+        if self.model_fields_set & {"max_concurrency", "queue_size"}:
+            import warnings
+            warnings.warn("limits.max_concurrency/queue_size are deprecated and do not schedule frames; "
+                          "use runtime admission and the source latest-frame policy. Compatibility ends in 0.2.",
+                          FutureWarning, stacklevel=2)
+        return self
+
 
 class PipelineSpec(BaseModel):
     name: str
@@ -31,6 +40,18 @@ class PipelineSpec(BaseModel):
     limits: LimitsSpec = Field(default_factory=LimitsSpec)
     tracking: TrackingSpec | None = None
     tags: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def migrate_rest_sink(self):
+        for declaration in self.sinks:
+            if declaration.stage == "sink_rest":
+                if set(declaration.params) != {"url"} or not isinstance(declaration.params["url"], str):
+                    raise ValueError("sink_rest migration requires only a url; use sink_webhook")
+                import warnings
+                warnings.warn("sink_rest is deprecated; use sink_webhook (compatibility ends in 0.2)",
+                              FutureWarning, stacklevel=2)
+                declaration.stage = "sink_webhook"
+        return self
 
     def for_mode(self, mode: str, resolver=None) -> PipelineSpec:
         """Resolve model choices identically for startup, preflight and workers."""

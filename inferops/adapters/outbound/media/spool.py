@@ -40,13 +40,42 @@ class CrashSafeSpool:
         self.max_bytes = max_bytes
         self.disk_reserve_bytes = disk_reserve_bytes
         self._lock = asyncio.Lock()
+        # One owner per spool directory. Rebuild after restart, then update only
+        # the files touched by a commit; never walk the whole tree per frame.
+        self._sizes: dict[Path, int] | None = None
+        self._bytes = 0
+
+    async def _run(self, operation, *args):
+        async with self._lock:
+            task = asyncio.create_task(asyncio.to_thread(operation, *args))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # A native filesystem write must finish before another commit
+                # can acquire the lock or the service starts shutting down.
+                await asyncio.gather(task, return_exceptions=True)
+                raise
 
     async def start(self) -> None:
-        await asyncio.to_thread(self._start)
+        await self._run(self._start)
 
     def _start(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
         _sync_directory(self.path)
+        self._reconcile()
+
+    def _reconcile(self) -> None:
+        self._sizes = {path: path.stat().st_size for path in self.path.rglob("*") if path.is_file()}
+        self._bytes = sum(self._sizes.values())
+
+    def _refresh_size(self, path: Path) -> None:
+        if self._sizes is None:
+            self._reconcile()
+        old = self._sizes.pop(path, 0)
+        size = path.stat().st_size if path.exists() else 0
+        if size:
+            self._sizes[path] = size
+        self._bytes += size - old
 
     def _directory(self, evidence_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", evidence_id):
@@ -57,29 +86,38 @@ class CrashSafeSpool:
         return result
 
     def _usage(self) -> int:
-        return sum(path.stat().st_size for path in self.path.rglob("*") if path.is_file())
+        if self._sizes is None:
+            self._reconcile()
+        return self._bytes
 
     async def usage_bytes(self) -> int:
-        async with self._lock:
-            return await asyncio.to_thread(self._usage)
+        return await self._run(self._usage)
 
     def _atomic_write(self, path: Path, data: bytes) -> None:
+        temporary = path.with_name(path.name + ".tmp")
+        if path.is_symlink() or temporary.is_symlink():
+            raise SpoolCorruptError("Spool files cannot be symlinks")
+        self._refresh_size(path)
+        self._refresh_size(temporary)
         # Account for the temporary replacement too: no overwrite hides quota use.
         if self._usage() + len(data) > self.max_bytes:
             raise SpoolCapacityError("Capture spool quota exhausted")
         if shutil.disk_usage(self.path).free - len(data) < self.disk_reserve_bytes:
             raise SpoolCapacityError("Capture spool disk reserve reached")
-        temporary = path.with_name(path.name + ".tmp")
-        with temporary.open("wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        _sync_directory(path.parent)
+        try:
+            with temporary.open("wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            _sync_directory(path.parent)
+        finally:
+            # Include partial temp files even when write/fsync/replace fails.
+            self._refresh_size(path)
+            self._refresh_size(temporary)
 
     async def write(self, manifest: dict[str, Any], frames: list[EncodedFrame]) -> dict[str, Any]:
-        async with self._lock:
-            return await asyncio.to_thread(self._write, manifest, frames)
+        return await self._run(self._write, manifest, frames)
 
     def _write(self, manifest: dict[str, Any], frames: list[EncodedFrame]) -> dict[str, Any]:
         directory = self._directory(str(manifest["evidence_id"]))
@@ -113,8 +151,7 @@ class CrashSafeSpool:
         return result
 
     async def read(self, evidence_id: str) -> tuple[dict[str, Any], list[EncodedFrame]]:
-        async with self._lock:
-            return await asyncio.to_thread(self._read, evidence_id)
+        return await self._run(self._read, evidence_id)
 
     def _read(self, evidence_id: str) -> tuple[dict[str, Any], list[EncodedFrame]]:
         directory = self._directory(evidence_id)
@@ -147,20 +184,24 @@ class CrashSafeSpool:
         ))
 
     async def delete(self, evidence_id: str) -> None:
-        async with self._lock:
-            await asyncio.to_thread(self._delete, evidence_id)
+        await self._run(self._delete, evidence_id)
 
     def _delete(self, evidence_id: str) -> None:
         directory = self._directory(evidence_id)
+        self._usage()
         if directory.exists():
-            shutil.rmtree(directory)
-            _sync_directory(self.path)
+            try:
+                shutil.rmtree(directory)
+                _sync_directory(self.path)
+            finally:
+                for path in list(self._sizes):
+                    if path.parent == directory:
+                        self._refresh_size(path)
 
     async def write_artifact(self, evidence_id: str, name: str, data: bytes) -> bytes:
         if name not in {"snapshot.jpg", "clip.mp4", "artifacts.json", "evidence-manifest.json"}:
             raise ValueError("Unsupported artifact name")
-        async with self._lock:
-            await asyncio.to_thread(self._write_artifact, evidence_id, name, data)
+        await self._run(self._write_artifact, evidence_id, name, data)
         return data
 
     def _write_artifact(self, evidence_id: str, name: str, data: bytes) -> None:
@@ -180,8 +221,7 @@ class CrashSafeSpool:
         if name not in {"snapshot.jpg", "clip.mp4", "artifacts.json", "evidence-manifest.json"}:
             raise ValueError("Unsupported artifact name")
         path = self._directory(evidence_id) / name
-        async with self._lock:
-            return await asyncio.to_thread(self._read_artifact, path, name)
+        return await self._run(self._read_artifact, path, name)
 
     @staticmethod
     def _read_artifact(path: Path, name: str) -> bytes | None:

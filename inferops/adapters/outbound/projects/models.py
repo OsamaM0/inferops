@@ -6,20 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from inferops.adapters.outbound.projects.yaml import load_yaml
+from inferops.adapters.outbound.projects.yaml import deep_merge, load_yaml
 from inferops.domain.errors import ConfigError
 from inferops.domain.models import LabelsSpec, ModelSpec
-
-
-def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Pure config merge: loading a model must not activate process settings."""
-    out = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(out.get(key), dict):
-            out[key] = deep_merge(out[key], value)
-        else:
-            out[key] = value
-    return out
 
 
 class ModelPortSpec(BaseModel):

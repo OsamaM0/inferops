@@ -12,6 +12,25 @@ import pytest
 from inferops.testing import PROJECT_ROOT
 
 
+@pytest.mark.parametrize(("profiles", "configured", "expected"), [
+    ("", None, "filesystem"),
+    ("storage", "filesystem", "s3"),
+    ("", "s3", "s3"),
+])
+def test_launcher_selects_disk_by_default_and_s3_when_requested(monkeypatch, profiles, configured, expected):
+    from scripts import run_mode
+
+    environment = {} if configured is None else {"INFEROPS_STORAGE_KIND": configured}
+    monkeypatch.setattr(run_mode, "runtime_environment", lambda *args, **kwargs: environment.copy())
+    monkeypatch.setattr(run_mode.sys, "argv", ["run_mode.py", "--compose-check", "--profiles", profiles])
+    calls = []
+    monkeypatch.setattr(run_mode.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs["env"])))
+    run_mode.main()
+    command, selected = calls.pop()
+    assert selected["INFEROPS_STORAGE_KIND"] == expected
+    assert ("storage" in command) == (profiles == "storage")
+
+
 @pytest.mark.parametrize("owned", [False, True])
 def test_container_start_diagnoses_an_existing_port_without_killing_other_processes(monkeypatch, owned):
     from scripts import run_mode
@@ -31,7 +50,7 @@ def test_container_start_diagnoses_an_existing_port_without_killing_other_proces
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker Compose is unavailable")
-@pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "triton", "deepstream"])
+@pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "triton"])
 def test_env_selects_runtime_and_orders_preparation(tmp_path, mode):
     root = PROJECT_ROOT
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("COMPOSE_", "INFEROPS_"))}
@@ -43,19 +62,34 @@ def test_env_selects_runtime_and_orders_preparation(tmp_path, mode):
     result = subprocess.run(["docker", "compose", "--env-file", str(env_file), "config", "--format", "json"],
                             cwd=root, env=environment, capture_output=True, text=True, check=True)
     services = json.loads(result.stdout)["services"]
+    assert {"prepare", "api"} <= services.keys()
+    assert {"postgres", "mediamtx"} <= services.keys()
+    assert not {"minio", "minio-init", "redis", "redpanda", "grafana", "prometheus"} & services.keys()
+    assert services["api"]["environment"]["INFEROPS_TRANSPORT_KIND"] == "inproc"
+    assert services["api"]["environment"]["INFEROPS_STORAGE_KIND"] == "filesystem"
+    evidence_mount = next(mount for mount in services["api"]["volumes"]
+                          if mount["target"] == "/var/lib/inferops/data")
+    assert evidence_mount["type"] == "volume" and evidence_mount["source"] == "engine-data"
+    environment["COMPOSE_PROFILES"] = f"{mode},storage,broker,monitoring"
+    environment["INFEROPS_STORAGE_KIND"] = "s3"
+    result = subprocess.run(["docker", "compose", "--env-file", str(env_file), "config", "--format", "json"],
+                            cwd=root, env=environment, capture_output=True, text=True, check=True)
+    services = json.loads(result.stdout)["services"]
     assert services["minio"]["environment"]["MINIO_ROOT_USER"] == services["api"]["environment"]["INFEROPS_S3_ACCESS_KEY"]
     assert services["minio"]["environment"]["MINIO_ROOT_PASSWORD"] == services["api"]["environment"]["INFEROPS_S3_SECRET_KEY"]
-    assert "deepstream" not in services  # All modes retain one API service.
     assert services["prepare"]["command"] == ["inferops", "project", "prepare"]
     assert services["api"]["depends_on"]["prepare"]["condition"] == "service_completed_successfully"
     assert services["api"]["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert services["api"]["depends_on"]["minio-init"]["required"] is False
+    assert services["api"]["environment"]["INFEROPS_STORAGE_KIND"] == "s3"
+    assert "redis" not in services
     assert services["postgres"]["volumes"][0]["type"] == "volume"
-    if mode in {"triton", "deepstream"}:
+    if mode in {"triton"}:
         assert services["triton"]["depends_on"]["prepare"]["condition"] == "service_completed_successfully"
         assert services["api"]["depends_on"]["triton"]["condition"] == "service_healthy"
     else:
         assert "triton" not in services
-    if mode in {"cuda", "deepstream"}:
+    if mode in {"cuda"}:
         assert services["api"]["deploy"]["resources"]["reservations"]["devices"][0]["capabilities"] == ["gpu"]
     else:
         assert "deploy" not in services["api"]

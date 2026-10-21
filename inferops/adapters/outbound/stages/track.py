@@ -6,12 +6,10 @@ manually as a regular stage entry (`stage: track`).
 """
 from __future__ import annotations
 
-from inferops.adapters.outbound.observability import TRACKS_ACTIVE, TRACKS_CLOSED, TRACKS_STARTED, get_logger
+from inferops.adapters.outbound.observability import TRACKS_ACTIVE, TRACKS_CLOSED, TRACKS_STARTED
 from inferops.adapters.outbound.stages.base import Stage
 from inferops.domain.tracking import IoUKalmanTracker, Tracker
 from inferops.domain.types import StageItem
-
-log = get_logger(__name__)
 
 
 class Track(Stage):
@@ -41,7 +39,6 @@ class Track(Stage):
             score_high=score_high, score_low=score_low, per_class=per_class,
             model_filter=model_filter or [],
         )
-        self._algorithm = algorithm
         self._by = by
         self._tracker_kwargs = dict(
             max_age=max_age, min_hits=min_hits,

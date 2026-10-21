@@ -16,8 +16,9 @@ from typing import Any
 
 import yaml
 
+from inferops.adapters.outbound.projects.configuration import load_platform, platform_paths
 from inferops.adapters.outbound.projects.manifest import DomainManifest, load_domain_manifest, manifest_path
-from inferops.adapters.outbound.projects.models import deep_merge, expand_model_config, model_config_files
+from inferops.adapters.outbound.projects.models import expand_model_config, model_config_files
 from inferops.adapters.outbound.projects.resolver import ModelResolver, canonical_mode
 from inferops.adapters.outbound.projects.yaml import load_yaml
 from inferops.domain.errors import BackendError, ConfigError
@@ -165,7 +166,7 @@ class ProjectLoader:
             self.root = None
         self.configs_dir = Path(configs_dir).expanduser().resolve()
         self.mode = canonical_mode(mode)
-        if self.mode not in {"cpu", "cuda", "tensorrt", "triton", "deepstream"}:
+        if self.mode not in {"cpu", "cuda", "tensorrt", "triton"}:
             raise ConfigError(f"unknown execution mode {mode!r}")
         self.triton_url = triton_url
         self.backend_options = dict(backend_options or {})
@@ -195,6 +196,7 @@ class ProjectLoader:
             if platform.is_file():
                 files.add(platform)
         files.update(overrides)
+        files.update(path for path in platform_paths(self.configs_dir, self.root) if path.is_file())
         for path in sorted(files):
             digest.update(str(path).encode())
             if path in overrides:
@@ -214,7 +216,7 @@ class ProjectLoader:
         overrides = {Path(path).resolve(): value for path, value in (overrides or {}).items()}
         directories = self._directories()
         platform_file = (self.root / "configs" if self.root else self.configs_dir) / "platform.yaml"
-        special_paths = {platform_file}
+        special_paths = {platform_file, *platform_paths(self.configs_dir, self.root)}
         if self.root:
             special_paths.update({self.root / "project.yaml", self.root / "domain.yaml"})
         for path, value in overrides.items():
@@ -244,6 +246,7 @@ class ProjectLoader:
         resolver = ModelResolver(directories["models"], overrides=overrides)
         models: dict[str, ModelSpec] = {}
         source_dirs: dict[str, Path] = dict(directories)
+        source_dirs["platform_configs"] = self.configs_dir
         if self.artifact_root is not None:
             source_dirs["artifact_root"] = self.artifact_root
         for path, raw in ((source, spec) for source in files("models") for spec in expand_model_config(read(source))):
@@ -297,13 +300,7 @@ class ProjectLoader:
                                               for model in stage.params.get("models", [])]
             self._inject_tracking(pipeline)
             pipelines[name] = pipeline
-        platform = {}
-        config_root = self.root / "configs" if self.root else self.configs_dir
-        platform_file = config_root / "platform.yaml"
-        if platform_file.is_file() or platform_file in overrides:
-            platform = read(platform_file)
-        if manifest:
-            platform = deep_merge(platform, manifest.platform)
+        platform = load_platform(self.configs_dir, self.root, manifest, overrides=overrides)
         # Legacy extension instantiation receives normalized absolute refs.
         # Register this explicit instance namespace before those adapters use
         # importlib; never register it under the external project name.
@@ -324,11 +321,13 @@ class ProjectLoader:
         Do not import or instantiate runtime classes here: optional clients and
         project resource construction remain lazy and explicitly engine-owned.
         """
-        from inferops.adapters.outbound.stages.registry import APPLICATION_STAGES, BUILTINS
+        from inferops.adapters.outbound.stages.registry import (
+            APPLICATION_STAGES,
+            BUILTINS,
+            required_stage_parameters,
+        )
         errors = []
-        required = {"infer": "model", "fuse": "fusion", "alert": "alerts", "source_rtsp": "url",
-                    "source_mjpeg": "url", "source_folder": "path", "source_kafka": "topic",
-                    "sink_kafka": "topic", "sink_file": "path", "sink_webhook": "url"}
+        required = required_stage_parameters()
 
         def reference(section, name, location):
             if not isinstance(name, str) or not name:
@@ -354,9 +353,9 @@ class ProjectLoader:
                 if alias not in BUILTINS and alias not in APPLICATION_STAGES and ":" not in alias and "." not in alias:
                     errors.append(f"{location}: unknown builtin stage {alias!r}")
                 selected_from_modes = alias == "infer" and bool(params.get("model_modes"))
-                if alias in required and not selected_from_modes and (
-                        not isinstance(params.get(required[alias]), str) or not params[required[alias]].strip()):
-                    errors.append(f"{location}: {required[alias]} is required")
+                for key in required.get(alias, []):
+                    if not selected_from_modes and (not isinstance(params.get(key), str) or not params[key].strip()):
+                        errors.append(f"{location}: {key} is required")
                 for key, section in (("model", "models"), ("fallback_model", "models"),
                                      ("fusion", "fusion"), ("alerts", "alerts")):
                     if params.get(key) is not None:
@@ -366,7 +365,7 @@ class ProjectLoader:
                     errors.append(f"{location}: model_modes must be a mapping")
                 else:
                     for mode, model in modes.items():
-                        if mode not in {"auto", "cpu", "cuda", "tensorrt", "triton", "deepstream"}:
+                        if mode not in {"auto", "cpu", "cuda", "tensorrt", "triton"}:
                             errors.append(f"{location}: unknown execution mode {mode!r}")
                         reference("models", model, location)
                 if alias == "model_group":

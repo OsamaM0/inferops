@@ -5,6 +5,16 @@ permissions:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inferops_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      INFEROPS_TEST_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/inferops_test
     strategy:
       matrix:
         python: ['3.10', '3.12']
@@ -21,3 +31,41 @@ jobs:
         run: python -m pytest tests/test_hexagonal_boundaries.py
       - run: python -m ruff check inferops tests scripts projects/driver_behaviour
       - run: python -m pytest tests
+  postgres-minio:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inferops
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 10
+    env:
+      INFEROPS_TEST_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/inferops
+      INFEROPS_TEST_S3_ENDPOINT: http://127.0.0.1:19000
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v7
+        with: {python-version: '3.12'}
+      - run: python -m pip install -e '.[server,cpu,video,dev]'
+      - run: docker build -f deploy/docker/minio.Dockerfile -t inferops-ci-minio .
+      - run: docker run -d --name inferops-ci-minio -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 -p 19000:9000 inferops-ci-minio
+      - name: Wait for real object storage
+        run: |
+          python - <<'PYCODE'
+          import time
+          import urllib.request
+          for attempt in range(60):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:19000/minio/health/ready', timeout=2)
+                  break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise SystemExit('MinIO startup failed')
+          PYCODE
+      - name: Required ownership, delivery and durable evidence gates
+        run: python -m pytest tests/test_worker_ownership.py tests/test_worker_control.py tests/test_redesign_production.py tests/test_evidence_retention_and_bursts.py

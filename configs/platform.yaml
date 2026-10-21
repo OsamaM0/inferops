@@ -1,26 +1,26 @@
+# Server defaults use PostgreSQL and persistent disk. S3 and an external broker are optional.
 env: dev
-
-# Primary transport: Redpanda (Kafka-compatible). Fallback: inproc.
-# Override at runtime with INFEROPS_TRANSPORT_KIND=inproc for single-process
-# debugging or when no broker is available.
+runtime:
+  admission:
+    local_device_capacity: 1
+    remote_outstanding: 64
+    max_pending: 1024
+    max_queue_age_ms: 5000
 transport:
-  kind: redpanda
+  kind: inproc
   bootstrap: 127.0.0.1:19092
   client_id: inferops
-
-# Primary object storage: MinIO (S3-compatible).
+pg:
+  url: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/inferops
 s3:
   endpoint: http://127.0.0.1:9000
   region: us-east-1
   access_key: minio
   secret_key: minio12345
   bucket: inferops
-
-# Triton Inference Server (CUDA + NVIDIA).
 triton:
   url: localhost:8001
   http_url: http://localhost:8000
-
 api:
   host: 0.0.0.0
   port: 8080

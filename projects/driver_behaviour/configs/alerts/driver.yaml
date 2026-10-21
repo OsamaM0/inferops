@@ -23,6 +23,4 @@ cooldown:
   per_dedupe_key_ms: 30000
 sinks:
   - { name: ws,     kind: ws,     params: { channel: "alerts.{entity_id}" } }
-  - { name: pg,     kind: postgres, params: {} }
   - { name: stdout, kind: stdout,  params: {} }
-persistence_enabled: true

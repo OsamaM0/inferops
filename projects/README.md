@@ -1,6 +1,11 @@
 # Projects
 
-Each folder is a runnable project. Start with `project.yaml`, then edit model
+Each folder is a runnable project. Open **Configuration** in the UI to edit
+project settings, models, pipelines, rules and alerts through forms. The editor
+discovers each project's schema and logical model variants automatically.
+Use **Add configuration**, **Validate**, then **Save changes** to extend it.
+
+For file-based workflows, start with `project.yaml`, then edit model
 configuration in `models/<name>/model.yaml` and pipeline/rule/action configuration
 in `configs/`. Real weights are prepared into that project's `model_repository/`.
 

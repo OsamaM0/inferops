@@ -1,0 +1,73 @@
+# Detector-only contract: no face/head-pose or hands-on-wheel signal producer.
+name: driver_video_fusion
+entity_key: stream_id
+signals:
+- phone_score
+- seatbelt_score
+- smoking_score
+- eating_score
+extract:
+  phone_score: max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class',
+    {}).get('phone',     []))), default=0.0)
+  seatbelt_score: max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class',
+    {}).get('seatbelt',  []))), default=1.0)
+  smoking_score: payload.get('smoking_face_score', 0.0) or max((d['score'] for r in
+    results if r.raw for d in (r.raw.get('by_class', {}).get('cigarette', []))), default=0.0)
+  eating_score: payload.get('eating_face_score', 0.0) or max((d['score'] for r in
+    results if r.raw for d in (r.raw.get('by_class', {}).get('foodItem',  []))), default=0.0)
+derived:
+  phone: phone_score.fraction_above(0.5)
+  seatbelt: seatbelt_score.latest()
+  smoking: smoking_score.fraction_above(0.2)
+  eating: eating_score.fraction_above(0.5)
+windows:
+  phone_score:
+    kind: rolling_time
+    duration_ms: 5000
+    reducers:
+    - latest
+    - fraction_above
+  seatbelt_score:
+    kind: rolling_time
+    duration_ms: 5000
+    reducers:
+    - latest
+  smoking_score:
+    kind: rolling_time
+    duration_ms: 5000
+    reducers:
+    - latest
+    - fraction_above
+  eating_score:
+    kind: rolling_time
+    duration_ms: 5000
+    reducers:
+    - latest
+    - fraction_above
+rules:
+- name: phone_use
+  when: phone >= 0.4 or phone_score.max() >= 0.5
+  severity: medium
+  cooldown_ms: 30000
+  emit:
+    type: phone_use
+- name: no_seatbelt
+  when: seatbelt < 0.4
+  severity: medium
+  cooldown_ms: 60000
+  emit:
+    type: no_seatbelt
+- name: smoking
+  when: smoking >= 0.2
+  severity: medium
+  cooldown_ms: 60000
+  emit:
+    type: smoking
+- name: eating
+  when: eating >= 0.5
+  severity: low
+  cooldown_ms: 30000
+  emit:
+    type: eating
+outputs:
+  events_topic: inferops.events.driver
