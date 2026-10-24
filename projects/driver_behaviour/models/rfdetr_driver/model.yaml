@@ -48,7 +48,8 @@ defaults:
   postprocess:
     plugin: .models.rfdetr_driver.adapter:RFDetrPostprocess
     params:
-      conf_threshold: 0.35
+      # Only return detections with >=80% model confidence (all object classes).
+      conf_threshold: 0.80
   batching:
     enabled: false
     max_batch_size: 1
