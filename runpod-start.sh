@@ -35,6 +35,11 @@ trap 'exit 143' TERM
 [[ "$(uname -m)" == x86_64 ]] || fail 'This bootstrap currently supports x86_64 CUDA Pods.'
 [[ -f "$APP/pyproject.toml" ]] || fail "Repository not found at $APP (clone it before calling this script)."
 mkdir -p "$DATA"/{bin,logs,secrets,recordings,app}
+# Root owns the shared /workspace data folder, while PostgreSQL runs as an
+# unprivileged OS user. Grant directory *traversal* (not listing) so postgres
+# can access its owned database/socket and log file. Keep secrets root-only.
+chmod 0711 "$DATA" "$DATA/logs"
+chmod 0700 "$DATA/secrets"
 
 # OS packages disappear on a rebuilt Pod. Python/model artifacts stay on /workspace.
 if ! command -v pg_config >/dev/null || ! command -v curl >/dev/null || ! command -v ffmpeg >/dev/null; then
@@ -71,6 +76,7 @@ if [[ ! -f "$PGDATA/PG_VERSION" ]]; then
     printf '%s\n' "$PGPASSWORD_LOCAL" > "$pw_temp"
     chown postgres:postgres "$pw_temp"
     chmod 600 "$pw_temp"
+    runuser -u postgres -- test -r "$pw_temp" || fail "postgres cannot read its initdb password file; check /workspace permissions"
     runuser -u postgres -- "$PGBIN/initdb" -D "$PGDATA" --username=postgres \
         --auth-local=peer --auth-host=scram-sha-256 --pwfile="$pw_temp" >/dev/null
     rm -f "$pw_temp"
