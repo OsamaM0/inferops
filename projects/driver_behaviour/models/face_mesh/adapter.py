@@ -430,6 +430,7 @@ class FaceMeshStage(Stage):
         model: str = "face_mesh_onnx",
         fallback_model: str | None = None,
         face_confidence_threshold: float = 0.5,
+        allow_haar_fallback: bool = True,
         crop_padding: float = 0.25,
         min_infer_interval_ms: int = 66,
     ) -> None:
@@ -437,12 +438,14 @@ class FaceMeshStage(Stage):
             model=model,
             fallback_model=None,
             face_confidence_threshold=face_confidence_threshold,
+            allow_haar_fallback=allow_haar_fallback,
             crop_padding=crop_padding,
             min_infer_interval_ms=min_infer_interval_ms,
         )
         self.model = model
         self.fallback_model = None  # Legacy parameter is accepted; model fallback is disabled.
         self.face_confidence_threshold = face_confidence_threshold
+        self.allow_haar_fallback = bool(allow_haar_fallback)
         self.crop_padding = crop_padding
         self.min_infer_interval_ms = max(0, int(min_infer_interval_ms))
         self._active_model: str = model
@@ -734,7 +737,7 @@ class FaceMeshStage(Stage):
         )
 
         if raw is None:
-            if haar_face is not None:
+            if self.allow_haar_fallback and haar_face is not None:
                 self._apply_face_fallback(item, haar_face)
                 self._store_face_cache(item)
             return item
@@ -753,7 +756,7 @@ class FaceMeshStage(Stage):
         item.payload["face_mesh_confidence"] = confidence
 
         if confidence < self.face_confidence_threshold or len(landmarks) < 468:
-            if haar_face is not None:
+            if self.allow_haar_fallback and haar_face is not None:
                 self._apply_face_fallback(item, haar_face)
                 self._store_face_cache(item)
             return item
