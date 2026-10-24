@@ -432,7 +432,7 @@ class FaceMeshStage(Stage):
         self,
         model: str = "face_mesh_onnx",
         fallback_model: str | None = None,
-        face_confidence_threshold: float = 0.5,
+        face_confidence_threshold: float = 0.8,
         allow_haar_fallback: bool = True,
         face_flag_output: str = "Identity_1",
         face_flag_is_logit: bool = True,
@@ -655,10 +655,13 @@ class FaceMeshStage(Stage):
         return best
 
     def _apply_face_fallback(self, item: StageItem, face_info: dict[str, Any]) -> None:
+        confidence = float(face_info.get("confidence", 0.0))
+        if not np.isfinite(confidence) or confidence < self.face_confidence_threshold:
+            return
         face_box = tuple(face_info["face_box"])
         pose = dict(face_info.get("face_pose") or {})
         drowsy_score = float(face_info.get("drowsy_ear", 0.0))
-        item.payload["face_mesh_confidence"] = float(face_info.get("confidence", 0.0))
+        item.payload["face_mesh_confidence"] = confidence
         item.payload["face_box"] = face_box
         item.payload["drowsy_ear"] = drowsy_score
         item.payload["face_pose"] = pose

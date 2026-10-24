@@ -44,7 +44,7 @@ def _looks_like_placeholder_output(logits: np.ndarray, boxes: np.ndarray) -> boo
 
 
 class RFDetrPostprocess(Postprocessor):
-    def __init__(self, conf_threshold: float = 0.35,
+    def __init__(self, conf_threshold: float = 0.8,
                  class_names: list[str] | None = None,
                  reject_placeholder_outputs: bool = True,
                  drop_unmapped_classes: bool = True) -> None:
