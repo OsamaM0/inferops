@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from contextlib import suppress
 
 from inferops.domain.sources import FrameCadence, SourceSpec
@@ -76,11 +77,12 @@ class SourceManager:
                         await self.run(camera_id, retry_autostart=True)
             await asyncio.sleep(10)
 
-    async def put(self, spec: SourceSpec, *, create=False):
+    async def put(self, spec: SourceSpec, *, create=False, restart_running=False):
+        restart = False
         async with self._lock:
             if create and spec.camera_id in self.specs:
                 raise ValueError("camera_id is already registered")
-            if spec.camera_id in self.tasks:
+            if spec.camera_id in self.tasks and not restart_running:
                 raise ValueError("stop the source before editing its configuration")
             if spec.pipeline not in self.application.definition.pipelines:
                 raise ValueError("unknown pipeline")
@@ -91,21 +93,48 @@ class SourceManager:
                 previous = self.specs.get(spec.camera_id)
                 if previous and previous.kind == "rtsp" and spec.kind != "rtsp":
                     await self.relay.remove(spec.camera_id)
+            task = self.tasks.get(spec.camera_id)
+            if task:
+                restart = True
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
             await self.store.put_source(spec)
             self.specs[spec.camera_id] = spec
             self._autostart_pending.discard(spec.camera_id)
             self.previews.pop(spec.camera_id, None)
             self.states.pop(spec.camera_id, None)
-            return self.snapshot(spec.camera_id)
+        return await self.run(spec.camera_id) if restart else self.snapshot(spec.camera_id)
+
+    async def restart_active(self):
+        active = list(self.tasks)
+        restarted, failed = [], []
+        for camera_id in active:
+            try:
+                await self.stop(camera_id)
+            except Exception:
+                failed.append(camera_id)
+        for camera_id in active:
+            if camera_id in failed:
+                continue
+            try:
+                if self.specs[camera_id].pipeline in self.application.definition.pipelines:
+                    await self.run(camera_id)
+                    restarted.append(camera_id)
+            except Exception:
+                failed.append(camera_id)
+                self.states.setdefault(camera_id, {}).update(
+                    status="error", error="Configuration saved; source restart failed. Check the pipeline and start again.")
+                log.warning("Source configuration restart failed: camera_id=%s", camera_id)
+        return {"restarted_sources": restarted, "failed_sources": failed}
 
     def snapshot(self, camera_id):
         spec = self.specs[camera_id]
         # Credentials stay on the server. Editing uses a blank URI to retain it.
         public = spec.model_dump(exclude={"uri"})
         return {
+            **self.states.get(camera_id, {"status": "stopped"}),
             **public,
             "configured": True,
-            **self.states.get(camera_id, {"status": "stopped"}),
             "active": camera_id in self.tasks,
             "live_video_available": self.relay is not None and spec.kind == "rtsp",
         }
@@ -144,6 +173,10 @@ class SourceManager:
                 fps=0,
                 latency_ms=0,
                 preview_version=0,
+                group=spec.group,
+                location=spec.location,
+                config_revision=getattr(getattr(session, "definition", None), "revision", None),
+                effective_settings=spec.model_dump(exclude={"uri"}),
             )
             self.states[camera_id] = state
             self.previews.pop(camera_id, None)
@@ -175,6 +208,33 @@ class SourceManager:
         began = time.monotonic()
         queue = asyncio.Queue(maxsize=1)
         sentinel = object()
+        completed_at = deque(maxlen=256)
+        preview_queue = asyncio.Queue(maxsize=1)
+
+        async def previews():
+            while True:
+                value = await preview_queue.get()
+                if value is sentinel:
+                    return
+                image, output = value
+                started = time.monotonic()
+                async def publish(image=image, output=output, started=started):
+                    jpeg = await self.render(image, output, spec, session.annotator)
+                    await self.store.save_preview(spec.camera_id, jpeg)
+                    self.previews[spec.camera_id] = jpeg
+                    state["preview_version"] += 1
+                    state["preview_ms"] = round((time.monotonic() - started) * 1000, 1)
+                publishing = asyncio.create_task(publish())
+                try:
+                    await asyncio.shield(publishing)
+                    state.pop("preview_error", None)
+                except asyncio.CancelledError:
+                    await asyncio.gather(publishing, return_exceptions=True)
+                    raise
+                except Exception:
+                    state["preview_error"] = "Preview unavailable; analysis is continuing"
+
+        preview_worker = asyncio.create_task(previews(), name=f"preview-{spec.camera_id}")
 
         async def receive():
             frames = self.frames(spec, state)
@@ -182,7 +242,9 @@ class SourceManager:
             try:
                 async for frame in frames:
                     frame.payload["live_mode"] = True
+                    observed_at = time.monotonic()
                     await session.observe(frame)
+                    state["evidence_observe_ms"] = round((time.monotonic() - observed_at) * 1000, 1)
                     media_ns = frame.media_time_ns or 0
                     if not cadence.due(media_ns, frame.payload.get("connection_generation")):
                         state["sampling_skips"] += 1
@@ -229,7 +291,22 @@ class SourceManager:
                 state["latency_ms"] = round((time.monotonic() - started) * 1000, 1)
                 state["receive_to_result_ms"] = round((time.monotonic() - captured) * 1000, 1)
                 state["processed"] += 1
-                state["fps"] = round(state["processed"] / max(0.001, time.monotonic() - began), 2)
+                now = time.monotonic()
+                completed_at.append(now)
+                while len(completed_at) > 2 and completed_at[0] < now - 5:
+                    completed_at.popleft()
+                state["fps"] = round((len(completed_at) - 1) / max(.001, now - completed_at[0]), 2)
+                state["session_fps"] = round(state["processed"] / max(.001, now - began), 2)
+                state["below_target"] = len(completed_at) > 2 and state["fps"] < spec.inference_fps * .9
+                timings = {key.removeprefix("stage_ms."): round(float(value), 1)
+                           for output in outputs for key, value in getattr(output, "trace", {}).items()
+                           if key.startswith("stage_ms.")}
+                state["stage_timings_ms"] = timings
+                if timings:
+                    state["slowest_stage"] = max(timings, key=timings.get)
+                models = getattr(session, "models", None)
+                if hasattr(models, "runtime_status"):
+                    state["model_runtime"] = models.runtime_status()
                 state["last_result_at"] = time.time()
                 state["processed_width"], state["processed_height"] = (
                     frame.image.shape[1],
@@ -250,11 +327,9 @@ class SourceManager:
                 if spec.preview_enabled and outputs and time.monotonic() >= preview_at:
                     # Encode exactly the frame whose annotations were produced;
                     # one cached JPEG per camera, shared by all viewers.
-                    self.previews[spec.camera_id] = await self.render(
-                        frame.image, outputs[-1], spec, session.annotator
-                    )
-                    await self.store.save_preview(spec.camera_id, self.previews[spec.camera_id])
-                    state["preview_version"] += 1
+                    if preview_queue.full():
+                        preview_queue.get_nowait()
+                    preview_queue.put_nowait((frame.image, outputs[-1]))
                     preview_at = time.monotonic() + 1 / spec.preview_fps
             state["status"] = "completed"
         except asyncio.CancelledError:
@@ -269,6 +344,11 @@ class SourceManager:
         finally:
             reader.cancel()
             await asyncio.gather(reader, return_exceptions=True)
+            if state["status"] == "completed":
+                await preview_queue.put(sentinel)
+            else:
+                preview_worker.cancel()
+            await asyncio.gather(preview_worker, return_exceptions=True)
             try:
                 await session.close(state["status"])
             finally:

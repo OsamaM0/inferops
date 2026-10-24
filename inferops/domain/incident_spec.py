@@ -45,6 +45,7 @@ class AlertSpec(BaseModel):
     cooldown: CooldownSpec = Field(default_factory=CooldownSpec)
     sinks: list[SinkSpec] = Field(default_factory=list)
     persistence_enabled: bool = True
+    event_types: list[str] | None = None
 
 
 class AlertCandidate(BaseModel):

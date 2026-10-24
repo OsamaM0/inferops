@@ -21,12 +21,16 @@ VIDEO = find_sample_video(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(VIDEO is None, reason="no sample video found (set INFEROPS_TEST_VIDEO)")
-async def test_video_drives_pipeline_and_emits_alert():
+async def test_video_drives_real_pipeline_and_only_emits_confirmed_incidents():
     app = create_app()
     async with app.router.lifespan_context(app):
         result = await app.state.engine.run(MANIFEST.scenario.pipeline, VIDEO, stream_name="cam-test")
     assert result["frames"] == 187
     assert "rfdetr_driver_onnx" in result["models_used"]
-    assert result["event_count"] > 0
-    assert result["incident_count"] > 0
-    assert any(alert["severity"] in {"low", "medium", "high"} for alert in result["alerts"])
+    # This sample has no ground-truth promise of unsafe behavior. A short,
+    # intermittent detection must not be forced into an incident to pass QA.
+    for alert in result["alerts"]:
+        confirmed = alert["payload"]["confirmation"]
+        assert confirmed["required_ms"] == 3000
+        assert confirmed["observed_ms"] >= 3000 and confirmed["samples"] >= 3
+        assert alert["type"] not in {"STATE_NORMAL", "STATE_RECOVERED"}

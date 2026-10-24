@@ -16,10 +16,10 @@ extract:
   eating_score: payload.get('eating_face_score', 0.0) or max((d['score'] for r in
     results if r.raw for d in (r.raw.get('by_class', {}).get('foodItem',  []))), default=0.0)
 derived:
-  phone: phone_score.fraction_above(0.5)
+  phone: phone_score.latest() or 0.0
   seatbelt: seatbelt_score.latest()
-  smoking: smoking_score.fraction_above(0.2)
-  eating: eating_score.fraction_above(0.5)
+  smoking: smoking_score.latest() or 0.0
+  eating: eating_score.latest() or 0.0
 windows:
   phone_score:
     kind: rolling_time
@@ -46,26 +46,38 @@ windows:
     - fraction_above
 rules:
 - name: phone_use
-  when: phone >= 0.4 or phone_score.max() >= 0.5
+  when: phone >= 0.5
   severity: medium
+  confirm_ms: 3000
+  min_samples: 3
+  max_gap_ms: 1500
   cooldown_ms: 30000
   emit:
     type: phone_use
 - name: no_seatbelt
   when: seatbelt < 0.4
   severity: medium
+  confirm_ms: 3000
+  min_samples: 3
+  max_gap_ms: 1500
   cooldown_ms: 60000
   emit:
     type: no_seatbelt
 - name: smoking
   when: smoking >= 0.2
   severity: medium
+  confirm_ms: 3000
+  min_samples: 3
+  max_gap_ms: 1500
   cooldown_ms: 60000
   emit:
     type: smoking
 - name: eating
   when: eating >= 0.5
   severity: low
+  confirm_ms: 3000
+  min_samples: 3
+  max_gap_ms: 1500
   cooldown_ms: 30000
   emit:
     type: eating

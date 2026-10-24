@@ -1,6 +1,7 @@
 """The generic settings UI and YAML API share one project configuration."""
 from __future__ import annotations
 
+import asyncio
 import shutil
 
 import pytest
@@ -210,3 +211,62 @@ def test_driver_profiles_keep_distinct_behaviors_when_relocated(tmp_path):
     assert any(stage.stage == "track" for stage in full.stages)
     assert all(stage.stage != "track" for stage in reduced.stages)
     assert all("face_mesh" not in stage.stage for stage in reduced.stages)
+
+
+async def test_model_save_restarts_running_camera_with_new_revision_but_leaves_explicit_sessions(workspace):
+    from inferops.adapters.outbound.persistence.source_catalog import MemorySourceStore
+    from inferops.application.sources import SourceManager
+    from inferops.domain.sources import SourceSpec
+
+    _, _, engine, client = workspace
+    explicit = await engine.open_session("inspection")
+
+    async def frames(*args):
+        await asyncio.Event().wait()
+        yield None
+
+    sources = SourceManager(engine.application, MemorySourceStore(), frames=frames, render=None, serialize=None)
+    client._transport.app.state.sources = sources
+    await sources.start()
+    await sources.put(SourceSpec(camera_id="driver", name="Driver", kind="rtsp", uri="rtsp://camera/live",
+                                 pipeline="inspection"))
+    initial = await sources.run("driver")
+    try:
+        entry = (await client.get("/v1/configs/models/detector")).json()
+        entry["data"]["defaults"]["labels"] = ["saved-label"]
+        response = await client.put("/v1/configs/models/detector", json={"data": entry["data"]})
+        assert response.status_code == 200, response.text
+        assert response.json()["restarted_sources"] == ["driver"]
+        current = sources.snapshot("driver")
+        assert current["session_id"] != initial["session_id"]
+        assert current["config_revision"] == engine.application.definition.revision
+        current_session = engine.application.sessions[current["session_id"]]
+        assert current_session.models.get_spec("objects").label_list() == ["saved-label"]
+        assert explicit.models.get_spec("objects").label_list() != ["saved-label"]
+        entry = (await client.get("/v1/configs/models/detector")).json()
+        response = await client.put("/v1/configs/models/detector", json={"data": entry["data"], "reload": False})
+        assert not response.json()["restarted_sources"]
+        assert sources.snapshot("driver")["session_id"] == current["session_id"]
+    finally:
+        await sources.close()
+        await explicit.close()
+
+
+async def test_admission_save_applies_pool_limits_live_and_respects_environment(workspace, monkeypatch):
+    _, _, engine, client = workspace
+    entry = (await client.get("/v1/configs/platform/platform")).json()
+    entry["data"]["runtime"] = {"admission": {"local_device_capacity": 4, "remote_outstanding": 16}}
+    monkeypatch.setenv("INFEROPS_ADMISSION_REMOTE_OUTSTANDING", "24")
+    response = await client.put("/v1/configs/platform/platform", json={"data": entry["data"]})
+    assert response.status_code == 200, response.text
+    assert not response.json()["restart_required"]
+    assert engine.application.models.max_concurrency == 4
+    assert engine.application.models.triton_concurrency == 24
+    # Container platform defaults can be read-only; writable project overrides
+    # must support the same live admission settings without model preparation.
+    project = (await client.get("/v1/configs/project/project")).json()
+    project["data"]["platform"] = {"runtime": {"admission": {"local_device_capacity": 6}}}
+    response = await client.put("/v1/configs/project/project", json={"data": project["data"]})
+    assert response.status_code == 200, response.text
+    assert not response.json()["restart_required"] and not response.json()["preparation_required"]
+    assert engine.application.models.max_concurrency == 6

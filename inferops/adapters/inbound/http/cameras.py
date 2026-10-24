@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 
 from inferops.adapters.outbound.observability.capacity_profiles import (
     model_fingerprints,
@@ -66,7 +66,7 @@ def manager(request):
     return request.app.state.sources
 
 
-async def forward_owned(request, kind, record_id, *, body=None, worker_id=None):
+async def forward_owned(request, kind, record_id, *, body=None, worker_id=None, path=None, method=None):
     if getattr(request.app.state, "role", "combined") != "api":
         return None
     controls = request.app.state.worker_controls
@@ -84,7 +84,7 @@ async def forward_owned(request, kind, record_id, *, body=None, worker_id=None):
         if control is None:
             raise HTTPException(503, "owning worker is not in the active control manifest")
         params = [(key, value) for key, value in request.query_params.multi_items() if key != "worker_id"]
-        return await control.forward(request.method, request.url.path, body=body, params=params)
+        return await control.forward(method or request.method, path or request.url.path, body=body, params=params)
     return None
 
 
@@ -133,7 +133,7 @@ async def edit_camera(request: Request, camera_id: str, payload: dict):
         raise HTTPException(400, "camera_id is immutable")
     values = {**existing.model_dump(), **payload, "camera_id": camera_id}
     values["uri"] = payload.get("uri") or existing.uri
-    return await selected.put(SourceSpec.model_validate(values))
+    return await selected.put(SourceSpec.model_validate(values), restart_running=True)
 
 
 @router.post("/cameras/{camera_id}/start")
@@ -198,24 +198,91 @@ def live_urls(request, path):
                                            path="/", query=""))
         result[f"{protocol}_url"] = (f"{base.rstrip('/')}/{quote(path, safe='/')}"
                                       "?muted=true&autoplay=true&playsInline=true")
+        result[f"{protocol}_proxy_url"] = f"{request.url.path.rstrip('/')}/{protocol}/?muted=true&autoplay=true&playsInline=true"
     return result
 
 
 @router.get("/cameras/{camera_id}/live")
 async def live_video(request: Request, camera_id: str):
-    forwarded = await forward_owned(request, "camera", camera_id)
+    return live_urls(request, await _live_path(request, camera_id, prepare=True))
+
+
+async def _live_path(request, camera_id, *, prepare=False):
+    forwarded = await forward_owned(request, "camera", camera_id, method="GET",
+                                    path=f"/v1/cameras/{camera_id}/live")
     if forwarded is not None:
         if forwarded.status_code != 200:
-            return forwarded
+            raise HTTPException(forwarded.status_code, "Live video is unavailable on the owning worker")
         # The worker's HTTP hostname is internal; build public URLs at the API.
-        return live_urls(request, json.loads(forwarded.body)["path"])
+        return json.loads(forwarded.body)["path"]
     selected = manager(request)
     async with selected._lock:
-        spec = selected.specs[camera_id]
+        spec = selected.specs.get(camera_id)
+        if spec is None:
+            raise HTTPException(404, "source not found")
         if spec.kind != "rtsp" or selected.relay is None:
             raise HTTPException(409, "Live video requires an RTSP source and MediaMTX routing")
-        await selected.relay.prepare(spec)
-        return live_urls(request, selected.relay.path(camera_id))
+        if prepare:
+            await selected.relay.prepare(spec)
+        return selected.relay.path(camera_id)
+
+
+def _live_http_client():
+    import httpx
+    return httpx.AsyncClient(timeout=30, trust_env=False)
+
+
+@router.api_route("/cameras/{camera_id}/live/{protocol}/{resource:path}",
+                  methods=["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"], include_in_schema=False)
+async def proxy_live_video(request: Request, camera_id: str, protocol: str, resource: str):
+    """Keep playlists, segments, player assets and WHEP signaling on the API origin."""
+    from urllib.parse import quote, urlsplit
+
+    import httpx
+
+    if protocol not in {"hls", "webrtc"}:
+        raise HTTPException(404, "unknown live video protocol")
+    if "\\" in resource or any(part in {".", ".."} for part in resource.split("/")):
+        raise HTTPException(400, "invalid player resource")
+    path = await _live_path(request, camera_id)
+    base = os.getenv(f"INFEROPS_MEDIAMTX_{protocol.upper()}_INTERNAL_URL", "").strip()
+    if not base:
+        api_url = os.getenv("INFEROPS_MEDIAMTX_API_URL", "http://127.0.0.1:9997")
+        base = str(httpx.URL(api_url).copy_with(port=8888 if protocol == "hls" else 8889, path="/"))
+    parsed = urlsplit(base)
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password
+            or parsed.query or parsed.fragment):
+        raise HTTPException(503, "Invalid internal media player URL")
+    root = f"{base.rstrip('/')}/{quote(path, safe='/')}/"
+    target = root + quote(resource, safe="/")
+    headers = {key: request.headers[key] for key in ("range", "content-type", "accept", "if-match")
+               if key in request.headers}
+    client = _live_http_client()
+    try:
+        upstream = await client.send(client.build_request(request.method, target, params=request.query_params,
+                                     headers=headers, content=await request.body()), stream=True)
+    except httpx.HTTPError:
+        await client.aclose()
+        raise HTTPException(502, "Cannot reach the live video service. Check MediaMTX and the camera connection.") from None
+    response_headers = {key: upstream.headers[key] for key in
+                        ("content-type", "content-range", "accept-ranges", "etag", "link")
+                        if key in upstream.headers}
+    response_headers["cache-control"] = "no-store"
+    if "location" in upstream.headers:
+        location = httpx.URL(target).join(upstream.headers["location"])
+        prefix = request.url.path[:request.url.path.index(f"/live/{protocol}/")] + f"/live/{protocol}/"
+        if str(location).startswith(root):
+            response_headers["location"] = prefix + str(location)[len(root):]
+
+    async def content():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(content(), status_code=upstream.status_code, headers=response_headers)
 
 
 def recording_urls(request, path, rows):

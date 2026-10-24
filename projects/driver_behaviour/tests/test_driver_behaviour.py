@@ -44,8 +44,8 @@ async def test_driver_fusion_phone_use_fires():
 
     events: list = []
     ts = 1_000_000
-    # 6 high-phone frames within a 5s window -> legacy phone score crosses 0.4.
-    for i in range(6):
+    # A real incident needs three seconds of continuing observations.
+    for i in range(17):
         events.extend(await eng.ingest_item(
             _item("cam1", ts + i * 200, {"phone": [{"label": "phone", "score": 0.9, "box": [0,0,0.1,0.1]}]})))
 
@@ -70,7 +70,7 @@ async def test_driver_alerts_dedupe_and_severity():
     item_payload = {"phone": [{"label": "phone", "score": 0.95, "box": [0,0,1,1]}]}
     # drive enough samples to trigger PHONE_USE
     first_alerts = []
-    for i in range(8):
+    for i in range(14):
         evs = await fusion.ingest_item(_item("cam9", ts + i * 250, item_payload))
         for ev in evs:
             from inferops.domain.incident_spec import AlertCandidate
@@ -85,7 +85,7 @@ async def test_driver_alerts_dedupe_and_severity():
     # Immediately re-submitting the same candidate is deduped (same key, within window).
     from inferops.domain.incident_spec import AlertCandidate
     dup = await alerts.submit(AlertCandidate(type="phone_use", entity_id="cam9",
-                                             ts_ms=ts + 8 * 250, payload={}))
+                                             ts_ms=ts + 14 * 250, payload={}))
     assert dup is None
 
 
@@ -96,12 +96,64 @@ async def test_driver_fusion_face_and_hand_signals():
     eng.spec.outputs.events_topic = None
     ts = 3_000_000
     events: list = []
-    for i in range(4):
+    for i in range(12):
         it = _item("cam2", ts + i * 300, {})
         it.payload.update({"drowsy_ear": 0.9, "distracted_score": 0.8, "hand_on_wheel": 0.0})
         events.extend(await eng.ingest_item(it))
     types = {e.type for e in events}
     assert {"drowsiness", "distraction", "hands_off_wheel"} <= types
+
+
+async def test_recovery_and_intermediate_states_do_not_create_alerts_or_clips():
+    from inferops.domain.incident_spec import AlertCandidate
+
+    alerts = AlertEngine(AlertSpec(**load_yaml(DB / "alerts" / "driver.yaml")))
+    for kind in ("STATE_NORMAL", "STATE_RECOVERED", "STATE_UNSAFE", "STATE_DROWSY", "STATE_DISTRACTED"):
+        assert await alerts.submit(AlertCandidate(type=kind, entity_id="driver", ts_ms=0)) is None
+
+
+async def test_strict_face_mode_never_scans_haar_or_promotes_its_false_faces():
+    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")(allow_haar_fallback=False)
+
+    def forbidden(*args):
+        raise AssertionError("Strict mode must not run CPU Haar scanning")
+
+    stage._detect_face_with_haar = forbidden
+    item = StageItem(payload={"image_np": np.zeros((80, 80, 3), np.uint8)})
+    output = await stage.process(item)
+    assert "face_box" not in output.payload and "overlay_boxes" not in output.payload
+
+
+def test_face_presence_uses_the_declared_logit_not_other_scalar_heads():
+    parse = load_object(".models.face_mesh.adapter:_parse_face_mesh_output")
+    raw = {"Identity": np.zeros((1, 1, 1, 1434), np.float32),
+           "Identity_1": np.array([[[[-8.0]]]], np.float32),
+           "Identity_2": np.array([[.999]], np.float32)}
+    _, confidence = parse(raw, (0, 0, 80, 80), 80, 80, 256)
+    assert confidence < .001
+    raw["Identity_1"][:] = .9  # A 0.9 logit is about 71%, not 90% or 100%.
+    _, confidence = parse(raw, (0, 0, 80, 80), 80, 80, 256)
+    assert .70 < confidence < .72
+    raw["Identity_1"][:] = np.nan
+    _, confidence = parse(raw, (0, 0, 80, 80), 80, 80, 256)
+    assert confidence == 0
+
+
+async def test_background_crop_with_high_auxiliary_score_never_draws_a_driver_face(monkeypatch):
+    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")(
+        allow_haar_fallback=False, face_confidence_threshold=.8)
+
+    async def background(*args):
+        return {"Identity": np.zeros((1, 1, 1, 1434), np.float32),
+                "Identity_1": np.array([[[[-8.0]]]], np.float32),
+                "Identity_2": np.array([[.999]], np.float32)}, "face_mesh", 256
+
+    monkeypatch.setitem(stage._process.__globals__, "_infer_face_mesh", background)
+    item = _item("bus-camera", 0, {"DriverBehaviour": [{"score": .95, "box": [.2, .2, .6, .7]}]})
+    item.payload["image_np"] = np.zeros((80, 80, 3), np.uint8)
+    output = await stage.process(item)
+    assert output.payload["face_mesh_confidence"] < .001
+    assert "face_box" not in output.payload and "overlay_boxes" not in output.payload
 
 
 @pytest.mark.asyncio

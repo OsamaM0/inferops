@@ -8,6 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from inferops.domain.fusion.confirmation import Confirmation
 from inferops.domain.fusion.dsl import safe_eval
 from inferops.domain.fusion.signals import FusionEvent, Signal
 from inferops.domain.fusion.spec import FusionSpec
@@ -24,18 +25,19 @@ class FusionEngine:
     def reset(self) -> None:
         self._windows: dict[tuple[str, str], Window] = {}
         self._cooldowns: dict[tuple[str, str], int] = {}
+        self._confirmation = Confirmation()
         self._fsm = StateMachine(self.spec.state_machine) if self.spec.state_machine else None
 
-    def checkpoint(self) -> tuple[dict, dict, StateMachine | None]:
+    def checkpoint(self) -> tuple[dict, dict, StateMachine | None, Confirmation]:
         """Snapshot mutable decisions before a durable application transaction.
 
         This is an in-process rollback point, not persisted session recovery.
         """
-        return deepcopy((self._windows, self._cooldowns, self._fsm))
+        return deepcopy((self._windows, self._cooldowns, self._fsm, self._confirmation))
 
-    def restore(self, checkpoint: tuple[dict, dict, StateMachine | None]) -> None:
+    def restore(self, checkpoint: tuple[dict, dict, StateMachine | None, Confirmation]) -> None:
         # A checkpoint can be reused without subsequent ingestion mutating it.
-        self._windows, self._cooldowns, self._fsm = deepcopy(checkpoint)
+        self._windows, self._cooldowns, self._fsm, self._confirmation = deepcopy(checkpoint)
 
     def _window(self, entity: str, signal: str) -> Window | None:
         window_spec = self.spec.windows.get(signal)
@@ -91,9 +93,10 @@ class FusionEngine:
                 allowed = bool(safe_eval(rule.when, namespace))
             except Exception:
                 allowed = False
-            if not allowed:
-                continue
             key = (entity, rule.name)
+            if not self._confirmation.ready(key, allowed, timestamp, confirm_ms=rule.confirm_ms,
+                                            min_samples=rule.min_samples, max_gap_ms=rule.max_gap_ms):
+                continue
             if self._cooldowns.get(key, 0) > timestamp:
                 continue
             self._cooldowns[key] = timestamp + rule.cooldown_ms
@@ -101,6 +104,7 @@ class FusionEngine:
                 fusion=self.spec.name, entity_id=entity, ts_ms=timestamp,
                 type=(rule.emit or {}).get("type", rule.name), severity=rule.severity,
                 payload={"rule": rule.name, **(rule.emit or {}),
+                         "confirmation": self._confirmation.details(key, timestamp, rule.confirm_ms),
                          "signals": {signal: namespace[signal].asdict()
                                      if hasattr(namespace[signal], "asdict") else namespace[signal]
                                      for signal in self.spec.signals},
@@ -110,7 +114,8 @@ class FusionEngine:
             state, _actions = self._fsm.evaluate(entity, timestamp, namespace)
             if state is not None:
                 events.append(FusionEvent(fusion=self.spec.name, entity_id=entity, ts_ms=timestamp,
-                                          type=f"STATE_{state}", payload={"state": state}))
+                                          type=f"STATE_{state}", payload={"state": state,
+                                          "confirmation": self._fsm.confirmed[entity]}))
         return events
 
 

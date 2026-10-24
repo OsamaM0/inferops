@@ -44,6 +44,8 @@ class IncidentPolicy:
         return f"{candidate.type}:{candidate.entity_id}"
 
     async def submit(self, candidate: AlertCandidate) -> Alert | None:
+        if self.spec.event_types is not None and candidate.type not in self.spec.event_types:
+            return None
         timestamp = candidate.ts_ms
         # Expiry pruning bounds state over long sessions with changing entities.
         self._dedupe = {key: expiry for key, expiry in self._dedupe.items() if expiry > timestamp}

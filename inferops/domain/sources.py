@@ -35,6 +35,8 @@ class SourceSpec(BaseModel):
 
     camera_id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
     name: str = Field(min_length=1, max_length=120)
+    group: str = Field(default="", max_length=120)
+    location: str = Field(default="", max_length=240)
     kind: Literal["rtsp", "video", "image"]
     uri: str = Field(min_length=1, max_length=4096)
     pipeline: str = Field(min_length=1, max_length=120)

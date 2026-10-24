@@ -23,8 +23,9 @@ from inferops.domain.capacity import assess_capacity
 from inferops.domain.evidence import EvidenceConfig
 from inferops.domain.processing import MediaFrame
 from inferops.domain.sources import SourceSpec
+from inferops.domain.types import StageItem
 from inferops.testing.postgres import test_database_url
-from tests.test_redesign_engine import project
+from tests.test_redesign_engine import engine, project
 
 
 def spec(**kwargs):
@@ -52,7 +53,7 @@ def test_source_validation(patch):
 async def test_catalog_preserves_identity_history_and_bounds_results(tmp_path):
     store = PostgresSourceStore(test_database_url(tmp_path), preview_root=tmp_path / "previews", results_per_camera=2)
     await store.start()
-    await store.put_source(spec())
+    await store.put_source(spec(group="Fleet A", location="Bus 101"))
     await store.save_run(dict(session_id="s1", camera_id="front-1", status="running", started_at=time.time()))
     for n in range(4):
         await store.save_result("front-1", "s1", {"sequence": n})
@@ -61,6 +62,8 @@ async def test_catalog_preserves_identity_history_and_bounds_results(tmp_path):
     reopened = PostgresSourceStore(store.url, preview_root=tmp_path / "previews")
     await reopened.start()
     assert (await reopened.list_sources())[0].camera_id == "front-1"
+    assert (await reopened.list_sources())[0].group == "Fleet A"
+    assert (await reopened.list_sources())[0].location == "Bus 101"
     assert (await reopened.list_runs("front-1"))[0]["status"] == "interrupted"
     assert [r["sequence"] for r in await reopened.list_results("front-1")] == [3, 2]
     await reopened.delete_source("front-1")
@@ -218,6 +221,98 @@ async def test_source_limit_immediate_stop_and_credential_redaction(tmp_path):
     await selected.run("second")
     await selected.close()
     assert all(s.closed for s in sessions)
+
+
+async def test_edit_running_stream_applies_fps_resolution_and_metadata(tmp_path):
+    app = create_application(engine(tmp_path, evidence=False), source_root=tmp_path / "registry")
+    seen = []
+
+    async def frames(source, state):
+        seen.append(source)
+        await asyncio.Event().wait()
+        yield None
+
+    async with app.router.lifespan_context(app), AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        app.state.sources.frames = frames
+        payload = spec().model_copy(update={"kind": "rtsp", "uri": "rtsp://camera/live"}).model_dump()
+        assert (await client.post("/v1/cameras", json=payload)).status_code == 201
+        first = (await client.post("/v1/cameras/front-1/start")).json()
+        response = await client.put("/v1/cameras/front-1", json={
+            "inference_fps": 30, "preview_fps": 10, "max_width": 1280, "max_height": 720,
+            "group": "Fleet A", "location": "Bus 101", "uri": ""})
+        assert response.status_code == 200, response.text
+        await asyncio.sleep(0)
+        saved = response.json()
+        assert saved["active"] and saved["session_id"] != first["session_id"]
+        assert seen[-1].inference_fps == 30 and seen[-1].max_width == 1280
+        assert seen[-1].preview_fps == 10 and seen[-1].max_height == 720
+        assert saved["group"] == "Fleet A" and saved["location"] == "Bus 101"
+        assert saved["effective_settings"]["inference_fps"] == 30
+        assert "uri" not in saved["effective_settings"]
+        assert (await app.state.sources.store.list_sources())[0].group == "Fleet A"
+        await client.post("/v1/cameras/front-1/stop")
+        saved = await client.put("/v1/cameras/front-1", json={"group": "Fleet B", "location": "Bus 102"})
+        assert saved.json()["group"] == "Fleet B"
+
+    restarted = create_application(
+        Engine.from_project(tmp_path / "project", repository=SqlRepository(test_database_url(tmp_path)), evidence=False),
+        source_root=tmp_path / "registry")
+    async with restarted.router.lifespan_context(restarted), AsyncClient(
+        transport=ASGITransport(app=restarted), base_url="http://test"
+    ) as client:
+        current = (await client.get("/v1/cameras")).json()["cameras"][0]
+        # Historical runs retain old metadata; the catalog shows the current settings.
+        assert current["group"] == "Fleet B" and current["location"] == "Bus 102"
+        assert current["inference_fps"] == 30
+
+
+async def test_slow_preview_does_not_block_analysis_and_keeps_one_pending_frame():
+    from inferops.adapters.outbound.persistence.source_catalog import MemorySourceStore
+
+    preview_started, release_preview = asyncio.Event(), asyncio.Event()
+
+    class Session:
+        id = "preview-test"
+        annotator = None
+
+        async def observe(self, frame):
+            pass
+
+        async def process(self, frame, **kwargs):
+            return [StageItem(trace={"stage_ms.detect": "1.5"})]
+
+        async def close(self, reason):
+            pass
+
+    async def open_session(*args, **kwargs):
+        return Session()
+
+    async def frames(source, state):
+        for sequence in range(6):
+            yield MediaFrame(np.zeros((8, 8, 3), np.uint8), sequence * 100_000_000, sequence)
+            await asyncio.sleep(.01)
+
+    async def render(*args):
+        preview_started.set()
+        await release_preview.wait()
+        return b"jpeg"
+
+    app = SimpleNamespace(definition=SimpleNamespace(pipelines={"test": None}), open_session=open_session)
+    selected = SourceManager(app, MemorySourceStore(), frames=frames, render=render, serialize=lambda _: {})
+    await selected.start()
+    await selected.put(spec(inference_fps=30, preview_fps=15))
+    await selected.run("front-1")
+    try:
+        await asyncio.wait_for(preview_started.wait(), 1)
+        for _ in range(50):
+            if selected.states["front-1"]["processed"] >= 4:
+                break
+            await asyncio.sleep(.01)
+        assert selected.states["front-1"]["processed"] >= 4
+        assert selected.states["front-1"]["stage_timings_ms"] == {"detect": 1.5}
+    finally:
+        release_preview.set()
+        await selected.close()
 
 
 async def test_decoder_cancellation_waits_for_native_read_before_close(monkeypatch):

@@ -37,6 +37,8 @@ jobs:
         run: python -m pytest tests/test_hexagonal_boundaries.py
       - run: python -m ruff check inferops tests scripts projects/driver_behaviour
       - run: python -m pytest tests
+      - name: Driver alert confirmation and face regressions
+        run: python -m pytest projects/driver_behaviour/tests/test_driver_behaviour.py projects/driver_behaviour/tests/test_frame_annotator.py
   postgres-minio:
     runs-on: ubuntu-latest
     services:

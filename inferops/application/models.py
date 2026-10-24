@@ -85,6 +85,11 @@ class ModelPool:
     def closed(self) -> bool:
         return self._closed
 
+    def runtime_status(self):
+        return [{"model": name, "device": backend.device, **backend.device_info,
+                 "concurrency": self.triton_concurrency if backend.device == "remote" else self.max_concurrency}
+                for name, backend in self._backends.items()]
+
     def get_spec(self, name: str) -> ModelSpec:
         resolved = self.resolve_name(name)
         if resolved not in self.definition.models:

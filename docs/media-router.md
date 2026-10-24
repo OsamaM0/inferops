@@ -89,11 +89,20 @@ docker compose up -d --force-recreate mediamtx
 ## Dashboard and API
 
 Register an RTSP source through Sources. **Live video** opens MediaMTX's native
-WebRTC/HLS player. **Recordings** lists the most recent finalized original-video
+player through the API's same-origin proxy and defaults to HLS. Player HTML,
+JavaScript, playlists and segments use the application URL, including HTTPS
+hosted proxies where ports 8888/8889 are not publicly exposed. WebRTC signaling
+is also proxied, but its media still requires reachable ICE ports or TURN.
+**Open player** retains the direct public URL for separately exposed media services.
+**Recordings** lists the most recent finalized original-video
 timespans and plays the selected entry. Both are unannotated camera video.
 Annotated previews and durable incident evidence remain separate.
 
 `GET /v1/cameras/{camera_id}/live` returns browser-facing player URLs.
+The `hls_proxy_url` and `webrtc_proxy_url` fields are relative to the API origin.
+If media uses a different internal host or port, configure
+`INFEROPS_MEDIAMTX_HLS_INTERNAL_URL` / `INFEROPS_MEDIAMTX_WEBRTC_INTERNAL_URL`;
+otherwise these derive from the Control API host and ports 8888/8889.
 `GET /v1/cameras/{camera_id}/recordings?start=<RFC3339>&end=<RFC3339>&limit=100`
 returns timespans and browser-facing MP4 URLs. API/worker responses rebuild public
 URLs at the API boundary and omit private upstream addresses and credentials.

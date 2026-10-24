@@ -1047,7 +1047,7 @@
         openConfig(payload);
         $("configStatus").textContent = payload.reload_behavior === "live"
           ? "Live sections are validated and reloaded after save when the checkbox is enabled."
-          : "Project and platform changes require a restart. New model sources require preparation before restart.";
+          : "Live model settings and admission limits apply on save. Service startup settings require restart; new model artifacts also require preparation.";
         if (!quiet) {
           setNotice(`Loaded config ${payload.section}/${payload.name}.`, "status-ok");
         }
@@ -1061,8 +1061,8 @@
       state.selectedConfig = payload;
       state.configDirty = false;
       $("configTitle").textContent = payload.title || payload.name;
-      $("configMeta").textContent = payload.reload_behavior === "live" ? "Applies to new sessions. Running sessions keep their current settings."
-        : payload.reload_behavior === "conditional" ? "Shared model settings and runtime overrides. Artifact changes need preparation and restart." : "Restart required to apply these settings.";
+      $("configMeta").textContent = payload.reload_behavior === "live" ? "Saving and reloading restarts active camera streams with the new settings. Explicit Python/API sessions keep their revision."
+        : payload.reload_behavior === "conditional" ? "Shared model settings apply to active streams on save. Artifact changes need preparation and restart." : "Restart required to apply these settings.";
       const overrides = ["platform", "project"].includes(payload.section) ? (state.configsIndex?.environment_overrides || []) : [];
       $("configDescription").textContent = (payload.description || "") + (overrides.length ? `\nStartup environment overrides: ${overrides.join(", ")}. Values are not copied into this document.` : "");
       $("configMode").value = "form";
@@ -1100,18 +1100,18 @@
           }
         );
         if (validateOnly) {
-          $("configStatus").textContent = `Configuration is valid. Nothing saved.${payload.restart_required ? " These changes require a restart." : " Ready to apply to new sessions."}`;
+          $("configStatus").textContent = `Configuration is valid. Nothing saved.${payload.restart_required ? " These changes require a restart." : " Ready to apply and restart active camera streams."}`;
           return;
         }
         openConfig(payload);
         $("configStatus").textContent = payload.restart_required
           ? payload.preparation_required ? "Saved. Run project preparation and restart to apply model artifact changes." : "Saved. Restart to apply startup settings."
           : payload.reload
-            ? `Saved and reloaded ${payload.reload.section}.`
+            ? `Saved and applied ${payload.reload.section}. Restarted ${(payload.restarted_sources || []).length} active streams.${payload.failed_sources?.length ? ` Restart failed: ${payload.failed_sources.join(", ")}.` : ""}`
             : "Saved without reload.";
         if (payload.enabled === false) $("configStatus").textContent += " Enable this pipeline in Project settings before using it.";
         await refreshSnapshot({ keepNotice: true });
-        setNotice(`Saved ${payload.title || payload.name}.`, payload.restart_required ? "status-warn" : "status-ok");
+        setNotice(`Saved ${payload.title || payload.name}.`, (payload.restart_required || payload.failed_sources?.length) ? "status-warn" : "status-ok");
       } catch (error) {
         console.error(error);
         $("configStatus").textContent = `${validateOnly ? "Validation" : "Save"} failed: ${error.message}`;
@@ -1129,7 +1129,7 @@
       try {
         const result = await request(`/v1/configs/reload?section=${encodeURIComponent(state.selectedConfig.section)}`, { method: "POST" });
         await refreshSnapshot({ keepNotice: true });
-        setNotice(result.restart_required ? "Saved startup changes require a restart before settings can be applied." : `Applied saved configuration to new sessions (${result.reloaded} pipelines).`, result.restart_required ? "status-warn" : "status-ok");
+        setNotice(result.restart_required ? "Saved startup changes require a restart before settings can be applied." : `Applied saved configuration (${result.reloaded} pipelines); restarted ${(result.restarted_sources || []).length} active streams.${result.failed_sources?.length ? ` Restart failed: ${result.failed_sources.join(", ")}.` : ""}`, result.restart_required ? "status-warn" : "status-ok");
       } catch (error) {
         console.error(error);
         setNotice(`Reload failed: ${error.message}`, "status-err");
@@ -1140,7 +1140,7 @@
       try {
         const result = await request("/v1/configs/reload?section=all", { method: "POST" });
         await refreshSnapshot({ keepNotice: true });
-        setNotice(result.restart_required ? "Saved startup changes require a restart before settings can be applied." : `Applied saved configuration to new sessions (${result.reloaded} pipelines).`, result.restart_required ? "status-warn" : "status-ok");
+        setNotice(result.restart_required ? "Saved startup changes require a restart before settings can be applied." : `Applied saved configuration (${result.reloaded} pipelines); restarted ${(result.restarted_sources || []).length} active streams.${result.failed_sources?.length ? ` Restart failed: ${result.failed_sources.join(", ")}.` : ""}`, result.restart_required ? "status-warn" : "status-ok");
       } catch (error) {
         console.error(error);
         setNotice(`Global reload failed: ${error.message}`, "status-err");

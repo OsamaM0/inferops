@@ -33,7 +33,9 @@ scoped ownership, use the [static worker deployment](static-workers.md).
 4. Set inference FPS and a processing resolution limit. Aspect ratio is preserved;
    the system downsizes but does not upscale the source. Set preview FPS/JPEG
    quality independently. Loop applies to video; an image is processed once.
-5. Register, then **Start**. Stop before editing. Select **History** to inspect
+5. Assign optional **Group** and **Location** metadata, then register and **Start**.
+   Saving an active source restarts its session with the new FPS, resolution and
+   other saved values. Select **History** to inspect
    successive sessions, recent result JSON and session evidence records.
 
 Each visible tile uses the latest frame actually processed by its pipeline, with
@@ -41,7 +43,8 @@ generic detections and the project's existing annotation plugin. Results are not
 drawn onto a different, newer video frame. One cached JPEG is shared by viewers.
 The current wall refreshes approximately every 1.5 seconds; server preview encoding
 is separately capped, default 2 FPS. Hidden/offscreen tiles avoid repeated image
-downloads. An inactive tile explicitly shows the age of its last result. These
+downloads. Preview rendering uses a separate bounded task, so a slow drawing or
+JPEG write does not stop inference. An inactive tile explicitly shows the age of its last result. These
 are annotated analysis previews, not a full-source-FPS video wall.
 
 The registry is operated through the same trusted API boundary as the existing
@@ -87,12 +90,12 @@ Changing source limits does not automatically retune GPU concurrency or Triton.
 | `POST /v1/cameras/media` | Multipart field `file`; validate and retain uploaded image/video |
 | `POST /v1/cameras` | Register a `SourceSpec` |
 | `GET /v1/cameras` | List registration, current session/state, rates and configured admission |
-| `PUT /v1/cameras/{camera_id}` | Edit a stopped source; identity is immutable |
+| `PUT /v1/cameras/{camera_id}` | Edit a source; restart its session if running; identity is immutable |
 | `POST /v1/cameras/{camera_id}/start` | Open a new session with the camera ID as stream name |
 | `POST /v1/cameras/{camera_id}/stop` | Stop capture, close the session and finalize evidence |
 | `DELETE /v1/cameras/{camera_id}` | Stop and unregister; retain history |
 | `GET /v1/cameras/{camera_id}/preview.jpg` | Latest processed, annotated JPEG |
-| `GET /v1/cameras/{camera_id}/live` | MediaMTX native WebRTC/HLS player URLs; original video without annotations |
+| `GET /v1/cameras/{camera_id}/live` | Same-origin player URLs plus direct MediaMTX URLs; original video without annotations |
 | `GET /v1/cameras/{camera_id}/runs` | Sessions and terminal status across restarts |
 | `GET /v1/cameras/{camera_id}/results` | Bounded recent results, each tagged with camera and session ID |
 | `GET /v1/evidence/records?session_id=...` | Authoritative incident evidence for a session |
@@ -105,6 +108,8 @@ Example registration (start is a separate request):
 {
   "camera_id": "entrance-01",
   "name": "Main entrance",
+  "group": "Fleet A",
+  "location": "Bus 101",
   "kind": "rtsp",
   "uri": "rtsp://camera/stream",
   "pipeline": "driver_behaviour",
@@ -125,6 +130,33 @@ and bounded reconnect backoff. Native reads must finish within their configured
 I/O timeout before shutdown; a failed shutdown is not reported as success.
 The live input is sampled at the configured inference rate before the current
 evidence observer; it does not independently capture higher-FPS evidence.
+
+### Applying settings and diagnosing low analysis FPS
+
+Saving/reloading model, pipeline, fusion or alert settings automatically restarts
+active registered cameras with the new compiled revision. Explicit Python/API
+sessions keep their revision. Set `apply_to_running: false` on a configuration
+save (or `?apply_to_running=false` on reload) to apply only to future sessions.
+Artifact/tensor changes still require preparation and restart. API responses list
+`restarted_sources` and `failed_sources`; restart failures appear in the source status.
+
+The tile shows recent **analysis FPS** separately from **target FPS**. Target FPS
+is an upper sampling rate, not a promise of inference throughput. Source status
+includes `effective_settings`, `config_revision`, `stage_timings_ms`,
+`model_runtime`, `evidence_observe_ms`, `preview_ms` and frame-drop counters.
+Inspect the slowest stage and the actual CPU/GPU/provider before changing limits.
+An A40 with unused VRAM can still be limited by CPU scanning, serial execution,
+decode or disk work. Memory usage alone is not a throughput measurement.
+
+GPU admission is configured in **Configuration → Platform → Runtime → Admission**.
+When container platform defaults are read-only, use **Configuration → Project →
+Project platform overrides → Runtime → Admission** instead.
+`local_device_capacity` limits simultaneous local inference calls across streams;
+`remote_outstanding` limits Triton requests. These admission settings now apply
+live on save and restart active camera sessions. Increase local capacity in small
+steps and measure latency, GPU utilization and memory. Environment overrides such
+as `INFEROPS_MODEL_CONCURRENCY` and `INFEROPS_ADMISSION_LOCAL_DEVICE_CAPACITY`
+take precedence over YAML and remain visible in the configuration catalog.
 
 ## Capacity: what the calculation means
 

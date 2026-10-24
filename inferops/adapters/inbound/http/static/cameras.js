@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
-  const state = { sources: [], pipelines: [], filter: "all", editing: null, cards: new Map(), refreshing: false, capacityRequest: 0, live: null };
+  const state = { sources: [], pipelines: [], filter: "all", editing: null, cards: new Map(), refreshing: false, capacityRequest: 0, live: null, liveRequest: 0 };
   const esc = value => String(value ?? "").replace(/[&<>"']/g, x => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
   const number = (value, digits = 1) => value == null ? "—" : Number(value).toFixed(digits);
   const gib = bytes => number(bytes / 1024 ** 3);
@@ -31,7 +31,7 @@
     $("sourceWorker").value = source?.worker_id || "";
     $("sourceWorker").disabled = Boolean(source);
     if (source) {
-      for (const key of ["camera_id", "name", "kind", "pipeline", "inference_fps", "evidence_fps", "max_frame_age_ms", "preview_fps", "jpeg_quality", "rtsp_transport", "timeout_s"]) form.elements[key].value = source[key] ?? "";
+      for (const key of ["camera_id", "name", "group", "location", "kind", "pipeline", "inference_fps", "evidence_fps", "max_frame_age_ms", "preview_fps", "jpeg_quality", "rtsp_transport", "timeout_s"]) form.elements[key].value = source[key] ?? "";
       for (const key of ["loop", "autostart", "preview_enabled"]) form.elements[key].checked = source[key] ?? key === "preview_enabled";
       const resolution = `${source.max_width}x${source.max_height}`;
       if (![...$("sourceResolution").options].some(x => x.value === resolution)) $("sourceResolution").add(new Option(resolution, resolution));
@@ -54,6 +54,7 @@
       if (!uri && !state.editing) throw new Error("Provide a source URL or upload a file.");
       const [max_width, max_height] = $("sourceResolution").value.split("x").map(Number);
       const payload = {camera_id:form.elements.camera_id.value.trim(),name:form.elements.name.value.trim(),
+        group:form.elements.group.value.trim(),location:form.elements.location.value.trim(),
         kind:form.elements.kind.value, uri, pipeline:form.elements.pipeline.value,
         inference_fps:Number(form.elements.inference_fps.value),preview_fps:Number(form.elements.preview_fps.value),
         preview_enabled:form.elements.preview_enabled.checked,
@@ -63,8 +64,8 @@
         jpeg_quality:Number(form.elements.jpeg_quality.value),max_width,max_height,
         loop:form.elements.loop.checked,autostart:form.elements.autostart.checked};
       const owner = $("sourceWorker").value;
-      await api(state.editing ? `/cameras/${encodeURIComponent(state.editing)}` : `/cameras${owner ? `?worker_id=${encodeURIComponent(owner)}` : ""}`, {method:state.editing ? "PUT":"POST",body:JSON.stringify(payload)});
-      $("sourceDialog").close(); notice(`${payload.name} ${state.editing ? "updated":"registered"}. Use Start to open a processing session.`);
+      const saved = await api(state.editing ? `/cameras/${encodeURIComponent(state.editing)}` : `/cameras${owner ? `?worker_id=${encodeURIComponent(owner)}` : ""}`, {method:state.editing ? "PUT":"POST",body:JSON.stringify(payload)});
+      $("sourceDialog").close(); notice(`${payload.name} ${state.editing ? "updated":"registered"}.${saved.active ? " Running stream restarted with the saved settings." : " Use Start to open a processing session."}`);
       await refresh();
     } catch (error) { $("formError").textContent = error.message; }
     finally { $("saveSource").disabled = false; }
@@ -102,7 +103,7 @@
   }, {rootMargin:"150px"});
   function renderSources() {
     const search = $("search").value.toLowerCase();
-    const visible = state.sources.filter(s => (state.filter === "all" || (state.filter === "active") === s.active) && `${s.name} ${s.camera_id}`.toLowerCase().includes(search));
+    const visible = state.sources.filter(s => (state.filter === "all" || (state.filter === "active") === s.active) && `${s.name} ${s.camera_id} ${s.group || ""} ${s.location || ""}`.toLowerCase().includes(search));
     const ids = new Set(state.sources.map(s=>s.camera_id));
     for (const [id, card] of state.cards) if (!ids.has(id)) {observer.unobserve(card.element);card.element.remove();state.cards.delete(id);}
     for (const card of state.cards.values()) card.element.hidden = true;
@@ -111,21 +112,27 @@
       if (!card) {card = createCard(source);state.cards.set(source.camera_id,card);$("sourceGrid").append(card.element);}
       const el = card.element; el.hidden = false;
       el.querySelector("h2").textContent = source.name;
-      el.querySelector(".card-id").textContent = `${source.camera_id} · ${source.pipeline}${source.worker_id ? ` · worker ${source.worker_id}` : ""}`;
+      el.querySelector(".card-id").textContent = [source.camera_id, source.pipeline, source.group && `Group: ${source.group}`, source.location && `Location: ${source.location}`, source.worker_id && `worker ${source.worker_id}`].filter(Boolean).join(" · ");
       const status = source.active && source.connection === "reconnecting" ? "reconnecting":source.status;
       const tag = el.querySelector(".state-tag"); tag.textContent = status === "running" ? "● ANALYZING":status.toUpperCase();
       tag.className = `tag state-tag${source.active ? " live":""}${status === "error" ? " error":""}`;
       el.querySelector(".kind-tag").textContent = source.kind.toUpperCase();
       const w = source.processed_width || source.max_width, h = source.processed_height || source.max_height;
-      el.querySelector(".card-stats").innerHTML = `<span>${source.kind === "image" ? "Single image":`<b>${number(source.fps || 0)}</b> / ${number(source.inference_fps,1)} FPS`}</span><span>${esc(w)} × ${esc(h)}</span><span>${number(source.latency_ms,0)} ms</span>`;
+      el.querySelector(".card-stats").innerHTML = `<span>${source.kind === "image" ? "Single image":`<b>${number(source.fps || 0)}</b> analysis / ${number(source.inference_fps,1)} target FPS`}</span><span>${esc(w)} × ${esc(h)}</span><span>${number(source.latency_ms,0)} ms</span>`;
       const toggle = el.querySelector(".toggle");toggle.textContent = source.active ? "Ⅱ Stop":"▷ Start";toggle.classList.toggle("primary",!source.active);
-      el.querySelector(".edit").disabled = source.active;
+      el.querySelector(".edit").disabled = false;
       el.querySelector("button.live").hidden = !source.live_video_available;
       el.querySelector("button.recordings").hidden = !source.live_video_available;
       el.querySelector(".preview-placeholder div").textContent = source.preview_enabled === false ? "Annotated preview disabled · analysis continues when started":"Waiting for a processed frame";
       const age = source.last_result_at ? Math.max(0,Math.floor(Date.now()/1000-source.last_result_at)) : null;
       el.querySelector(".frame-time").textContent = age == null ? "No results":age <= 2 && source.active ? "Latest processed frame":`${age}s since last result`;
       el.querySelector(".state-note").textContent = source.error || (source.session_id ? `Session ${source.session_id.slice(0,10)} · ${source.processed || 0} processed · ${source.dropped || 0} skipped`:"Registered · ready to start");
+      const diagnostics = [];
+      if (source.below_target && source.active) diagnostics.push(`Below target. Slowest step: ${source.slowest_stage || "processing"} (${number(source.stage_timings_ms?.[source.slowest_stage],0)} ms).`);
+      for (const model of source.model_runtime || []) diagnostics.push(`${model.model}: ${model.device} (${model.concurrency || 1} concurrent slots)${model.downgraded ? " (CPU fallback)" : ""}`);
+      if (source.preview_error) diagnostics.push(source.preview_error);
+      el.querySelector(".card-stats").title = diagnostics.join(" ");
+      if (source.below_target && source.active) el.querySelector(".state-note").textContent += ` · ${diagnostics.join(" ")}`;
       const version = `${source.session_id}-${source.preview_version}`;
       if (source.preview_enabled !== false && source.preview_version && card.visible && card.version !== version && !document.hidden) {
         el.querySelector("img").alt = `${source.name}: latest processed frame with model annotations`;
@@ -191,17 +198,31 @@
   $("recordingsDialog").addEventListener("close", () => {
     $("recordingPlayer").pause(); $("recordingPlayer").removeAttribute("src"); $("recordingPlayer").load();
   });
-  function playLive() {
+  async function playLive() {
+    const requestId = ++state.liveRequest;
     const frame = $("liveFrame");
     if (!state.live || document.hidden || !$("liveDialog").open) { frame.removeAttribute("src"); return; }
-    const url = state.live[`${$("liveProtocol").value}_url`];
-    if (frame.getAttribute("src") !== url) frame.src = url;
-    $("liveExternal").href = url;
+    const url = state.live[`${$("liveProtocol").value}_proxy_url`] || state.live[`${$("liveProtocol").value}_url`];
+    $("liveExternal").href = state.live[`${$("liveProtocol").value}_url`];
+    if (frame.getAttribute("src") === url) return;
+    const status = $("liveStatus"); status.hidden = false; status.className = "dialog-intro"; status.textContent = "Connecting to live video…";
+    frame.removeAttribute("src");
+    try {
+      const response = await fetch(url, {headers:{Accept:"text/html"}, credentials:"same-origin"});
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(detail.detail || `Live video service returned HTTP ${response.status}.`);
+      }
+      if (requestId !== state.liveRequest || document.hidden || !$("liveDialog").open) return;
+      frame.src = url; status.hidden = true;
+    } catch (error) {
+      if (requestId === state.liveRequest) { status.className = "form-error"; status.textContent = `${error.message} Check the camera and MediaMTX connection, or try the other playback mode.`; }
+    }
   }
   async function showLive(source) {
     state.live = await api(`/cameras/${encodeURIComponent(source.camera_id)}/live`);
     $("liveTitle").textContent = `${source.name} · live video`;
-    $("liveDialog").showModal(); playLive();
+    $("liveDialog").showModal(); await playLive();
   }
   $("liveProtocol").addEventListener("change", playLive);
   $("liveDialog").addEventListener("close", () => { state.live = null; playLive(); });

@@ -1,4 +1,6 @@
 name: driver_alerts
+# Recovery/normal state notifications remain events, not incidents or clips.
+event_types: [phone_use, no_seatbelt, smoking, eating, distraction, drowsiness, hands_off_wheel, STATE_CRITICAL]
 severity:
   levels:
     - { name: low,      rank: 1, color: "#9cf" }

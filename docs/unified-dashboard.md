@@ -24,7 +24,7 @@ Choose dark, light or system theme; mint, blue or violet accent; comfortable or 
 
 Automatic refresh can be set to 2, 5, 10 or 30 seconds, or **Manual only**. One scheduler refreshes the active view and pauses polling while the document is hidden. Manual refresh buttons remain available. This preference controls console snapshots; live camera analysis and WebSockets have their own frame/event cadence.
 
-Per-source processing resolution, inference/evidence/preview rates, JPEG quality, transport and recovery settings remain in the source editor. Project/platform behavior is edited through Configuration. Live sections can reload after save; startup and model-artifact changes can require preparation or an engine restart.
+Per-source processing resolution, inference/evidence/preview rates, JPEG quality, transport, group and location remain in the source editor. Saving active source settings restarts that stream with the new values. Configuration saves/reloads also restart active registered cameras; explicit API/Python sessions keep their revision. Admission limits can apply live; service startup and model-artifact changes can require preparation or an engine restart.
 
 ## Built-in API explorer
 
@@ -101,7 +101,8 @@ Source ID remains stable; every start creates a new session and timeline. Result
 Registered RTSP readers use per-source capture threads, independent FFmpeg options, reconnect backoff and a latest frame slot. Video/image inputs use incremental file decoding. The legacy stream API remains for compatibility; register sources for persistent controls and restart recovery.
 
 With the default media router, the same reader consumes MediaMTX's shared RTSP
-path. **Live video** uses the upstream player; annotated JPEGs remain separate.
+path. **Live video** defaults to HLS through the application's same-origin proxy;
+annotated JPEGs remain separate. WebRTC additionally needs reachable ICE/TURN media connectivity.
 Disable **Annotated wall previews** per source to skip their drawing, encoding
 and writes while preserving analysis/results/incident evidence. Browser players
 only connect while their dialog is open and the page is visible.

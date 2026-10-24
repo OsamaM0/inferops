@@ -21,6 +21,9 @@ class RuleSpec(BaseModel):
     emit: dict[str, Any] | None = None
     cooldown_ms: int = 0
     severity: str | None = None
+    confirm_ms: int = Field(default=0, ge=0)
+    min_samples: int = Field(default=1, ge=1)
+    max_gap_ms: int = Field(default=1500, gt=0)
 
 
 class TransitionSpec(BaseModel):
@@ -28,6 +31,9 @@ class TransitionSpec(BaseModel):
     to_state: str
     when: str
     min_dwell_ms: int = 0
+    confirm_ms: int = Field(default=0, ge=0)
+    min_samples: int = Field(default=1, ge=1)
+    max_gap_ms: int = Field(default=1500, gt=0)
 
 
 class StateMachineSpec(BaseModel):

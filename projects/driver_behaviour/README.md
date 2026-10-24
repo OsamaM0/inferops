@@ -53,6 +53,30 @@ unchanged so existing sources and clients keep working.
 Hands-off-wheel requires an external `hand_on_wheel` signal producer and is not
 a verified detector-only feature. See [pipeline declarations](configs/pipelines/).
 
+## Confirming behavior before alerts and evidence
+
+Both driver profiles require **3 seconds** of continuing positive observations
+before a behavior becomes an incident. Each rule exposes `confirm_ms: 3000`,
+`min_samples: 3` and `max_gap_ms: 1500` in Configuration. A negative observation,
+a missing-observation gap longer than 1.5 seconds, or a media-clock rewind resets
+confirmation. Repeated timestamps do not count as additional observations.
+Camera sessions have independent confirmation/tracking state. Unsafe state
+transitions also require confirmation, so a transient state change cannot bypass
+the behavior gate and create evidence. A single still image cannot establish a
+three-second behavior. Cooldown/deduplication apply after confirmation.
+Incident payloads record the required and observed duration and sample count.
+The alert policy's `event_types` list selects behavior incidents and confirmed
+critical escalation; normal, recovered and intermediate state notifications
+remain events and do not create duplicate evidence clips.
+
+The full driver profile keeps the 80% detector and face confidence thresholds
+and disables Haar fallback. Strict mode skips CPU cascade scanning entirely.
+FaceMeshV2 uses its designated `Identity_1` face-presence logit, transformed by
+sigmoid; an unrelated scalar head cannot promote a rejected crop to a face.
+Other model exports can set `face_flag_output` and `face_flag_is_logit` on the
+face stage. Model errors remain possible; test representative camera views and
+keep the driver in view when validating detections.
+
 ## Install as an independent adapter
 
 From the engine root: `pip install -e '.[cpu]'` and

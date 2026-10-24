@@ -394,7 +394,7 @@
                   <div class="meta-row" id="configMeta">Pick a config entry from the left side.</div>
                 </div>
                 <div class="config-actions">
-                  <label class="checkbox"><input id="configReloadToggle" type="checkbox" checked /> Apply after save</label>
+                  <label class="checkbox"><input id="configReloadToggle" type="checkbox" checked /> Apply after save and restart active streams</label>
                   <button class="btn" id="configSaveReloadBtn">Save changes</button>
                   <button class="ghost-btn is-muted" id="configValidateBtn">Validate</button>
                   <button class="ghost-btn is-muted" id="configReloadSectionBtn">Apply saved settings</button>
@@ -512,7 +512,9 @@
       <label id="workerLabel" hidden>Processing owner<select id="sourceWorker"><option value="">API / local</option></select><small>Assignment stays fixed when the source is edited.</small></label>
       <label class="wide" id="uriLabel">RTSP URL / server file path<input name="uri" id="sourceUri" placeholder="rtsp://camera/stream"><small id="uriHelp">Credentials are stored on the server and omitted from API responses.</small></label>
       <label class="wide hidden" id="fileLabel">Or upload a file<input type="file" id="sourceFile" accept="image/*,video/*"><small>Uploaded files are retained on this server; removing a source preserves its history.</small></label>
-      <label>Inference FPS<input name="inference_fps" type="number" value="5" min="0.1" max="120" step="0.1" required></label>
+      <label>Group<input name="group" maxlength="120" placeholder="Fleet, team or category"></label>
+      <label>Location<input name="location" maxlength="240" placeholder="Vehicle, site or area"></label>
+      <label>Inference FPS<input name="inference_fps" type="number" value="5" min="0.1" max="120" step="0.1" required><small>Target sampling rate; actual analysis depends on pipeline speed. Active streams restart when settings are saved.</small></label>
       <label>Evidence sampling FPS<input name="evidence_fps" type="number" min="0.1" max="120" step="0.1" placeholder="Follow inference rate"><small>Set 10 for a 10 FPS history. Higher sampling uses more CPU and memory.</small></label>
       <label>Maximum waiting frame age (ms)<input name="max_frame_age_ms" type="number" value="500" min="1" max="30000" required></label>
       <label>Processing resolution limit<select id="sourceResolution"><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="640x480">640 × 480</option><option value="3840x2160">3840 × 2160</option></select><small>Preserves aspect ratio. Camera encoding settings stay at the source.</small></label>
@@ -550,11 +552,12 @@
 <dialog id="liveDialog" class="live-dialog">
   <div class="dialog-heading"><h2 id="liveTitle">Live video</h2><button class="icon-button" data-close="liveDialog" aria-label="Close">×</button></div>
   <p class="dialog-intro">Original camera video through MediaMTX. Annotations are shown separately in the processed wall preview. Live viewing can continue while analysis is stopped.</p>
-  <div class="live-controls"><label>Playback<select id="liveProtocol"><option value="webrtc">WebRTC · low latency</option><option value="hls">HLS · compatibility</option></select></label><a id="liveExternal" class="button" target="_blank" rel="noreferrer">Open player ↗</a></div>
+  <div class="live-controls"><label>Playback<select id="liveProtocol"><option value="hls">HLS · works through the application proxy</option><option value="webrtc">WebRTC · low latency</option></select></label><a id="liveExternal" class="button" target="_blank" rel="noreferrer">Open player ↗</a></div>
   <iframe id="liveFrame" title="Original live camera video" allow="autoplay; fullscreen; picture-in-picture"></iframe>
-  <p class="dialog-intro">The camera codec must be supported by your browser. Close this view to release its stream connection.</p>
+  <p id="liveStatus" class="form-error" role="status" hidden></p>
+  <p class="dialog-intro">HLS plays through the application URL without exposing extra ports. WebRTC also needs reachable ICE ports or TURN. The camera codec must be supported by your browser.</p>
 </dialog>
 <dialog id="evidencePlayer"><div class="dialog-heading"><h2>Incident clip</h2><button class="icon-button" data-close="evidencePlayer" aria-label="Close">×</button></div><video id="evidenceVideo" controls playsinline style="width:100%;max-height:65vh"></video></dialog>
 <dialog id="configNewDialog" aria-labelledby="configNewTitle"><form id="configNewForm"><div class="dialog-heading"><h2 id="configNewTitle">Add configuration</h2><button type="button" class="icon-button" data-close="configNewDialog" aria-label="Close">×</button></div><div class="form-grid"><label>Section<select id="configNewSection"><option value="models">Model with runtime variants</option><option value="pipelines">Pipeline</option><option value="fusion">Signals &amp; rules</option><option value="alerts">Alerts &amp; actions</option></select></label><label>Name<input id="configNewName" required pattern="[A-Za-z_][A-Za-z0-9_]*" placeholder="inspection"></label></div><p class="footnote">Configure the draft in the editor, validate it, then save to add it to this project.</p><button class="button primary" type="submit">Create draft</button></form></dialog>
-<script src="/ui/static/configuration.js?v=3" defer></script><script src="/ui/static/cameras.js?v=20261020-1" defer></script><script src="/ui/static/dashboard.js?v=20261020-2" defer></script><script src="/ui/static/workspace.js?v=20261020-2" defer></script><script src="/ui/static/console-views.js?v=20261020-2" defer></script>
+<script src="/ui/static/configuration.js?v=3" defer></script><script src="/ui/static/cameras.js?v=20261024-1" defer></script><script src="/ui/static/dashboard.js?v=20261024-1" defer></script><script src="/ui/static/workspace.js?v=20261020-2" defer></script><script src="/ui/static/console-views.js?v=20261020-2" defer></script>
 </body></html>

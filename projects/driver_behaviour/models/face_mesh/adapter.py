@@ -191,6 +191,8 @@ def _parse_face_mesh_output(
     frame_w: int,
     frame_h: int,
     input_size: int,
+    face_flag_output: str = "Identity_1",
+    face_flag_is_logit: bool = True,
 ) -> tuple[list[dict[str, float]], float]:
     """
     Parse raw model outputs → (landmarks, confidence).
@@ -217,17 +219,18 @@ def _parse_face_mesh_output(
             lm_arr = flat.reshape(468, 3)
             break
 
-    # ── locate face-flag tensor (small, scalar-like) ──────────────────────
-    for _, arr in outputs_by_size:
-        if arr.size == 1:
-            raw_flag = float(arr.flat[0])
-            # sigmoid if logit, identity if already probability
-            if abs(raw_flag) > 1.5:
-                import math
-                raw_flag = 1.0 / (1.0 + math.exp(-raw_flag))
-            confidence = max(confidence, float(np.clip(raw_flag, 0.0, 1.0)))
+    # FaceMeshV2's second output is the face-presence logit. Other scalar
+    # heads are not evidence of face presence; taking their maximum can turn
+    # a rejected seat/background crop into a confident "Driver Face".
+    flag = raw.get(face_flag_output)
+    if flag is not None and flag.size == 1:
+        raw_flag = float(flag.flat[0])
+        if np.isfinite(raw_flag):
+            if face_flag_is_logit:
+                raw_flag = float(1 / (1 + np.exp(-np.clip(raw_flag, -80, 80))))
+            confidence = float(np.clip(raw_flag, 0.0, 1.0))
 
-    if lm_arr is None:
+    if lm_arr is None or not np.isfinite(lm_arr).all():
         return [], confidence
 
     scale_x = crop_w / input_size
@@ -431,6 +434,8 @@ class FaceMeshStage(Stage):
         fallback_model: str | None = None,
         face_confidence_threshold: float = 0.5,
         allow_haar_fallback: bool = True,
+        face_flag_output: str = "Identity_1",
+        face_flag_is_logit: bool = True,
         crop_padding: float = 0.25,
         min_infer_interval_ms: int = 66,
     ) -> None:
@@ -439,6 +444,8 @@ class FaceMeshStage(Stage):
             fallback_model=None,
             face_confidence_threshold=face_confidence_threshold,
             allow_haar_fallback=allow_haar_fallback,
+            face_flag_output=face_flag_output,
+            face_flag_is_logit=face_flag_is_logit,
             crop_padding=crop_padding,
             min_infer_interval_ms=min_infer_interval_ms,
         )
@@ -446,6 +453,8 @@ class FaceMeshStage(Stage):
         self.fallback_model = None  # Legacy parameter is accepted; model fallback is disabled.
         self.face_confidence_threshold = face_confidence_threshold
         self.allow_haar_fallback = bool(allow_haar_fallback)
+        self.face_flag_output = face_flag_output
+        self.face_flag_is_logit = face_flag_is_logit
         self.crop_padding = crop_padding
         self.min_infer_interval_ms = max(0, int(min_infer_interval_ms))
         self._active_model: str = model
@@ -459,7 +468,8 @@ class FaceMeshStage(Stage):
 
     async def setup(self, ctx) -> None:
         await super().setup(ctx)
-        self._ensure_haar_detectors()
+        if self.allow_haar_fallback:
+            self._ensure_haar_detectors()
 
     def _restore_cached_face(
         self,
@@ -710,7 +720,7 @@ class FaceMeshStage(Stage):
         # ── 1. locate face from prior detection results ────────────────────
         detection_face_box = _get_face_box(item.results, w, h)
         haar_face = None
-        if detection_face_box is None or not _box_looks_like_face(detection_face_box):
+        if self.allow_haar_fallback and (detection_face_box is None or not _box_looks_like_face(detection_face_box)):
             # Cascade scanning can take hundreds of milliseconds at 1080p.
             # Keep capture/control and other camera sessions responsive while
             # it runs, and drain native work before session teardown on cancel.
@@ -752,6 +762,8 @@ class FaceMeshStage(Stage):
             w,
             h,
             used_input_size,
+            self.face_flag_output,
+            self.face_flag_is_logit,
         )
         item.payload["face_mesh_confidence"] = confidence
 

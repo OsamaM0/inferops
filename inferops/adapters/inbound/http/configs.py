@@ -32,6 +32,7 @@ class Update(BaseModel):
     reload: bool = True
     version: str | None = None
     validate_only: bool = False
+    apply_to_running: bool = True
 
     @model_validator(mode="after")
     def one_document(self):
@@ -161,28 +162,61 @@ async def get_config(request: Request, section: str, name: str):
 
 
 async def _activate(engine, definition):
+    from inferops.adapters.outbound.projects.settings import AdmissionSettings
     from inferops.bootstrap import build_annotators
     application = engine.application
     previous = application.models
-    models = ModelPool(definition, max_concurrency=previous.max_concurrency,
-                       triton_concurrency=previous.triton_concurrency,
-                       admission_pending=previous.admission_pending,
-                       admission_queue_ms=previous.admission_queue_ms)
+    values = {"local_device_capacity": previous.max_concurrency,
+              "remote_outstanding": previous.triton_concurrency,
+              "max_pending": previous.admission_pending, "max_queue_age_ms": previous.admission_queue_ms,
+              **definition.platform.get("runtime", {}).get("admission", {})}
+    for variable, field in (("INFEROPS_MODEL_CONCURRENCY", "local_device_capacity"),
+                            ("INFEROPS_TRITON_CONCURRENCY", "remote_outstanding")):
+        if variable in os.environ:
+            values[field] = os.environ[variable]
+    for field in values:
+        variable = f"INFEROPS_ADMISSION_{field.upper()}"
+        if variable in os.environ:
+            values[field] = os.environ[variable]
+    admission = AdmissionSettings.model_validate(values)
+    models = ModelPool(definition, max_concurrency=admission.local_device_capacity,
+                       triton_concurrency=admission.remote_outstanding,
+                       admission_pending=admission.max_pending,
+                       admission_queue_ms=admission.max_queue_age_ms)
     annotators = build_annotators(definition)
     from inferops.application.projects import activate_revision
     await activate_revision(application, definition=definition, models=models,
                             stage_factory=stage_factory(definition), annotators=annotators)
 
 
+async def _apply_sources(request):
+    sources = getattr(request.app.state, "sources", None)
+    return await sources.restart_active() if sources else {"restarted_sources": [], "failed_sources": []}
+
+
 def _restart_status(previous, candidate, section=None):
+    def startup_platform(definition):
+        # Admission is pool-owned and can change with a compiled revision.
+        return {key: value for key, value in definition.platform.items() if key != "runtime"}
     def startup_contract(definition):
         return sorted((spec.name, spec.backend, spec.artifact.model_dump(),
                        [tensor.model_dump() for tensor in spec.inputs],
                        [tensor.model_dump() for tensor in spec.outputs])
                       for spec in definition.models.values())
-    preparation = section == 'project' or startup_contract(previous) != startup_contract(candidate)
-    restart = preparation or section == 'platform' or dict(previous.platform) != dict(candidate.platform)
-    return preparation, restart or previous.manifest != candidate.manifest
+
+    def startup_manifest(definition):
+        if definition.manifest is None:
+            return None
+        value = definition.manifest.model_dump()
+        value["platform"] = {key: item for key, item in value["platform"].items() if key != "runtime"}
+        return value
+
+    admission_only = (previous.manifest != candidate.manifest
+                      and startup_manifest(previous) == startup_manifest(candidate)
+                      and previous.platform.get("runtime") != candidate.platform.get("runtime"))
+    preparation = (section == 'project' and not admission_only) or startup_contract(previous) != startup_contract(candidate)
+    restart = preparation or startup_platform(previous) != startup_platform(candidate)
+    return preparation, restart or (previous.manifest != candidate.manifest and not admission_only)
 
 
 @router.put('/configs/{section}/{name}')
@@ -237,21 +271,25 @@ async def update_config(request: Request, section: str, name: str, payload: Upda
                 Path(temporary).unlink(missing_ok=True)
         await asyncio.to_thread(commit)
         activated = payload.reload and not restart_required
+        applied = {"restarted_sources": [], "failed_sources": []}
         if activated:
             await _activate(engine,candidate)
+            if payload.apply_to_running:
+                applied = await _apply_sources(request)
     count = len(candidate.models) if section == 'models' else len(getattr(candidate, section, {})) if section in {'pipelines','fusion','alerts'} else 0
     result = {'section':section,'reloaded':count if activated else 0,
               'restart_required':restart_required}
     return {**_entry(path,section,editor=True),'name':name,'saved':True,'revision':candidate.revision,
             'enabled':data.get('name') in candidate.pipelines if section == 'pipelines' else None,
             'restart_required':result['restart_required'],'preparation_required':preparation_required,
-            'reload':result if payload.reload else None}
+            'reload':result if payload.reload else None, **applied,
+            'applied_to_running':activated and payload.apply_to_running}
 
 
 @router.post('/configs/reload')
 @router.post('/models/reload')
 @router.post('/pipelines/reload')
-async def reload_configs(request: Request):
+async def reload_configs(request: Request, apply_to_running: bool = True):
     engine = request.app.state.engine
     lock = getattr(request.app.state, 'config_lock', None)
     if lock is None:
@@ -261,5 +299,7 @@ async def reload_configs(request: Request):
         preparation, restart = _restart_status(engine.application.definition, candidate)
         if not restart:
             await _activate(engine,candidate)
+        applied = await _apply_sources(request) if not restart and apply_to_running else {
+            "restarted_sources": [], "failed_sources": []}
         return {'revision':candidate.revision,'reloaded':0 if restart else len(candidate.pipelines),
-                'restart_required':restart, 'preparation_required':preparation}
+                'restart_required':restart, 'preparation_required':preparation, **applied}
