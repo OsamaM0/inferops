@@ -24,7 +24,10 @@ stages:
     params:
       model: face_mesh
       crop_padding: 0.25
-      face_confidence_threshold: 0.5
+      # Only accept FaceMesh output with >=80% model confidence.
+      face_confidence_threshold: 0.80
+      # Haar cascade fallback emits heuristic confidence, not model probabilities.
+      allow_haar_fallback: false
       # In live mode (15 fps camera) only re-infer face mesh every 200 ms;
       # intermediate frames reuse the cached landmarks → halves CPU load.
       min_infer_interval_ms: 200
