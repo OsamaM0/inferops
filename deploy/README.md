@@ -14,6 +14,19 @@ Hardware/runtime prerequisites and remote-access configuration are in the
 
 ## Configuration and startup
 
+The Docker-only launcher handles first setup, checks and readiness:
+
+```bash
+./run.sh                         # or: make start
+./run.sh --mode cpu --port 8082   # optional one-launch overrides
+./run.sh status
+./run.sh logs
+./run.sh stop
+```
+
+It creates `.env` only when absent and preserves existing settings. The commands
+below remain available for manual Compose operation.
+
 Run from the repository root, containing `README.md`, `pyproject.toml` and the
 root `compose.yaml`. Preserve an existing `.env`:
 
@@ -51,6 +64,41 @@ The root [Compose entry point](../compose.yaml) includes the
 (Docker Compose 2.20.3+). `project_directory: .` resolves mounts/build context
 from the repository root. Run the root entry point rather than invoking the
 base file alone and losing its runtime/project context.
+
+## Startup troubleshooting
+
+`socket.gaierror: [Errno -3] Temporary failure in name resolution` during
+`SqlRepository.start()` means the API could not resolve the database hostname.
+A healthy PostgreSQL container does not establish that the API can reach it.
+Containers discover `postgres` through their shared Compose network. In the
+reported failure, `docker inspect` showed the API had no network attachment,
+while PostgreSQL was attached to `inferops_default`.
+
+```bash
+./run.sh check
+./run.sh repair                  # recreate only the API, keep all data volumes
+```
+
+Ordinary `./run.sh` startup also detects and recreates an API with no network.
+For manual recovery, use `docker compose up -d --build --force-recreate api`.
+If a custom `INFEROPS_DATABASE_URL` or legacy `INFEROPS_PG_URL` is configured,
+check its hostname too: the bundled Docker database is `postgres:5432`;
+a native API uses `127.0.0.1` and the published `INFEROPS_PG_PORT`.
+Do not replace the Docker database hostname with `localhost` inside the API.
+
+If Docker reports `port is already allocated`, another service owns that host
+port. The launcher identifies Docker port owners and stops with a clear error.
+Choose a free port without stopping the other service:
+
+```bash
+./run.sh --port 8082
+# To persist the choice, set INFEROPS_API_PORT=8082 in .env.
+```
+
+`./run.sh` waits up to 600 seconds for service readiness and prints recent API,
+preparation and database logs on failure. Check `./run.sh logs` if model
+downloads, invalid weights or runtime initialization prevent startup. Docker
+must be running and accessible to your user; `docker info` checks access.
 
 ## What starts and where
 
@@ -122,6 +170,77 @@ Projects and weights arrive through `/project`, not the engine image. A changed
 engine/UI needs a rebuild; a changed weight/tensor definition needs preparation
 and potentially model-server recreation. No frontend build server is required.
 `tensorrt` is a Python library extra, not a shipped Compose overlay.
+
+## CI/CD and Docker Hub
+
+The [GitHub Actions workflow](../.github/workflows/ci.yaml) keeps the Python
+3.10/3.12 tests, architecture checks, Ruff and PostgreSQL/MinIO integration
+checks. After those pass, it builds the CPU, CUDA and Triton client images
+from `deploy/docker/api.Dockerfile` for `linux/amd64`. Each image must pass
+CLI, inference-client import and packaged-UI/config smoke tests before upload.
+GPU inference and end-to-end startup still require the deployment's hardware,
+project assets and services.
+
+The target is **`osamam0/inferops-driverbeh`**. Docker repository names must be
+lowercase, so the requested `inferops-DriverBeh` is normalized to `inferops-driverbeh`.
+
+One-time setup:
+
+1. Create the `inferops-driverbeh` repository under `osamam0` on Docker Hub.
+2. Create a Docker Hub personal access token with **Read & Write** access.
+3. In GitHub **Settings → Secrets and variables → Actions**, add the repository
+   secret **`DOCKERHUB_TOKEN`** with that token. Keep it out of `.env` and Git.
+4. The login defaults to `osamam0`. Optionally add the Actions variable
+   **`DOCKERHUB_USERNAME`** to use a different login, and **`DOCKERHUB_IMAGE`** to
+   override the full image name (for example, `your-organization/inferops`).
+5. Push the workflow to GitHub. A push to the repository's default branch runs
+   validation and publication. **Actions → CI and Docker Hub → Run workflow**
+   also publishes when run against the default branch.
+
+| Trigger | Published tags |
+| --- | --- |
+| Default-branch push or manual run | `latest` (CPU), `cpu`, `cuda`, `triton`, plus `sha-<full-commit>-<runtime>` |
+| Version tag such as `v1.2.3` | `1.2.3` (CPU), `1.2.3-cpu`, `1.2.3-cuda`, `1.2.3-triton`, plus commit tags |
+| Pull request, feature-branch push or manual run on another branch | Build and smoke tests only; no login or upload |
+
+To publish a release after committing the intended changes:
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+Version tags do not move the default-branch aliases; prerelease tags such as
+`v1.2.3-rc.1` get their own version tags. Published tags and the image digest
+appear in each Docker job's summary. Missing registry credentials fail the
+publication job with a setup message; pull requests need no Docker Hub secret.
+The build/test/push sequence follows Docker's
+[test-before-push workflow](https://docs.docker.com/build/ci/github-actions/test-before-push/).
+
+To deploy a published image, set these values in the existing `.env`:
+
+```dotenv
+INFEROPS_EXECUTION_MODE=cpu
+INFEROPS_IMAGE=osamam0/inferops-driverbeh:cpu
+```
+
+Then run from the repository root:
+
+```bash
+docker compose pull api prepare
+docker compose up -d --no-build --wait --wait-timeout 600
+# Or use the Docker-only launcher after pulling: ./run.sh --no-build
+```
+
+For CUDA or Triton, change both the mode and the image tag to `cuda` or
+`triton`. Use a version tag or image digest for a fixed deployment and keep
+the selected project mounted at `/project`; projects and weights are not
+baked into these images. The Triton client image uses the separate upstream
+Triton server container already configured in Compose. For a private Docker
+Hub repository, run `docker login` on the deployment host before pulling.
+When `INFEROPS_IMAGE` is unset, Compose uses the existing local image names
+and build definitions. CI publishes images; deployment to a host uses the
+commands above.
 
 ## Persistent data and mounts
 

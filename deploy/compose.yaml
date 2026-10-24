@@ -164,7 +164,7 @@ services:
     profiles:
     - monitoring
   api:
-    image: inferops-engine:local
+    image: ${INFEROPS_IMAGE:-inferops-engine:local}
     build:
       context: .
       dockerfile: deploy/docker/api.Dockerfile
@@ -287,7 +287,7 @@ services:
         condition: service_healthy
     restart: 'no'
   prepare:
-    image: inferops-engine:local
+    image: ${INFEROPS_IMAGE:-inferops-engine:local}
     build:
       context: .
       dockerfile: deploy/docker/api.Dockerfile

@@ -1,5 +1,23 @@
 # InferOps
 
+Run the complete application with Docker (no host Python setup required):
+
+```bash
+./run.sh                         # creates .env if missing, builds, waits for readiness
+# Or: make start
+```
+
+Open the workspace at **http://localhost:8080/ui/**, or the port printed by the
+launcher. Existing `.env` settings are preserved. To override the runtime/port
+for one launch, use `./run.sh --mode cpu --port 8082`. Use `./run.sh stop` to
+stop services, `./run.sh logs` for logs and `./run.sh check` for startup checks.
+If an existing API container has lost its Docker network, startup automatically
+recreates it; `./run.sh repair` also forces API recreation. Data volumes are kept.
+See [startup troubleshooting](deploy/README.md#startup-troubleshooting).
+
+GitHub Actions checks the code, builds the CPU/CUDA/Triton client images and
+publishes passing builds to Docker Hub. See [CI/CD setup and prebuilt images](deploy/README.md#cicd-and-docker-hub).
+
 A reusable Python library for model inference and multi-model pipelines, with
 separately installable application adapters.
 
@@ -199,11 +217,22 @@ provide examples for exercising the running application.
 ## Start the complete project
 
 Run from the Git repository root, which contains this README and `compose.yaml`.
-With Docker Compose 2.20.3 or newer:
+With Docker Compose 2.20.3 or newer, the easiest start is:
 
 ```bash
-cp .env.example .env             # first setup only; retain an existing .env
-docker compose up -d --build
+./run.sh
+./run.sh status
+```
+
+The launcher creates `.env` only when missing, checks Docker and port conflicts,
+repairs a detached API container, builds images and waits for API readiness.
+First startup can take longer while downloading images and model weights.
+Use `./run.sh --no-build` to reuse images, and `./run.sh --help` for all options.
+The equivalent manual startup, without the launcher's checks, is:
+
+```bash
+cp -n .env.example .env          # first setup only; retain an existing .env
+docker compose up -d --build --wait --wait-timeout 600
 ```
 
 Open **[InferOps](http://localhost:8080/ui/)**. It provides pipeline execution,

@@ -18,10 +18,19 @@ GPU_ARG = $(if $(filter 1,$(GPU)),--gpu,)
 .PHONY: help setup install dev-install setup-models projects domains new-project new-domain new-model
 .PHONY: test test-core test-project test-domain test-all lint fmt validate preflight
 .PHONY: run run-container serve serve-api stop stop-mode up down logs status
-.PHONY: configure-accelerated setup-container-runtime worker-pipeline worker-topic clean
+.PHONY: start repair check-docker configure-accelerated setup-container-runtime worker-pipeline worker-topic clean
 
 help: ## Show common commands; select PROJECT=<name> or PROJECT_ROOT=/path/to/project
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {print $$1 "  " $$2}' $(MAKEFILE_LIST)
+
+start: ## Build and start Docker using .env; no host Python needed (START_ARGS='--mode cpu --port 8082')
+	./run.sh $(START_ARGS)
+
+repair: ## Recreate the Docker API to repair networking; preserve all data
+	./run.sh repair $(START_ARGS)
+
+check-docker: ## Check Docker, configuration, API networking and port availability
+	./run.sh check $(START_ARGS)
 
 setup: ## Create the Python environment; install project dependencies and declared weights
 	@if [[ ! -x "$(VENV_PY)" ]]; then python3 -m venv $(APP_DIR)/.venv; fi

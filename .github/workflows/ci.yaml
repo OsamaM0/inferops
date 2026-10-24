@@ -1,7 +1,13 @@
-name: Python and architecture contracts
-on: [push, pull_request]
+name: CI and Docker Hub
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   contracts:
     runs-on: ubuntu-latest
@@ -69,3 +75,117 @@ jobs:
           PYCODE
       - name: Required ownership, delivery and durable evidence gates
         run: python -m pytest tests/test_worker_ownership.py tests/test_worker_control.py tests/test_redesign_production.py tests/test_evidence_retention_and_bursts.py
+  docker:
+    name: Docker (${{ matrix.runtime }})
+    needs: [contracts, postgres-minio]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [cpu, cuda, triton]
+    env:
+      TEST_IMAGE: inferops-ci:${{ matrix.runtime }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME || 'osamam0' }}
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || 'osamam0/inferops-driverbeh' }}
+      # Feature branches and pull requests never receive registry credentials.
+      # Manual publication is allowed only from the repository's default branch.
+      PUBLISH_IMAGE: ${{ github.event_name != 'pull_request' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check Docker Hub configuration
+        if: env.PUBLISH_IMAGE == 'true'
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo '::error::Add the DOCKERHUB_TOKEN repository Actions secret with write access to the Docker Hub repository.'
+            exit 1
+          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build image for testing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/api.Dockerfile
+          platforms: linux/amd64
+          build-args: INFERENCE_EXTRAS=${{ matrix.runtime }}
+          load: true
+          tags: ${{ env.TEST_IMAGE }}
+          cache-from: type=gha,scope=inferops-${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=inferops-${{ matrix.runtime }}
+      - name: Smoke test CLI, runtime and packaged assets
+        run: |
+          docker run --rm "$TEST_IMAGE" inferops --help
+          docker run --rm -i "$TEST_IMAGE" python - <<'PYCODE'
+          import importlib
+          import os
+          from importlib.resources import files
+          from pathlib import Path
+
+          import av
+          import cv2
+          import fastapi
+          from inferops import Engine
+
+          runtime = os.environ['INFEROPS_IMAGE_RUNTIME']
+          if runtime == 'triton':
+              importlib.import_module('tritonclient.grpc')
+              importlib.import_module('tritonclient.http')
+          else:
+              import onnxruntime
+              provider = 'CUDAExecutionProvider' if runtime == 'cuda' else 'CPUExecutionProvider'
+              assert provider in onnxruntime.get_available_providers()
+          assets = files('inferops.adapters.inbound.http')
+          for asset in ('templates/dashboard.html', 'static/dashboard.js', 'static/dashboard.css'):
+              assert assets.joinpath(asset).is_file(), asset
+          assert Path('/app/configs/platform.yaml').is_file()
+          print(f'{runtime} image passed smoke tests')
+          PYCODE
+      - name: Generate Docker tags and labels
+        if: env.PUBLISH_IMAGE == 'true'
+        id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.DOCKERHUB_IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ matrix.runtime }},enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ matrix.runtime == 'cpu' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=sha,format=long,suffix=-${{ matrix.runtime }}
+            type=semver,pattern={{version}},suffix=-${{ matrix.runtime }}
+            type=semver,pattern={{version}},enable=${{ matrix.runtime == 'cpu' }}
+      - name: Log in to Docker Hub
+        if: env.PUBLISH_IMAGE == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # Buildx reuses the layers already built and tested above.
+      - name: Publish tested image to Docker Hub
+        if: env.PUBLISH_IMAGE == 'true'
+        id: publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/api.Dockerfile
+          platforms: linux/amd64
+          build-args: INFERENCE_EXTRAS=${{ matrix.runtime }}
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: mode=max
+      - name: Record published image
+        if: env.PUBLISH_IMAGE == 'true'
+        env:
+          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          {
+            printf '### Published %s image\n\n' '${{ matrix.runtime }}'
+            printf '```text\n%s\n```\n\n' "$IMAGE_TAGS"
+            printf 'Digest: `%s`\n' "$IMAGE_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"

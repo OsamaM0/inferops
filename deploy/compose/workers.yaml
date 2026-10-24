@@ -1,7 +1,7 @@
 # Optional two-shard deployment. Requires storage+triton profiles and a token.
 # Camera count comes from the manifest/UI; this file makes no capacity claim.
 x-camera-worker: &camera-worker
-  image: inferops-engine:triton
+  image: ${INFEROPS_IMAGE:-inferops-engine:triton}
   command: [inferops, worker, cameras, --manifest, /run/inferops/workers.yaml, --worker-id, a]
   environment: &worker-environment
     INFEROPS_DOMAIN_ROOT: /project
@@ -55,7 +55,7 @@ x-camera-worker: &camera-worker
     retries: 3
 services:
   api:
-    image: inferops-engine:triton
+    image: ${INFEROPS_IMAGE:-inferops-engine:triton}
     build:
       args: {INFERENCE_EXTRAS: triton}
     environment:

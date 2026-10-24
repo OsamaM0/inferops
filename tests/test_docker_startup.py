@@ -51,12 +51,15 @@ def test_container_start_diagnoses_an_existing_port_without_killing_other_proces
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker Compose is unavailable")
 @pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "triton"])
-def test_env_selects_runtime_and_orders_preparation(tmp_path, mode):
+@pytest.mark.parametrize("image", [None, "osamam0/inferops-driverbeh:1.2.3-cpu"])
+def test_env_selects_runtime_and_orders_preparation(tmp_path, mode, image):
     root = PROJECT_ROOT
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("COMPOSE_", "INFEROPS_"))}
     environment["INFEROPS_EXECUTION_MODE"] = mode
     environment["INFEROPS_S3_ACCESS_KEY"] = "verification-key"
     environment["INFEROPS_S3_SECRET_KEY"] = "verification-secret"
+    if image:
+        environment["INFEROPS_IMAGE"] = image
     env_file = tmp_path / ".env"
     env_file.write_text((root / ".env.example").read_text())
     result = subprocess.run(["docker", "compose", "--env-file", str(env_file), "config", "--format", "json"],
@@ -64,6 +67,11 @@ def test_env_selects_runtime_and_orders_preparation(tmp_path, mode):
     services = json.loads(result.stdout)["services"]
     assert {"prepare", "api"} <= services.keys()
     assert {"postgres", "mediamtx"} <= services.keys()
+    if image:
+        assert services["api"]["image"] == services["prepare"]["image"] == image
+    else:
+        assert services["api"]["image"] == f"inferops-engine:{mode if mode in {'cuda', 'triton'} else 'local'}"
+        assert services["prepare"]["image"] == f"inferops-engine:{'triton' if mode == 'triton' else 'local'}"
     assert not {"minio", "minio-init", "redis", "redpanda", "grafana", "prometheus"} & services.keys()
     assert services["api"]["environment"]["INFEROPS_TRANSPORT_KIND"] == "inproc"
     assert services["api"]["environment"]["INFEROPS_STORAGE_KIND"] == "filesystem"

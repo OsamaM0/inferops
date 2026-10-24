@@ -1,6 +1,6 @@
 services:
   api:
-    image: inferops-engine:cuda
+    image: ${INFEROPS_IMAGE:-inferops-engine:cuda}
     build:
       args:
         INFERENCE_EXTRAS: cuda

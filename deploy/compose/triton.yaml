@@ -1,11 +1,11 @@
 services:
   api:
-    image: inferops-engine:triton
+    image: ${INFEROPS_IMAGE:-inferops-engine:triton}
     build:
       args: {INFERENCE_EXTRAS: triton}
     depends_on:
       triton: {condition: service_healthy}
   prepare:
-    image: inferops-engine:triton
+    image: ${INFEROPS_IMAGE:-inferops-engine:triton}
     build:
       args: {INFERENCE_EXTRAS: triton}
