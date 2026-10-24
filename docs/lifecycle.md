@@ -48,7 +48,7 @@ an error, not a request to substitute a synthetic model. Runtime extras install
 Python dependencies; external runtimes and model servers have separate
 prerequisites. See [installation](python-library.md#installation).
 
-For the full server, select the project/runtime in `.env`, then use the root
+For the full server, select the project/runtime in `configs/inferops.yaml`, then use the root
 Compose entry point; see [deployment](../deploy/README.md).
 
 ## 2. Build the server and gate container startup

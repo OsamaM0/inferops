@@ -103,6 +103,7 @@ async def list_cameras(request: Request):
     remote = [{**camera, "worker_id": status["worker_id"]}
               for status in statuses for camera in status["cameras"]]
     return {
+        "defaults": source_defaults(request),
         "cameras": [selected.snapshot(key) for key in sorted(selected.specs)] + remote,
         "active": len(selected.tasks) + sum(status["active"] for status in statuses),
         "active_limit": selected.max_active + sum(control.spec.max_active_sources for control in controls.values()),
@@ -114,10 +115,16 @@ async def list_cameras(request: Request):
 
 @router.post("/cameras", status_code=201)
 async def add_camera(request: Request, spec: SourceSpec, worker_id: str | None = None):
+    spec = SourceSpec.model_validate({**source_defaults(request), **spec.model_dump(exclude_unset=True)})
     forwarded = await forward_owned(request, "camera", spec.camera_id, body=spec.model_dump(mode="json"), worker_id=worker_id)
     if forwarded is not None:
         return forwarded
     return await manager(request).put(spec, create=True)
+
+
+def source_defaults(request):
+    definition = request.app.state.engine.application.definition
+    return dict(definition.workspace_configuration.get("sources", {}))
 
 
 @router.put("/cameras/{camera_id}")

@@ -160,11 +160,7 @@ for attempt in $(seq 1 60); do
 done
 
 cd "$APP"
-export INFEROPS_EXECUTION_MODE=cuda
-export INFEROPS_DOMAIN_ROOT="$APP/projects/driver_behaviour"
 export INFEROPS_CONFIGS_DIR="$APP/configs"
-export INFEROPS_STORAGE_KIND=filesystem
-export INFEROPS_MEDIA_ROUTER=mediamtx
 export HF_HOME="$DATA/huggingface"
 mkdir -p "$HF_HOME"
 
@@ -183,8 +179,7 @@ fi
 
 info 'Preparing project model artifacts...'
 "$VENV/bin/inferops" project prepare
-info 'Starting InferOps at http://localhost:8080/ui/ (RunPod HTTP port 8080)...'
-"$VENV/bin/python" scripts/serve_local.py \
-    --runtime cuda --host 0.0.0.0 --port 8080 --data "$DATA/app" &
+info 'Starting InferOps using runtime/project/API settings from configs/inferops.yaml...'
+"$VENV/bin/python" scripts/serve_local.py --data "$DATA/app" &
 API_PID=$!
 wait "$API_PID"

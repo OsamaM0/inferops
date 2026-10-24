@@ -23,11 +23,15 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
     from inferops.domain.pipeline import PipelineSpec
 
     schemas = {"models": ModelSpec, "pipelines": PipelineSpec, "fusion": FusionSpec, "alerts": AlertSpec}
+    overrides = {**stack.configuration_overrides(), **(overrides or {})}
     specs: dict[str, dict] = {section: {} for section in schemas}
     errors: list[str] = []
     for section, schema in schemas.items():
         paths = (model_config_files(stack.spec_dir(section)) if section == "models"
                  else sorted(stack.spec_dir(section).glob("*.yaml")))
+        directory = stack.spec_dir(section).resolve()
+        paths = sorted({path.resolve() for path in paths} | {path for path in overrides if path.parent == directory
+                        or (section == "models" and path.name == "model.yaml" and path.parent.parent == directory)})
         for path in paths:
             try:
                 if overrides and path in overrides:

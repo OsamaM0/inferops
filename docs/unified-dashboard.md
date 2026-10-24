@@ -123,7 +123,7 @@ Activity & evidence includes a retention preview by cutoff and owner. Deletion i
 
 ## Structure
 
-Admission defaults also live under `runtime.admission` in `configs/platform.yaml`:
+Admission defaults also live under `platform.runtime.admission` in `configs/inferops.yaml`:
 `local_device_capacity`, `remote_outstanding`, `max_pending` and `max_queue_age_ms`.
 The corresponding `INFEROPS_ADMISSION_*` variables override configuration and
 legacy `INFEROPS_MODEL_CONCURRENCY` / `INFEROPS_TRITON_CONCURRENCY` variables.

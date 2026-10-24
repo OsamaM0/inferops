@@ -98,14 +98,29 @@ class ConfigStack:
         return self.domain_root / "configs"
 
     def manifest(self):
-        from inferops.adapters.outbound.projects.manifest import load_domain_manifest
+        from inferops.adapters.outbound.projects.manifest import (
+            DomainManifest,
+            load_domain_manifest,
+            manifest_path,
+        )
+
+        overrides = self.configuration_overrides()
+        if self.domain_root and manifest_path(self.domain_root).resolve() in overrides:
+            return DomainManifest(**overrides[manifest_path(self.domain_root).resolve()])
 
         return load_domain_manifest(self.domain_root)
+
+    def configuration_overrides(self):
+        from inferops.adapters.outbound.projects import central
+        from inferops.adapters.outbound.projects.yaml import _interp
+        path = central.find_config(self.configs_dir)
+        return {key: _interp(value) for key, value in central.documents(
+            path, central.read_config(path), self.domain_root, self.configs_dir).items()} if path else {}
 
     def platform(self) -> dict[str, Any]:
         from inferops.adapters.outbound.projects.configuration import load_platform
 
-        return load_platform(self.configs_dir, self.domain_root, self.manifest())
+        return load_platform(self.configs_dir, self.domain_root, self.manifest(), overrides=self.configuration_overrides())
 
     def enabled_pipeline(self, name: str) -> bool:
         manifest = self.manifest()
@@ -229,6 +244,10 @@ def load_settings() -> Settings:
     _ENV_FILE = find_dotenv()
     load_dotenv(_ENV_FILE, override=False)
     configs_dir = os.environ.get("INFEROPS_CONFIGS_DIR", "configs")
+    from inferops.adapters.outbound.projects import central
+    central_path = central.find_config(configs_dir)
+    if central_path:
+        central.apply_environment(central_path)
     active_domain = os.environ.get("INFEROPS_ACTIVE_DOMAIN")
     domain_root = os.environ.get("INFEROPS_DOMAIN_ROOT")
     if not domain_root and os.environ.get("INFEROPS_PROJECT_ROOT"):

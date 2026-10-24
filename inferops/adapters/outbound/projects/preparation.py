@@ -19,10 +19,14 @@ from pathlib import Path
 from filelock import FileLock
 
 from inferops.adapters.outbound.projects.artifacts import artifact_candidates
-from inferops.adapters.outbound.projects.models import load_models_with_sources
+from inferops.adapters.outbound.projects.models import (
+    expand_model_config,
+    model_config_files,
+)
 from inferops.adapters.outbound.projects.resolver import ModelResolver, canonical_mode
 from inferops.adapters.outbound.projects.settings import ConfigStack, settings
 from inferops.adapters.outbound.projects.validation import validate_config_stack
+from inferops.adapters.outbound.projects.yaml import load_yaml
 from inferops.domain.errors import ConfigError
 from inferops.domain.models import ArtifactSource, ModelSpec
 
@@ -30,7 +34,8 @@ from inferops.domain.models import ArtifactSource, ModelSpec
 def selected_surface(stack: ConfigStack, mode: str):
     """Return resolved enabled pipelines and selected model specs with owners."""
     surface = validate_config_stack(stack)
-    resolver = ModelResolver(stack.spec_dir("models"))
+    overrides = stack.configuration_overrides()
+    resolver = ModelResolver(stack.spec_dir("models").resolve(), overrides=overrides)
     pipelines = [spec.for_mode(mode, resolver) for spec in surface["pipelines"].values()
                  if stack.enabled_pipeline(spec.name)]
     enabled = {pipeline.name for pipeline in pipelines}
@@ -44,7 +49,11 @@ def selected_surface(stack: ConfigStack, mode: str):
     explicit = (os.environ["INFEROPS_PREWARM_MODELS"].split(",") if "INFEROPS_PREWARM_MODELS" in os.environ
                 else manifest.prewarm_models if manifest else [])
     names.update(resolver.resolve(name.strip(), mode) for name in explicit if name.strip())
-    sources = {spec.name: (path, spec) for path, spec in load_models_with_sources(stack.spec_dir("models"))}
+    directory = stack.spec_dir("models").resolve()
+    paths = set(model_config_files(directory)) | {path for path in overrides if path.parent == directory
+            or (path.name == "model.yaml" and path.parent.parent == directory)}
+    sources = {spec.name: (path, surface["models"][spec.name]) for path in paths
+               for spec in expand_model_config(overrides[path] if path in overrides else load_yaml(path))}
     selected = [sources[name] for name in sorted(names)]
     for _path, spec in selected:
         if spec.backend == "synthetic" or "Synthetic" in spec.backend or "synthetic" in spec.backend:

@@ -1,0 +1,67 @@
+# Central workspace settings. Secrets and essential host overrides: .env only.
+# Guide: docs/configuration.md. Restart ./run.sh for runtime/service changes.
+runtime:
+  project: driver_behaviour
+  mode: cuda  # Preserved from this workspace; cpu | cuda | triton
+  api_port: 8082  # Preserved host port
+  services: []  # Optional: storage, broker, monitoring
+  max_active_sources: 8
+  max_sessions: 128
+platform:
+  runtime:
+    admission:
+      local_device_capacity: 1  # Increase only after measuring local concurrency
+      remote_outstanding: 64
+  obs:
+    log_json: false
+# Defaults for NEW streams. Existing streams retain their saved settings.
+sources:
+  inference_fps: 30  # Target sampling limit; actual FPS depends on inference latency
+  max_width: 1920
+  max_height: 1080
+  max_frame_age_ms: 500
+  preview_fps: 2
+  preview_width: 640
+evidence:
+  pre_seconds: 5
+  post_seconds: 5
+  sample_fps: 10
+storage:
+  kind: filesystem
+media:
+  router: mediamtx
+  record: true
+  record_retention: 24h
+  record_segment: 1m
+# Images, host ports and advertised media address. Internal ports stay fixed.
+docker:
+  image: inferops-engine:local
+  triton_image: nvcr.io/nvidia/tritonserver:26.09-py3
+  media_bind_address: 127.0.0.1
+  media_public_host: 127.0.0.1
+  ports:
+    pg: 5432
+    s3: 9000
+    minio_console: 9001
+    kafka: 19092
+    prometheus: 9090
+    grafana: 3000
+    triton_http: 8000
+    triton_grpc: 8001
+    triton_metrics: 8002
+    api: 9997  # MediaMTX control API; the workspace port is runtime.api_port
+    rtsp: 8554
+    playback: 9996
+    webrtc: 8889
+    hls: 8888
+# Optional plugins. All dashboard overrides are saved here, under configuration.
+projects:
+  driver_behaviour:
+    root: projects/driver_behaviour
+    parameters:
+      conf_threshold: 0.80
+      face_confidence_threshold: 0.80
+      confirm_ms: 3000  # Sustained detection before accepting an unsafe behavior
+      min_samples: 3
+      max_gap_ms: 1500
+    configuration: {}

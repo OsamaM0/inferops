@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, model_validator
 
+from inferops.adapters.outbound.projects import central
 from inferops.adapters.outbound.projects.configuration import (
     SECTIONS,
     configuration_paths,
@@ -67,21 +69,36 @@ def _path(engine, section, name, *, create=False):
         raise HTTPException(404, 'configuration not found')
     # Never let a project symlink redirect an editor write outside its config root.
     base = definition.root if section == 'project' else (
-        path.parent if section == 'platform' else definition.source_dirs[section])
+        path.parent if section in {'platform', 'settings'} else definition.source_dirs[section])
     if not path.resolve().is_relative_to(base.resolve()):
         raise HTTPException(400, 'configuration is outside its section')
     return path
 
 
-def _entry(path, section, *, editor=False):
-    content = path.read_text(encoding="utf-8")
+def _document(definition, path):
+    central_path = definition.source_dirs.get("workspace_config") if definition else None
+    if central_path:
+        workspace = central.read_config(central_path)
+        if path == central_path:
+            return central_path.read_text(encoding="utf-8"), central_path
+        documents = central.documents(central_path, workspace, definition.root, definition.source_dirs["platform_configs"])
+        if path in documents:
+            return yaml.safe_dump(documents[path], sort_keys=False, allow_unicode=True), central_path
+        if central.document_pointer(central_path, workspace, definition.root,
+                                    definition.source_dirs["platform_configs"], path) is not None:
+            return path.read_text(encoding="utf-8"), central_path
+    return path.read_text(encoding="utf-8"), path
+
+
+def _entry(path, section, *, editor=False, definition=None):
+    content, saved_path = _document(definition, path)
     # Keep ${ENV} references literal in forms and on disk.
     data = parse_yaml(content, interpolate=False)
     if not isinstance(data, dict):
         raise HTTPException(400, 'configuration must be a mapping')
     name = path.parent.name if path.name == 'model.yaml' else path.stem
     behavior = 'live' if section in {'pipelines', 'fusion', 'alerts'} else 'conditional' if section == 'models' else 'restart'
-    result = {'section':section,'name':name,'path':str(path),
+    result = {'section':section,'name':name,'path':str(saved_path),
               'title':data.get('label') or data.get('tags', {}).get('label') or data.get('name', name),
               'description':data.get('description') or data.get('tags', {}).get('description', ''),
               'logical_name':data.get('name', name), 'group': SECTIONS[section],
@@ -96,7 +113,7 @@ def _entry(path, section, *, editor=False):
 def _entries(definition):
     entries = []
     for (section, name), path in configuration_paths(definition).items():
-        entry = _entry(path, section)
+        entry = _entry(path, section, definition=definition)
         entry["name"] = name
         if section == "platform":
             entry["title"] = "Platform defaults" if name == "platform" else "Project platform overrides"
@@ -140,10 +157,12 @@ async def list_configs(request: Request):
     return {'configs_dir':str(definition.source_dirs['pipelines'].parent),'domain_root':str(definition.root) if definition.root else None,
             'domain_pack':definition.manifest.model_dump(mode='json') if definition.manifest else None,
             'active_domain':definition.name if definition.root else None,'files':files,'domains':domains,
-            'sections':['platform','models','pipelines','fusion','alerts'] + (['project'] if definition.root else []),
+            'sections':(['settings'] if 'workspace_config' in definition.source_dirs else []) + ['platform','models','pipelines','fusion','alerts'] + (['project'] if definition.root else []),
             'groups':SECTIONS,
-            'precedence':['Platform defaults', 'Project platform overrides', 'Project settings', 'Environment variables'],
-            'environment_overrides':sorted(key for key in os.environ if key.startswith('INFEROPS_') or key == 'APP_ENV'),
+            'precedence':['Packaged project definitions', 'configs/inferops.yaml', '.env / explicit host overrides'],
+            'environment_overrides':sorted(key for key in os.environ if key == 'APP_ENV' or (
+                key.startswith('INFEROPS_') and key != 'INFEROPS_CONFIG_VALUES'
+                and central.environment_override(key) is not None)),
             'revision':definition.revision}
 
 
@@ -156,7 +175,8 @@ async def config_schema(section: str, model_port: bool = False):
 
 @router.get('/configs/{section}/{name}')
 async def get_config(request: Request, section: str, name: str):
-    entry = _entry(_path(request.app.state.engine,section,name),section,editor=True)
+    engine = request.app.state.engine
+    entry = _entry(_path(engine,section,name),section,editor=True,definition=engine.application.definition)
     entry["name"] = name
     return entry
 
@@ -166,18 +186,21 @@ async def _activate(engine, definition):
     from inferops.bootstrap import build_annotators
     application = engine.application
     previous = application.models
+    central_path = definition.source_dirs.get("workspace_config")
+    if central_path:
+        central.apply_environment(central_path, dict(definition.workspace_configuration))
     values = {"local_device_capacity": previous.max_concurrency,
               "remote_outstanding": previous.triton_concurrency,
               "max_pending": previous.admission_pending, "max_queue_age_ms": previous.admission_queue_ms,
               **definition.platform.get("runtime", {}).get("admission", {})}
     for variable, field in (("INFEROPS_MODEL_CONCURRENCY", "local_device_capacity"),
                             ("INFEROPS_TRITON_CONCURRENCY", "remote_outstanding")):
-        if variable in os.environ:
-            values[field] = os.environ[variable]
+        if (override := central.environment_override(variable)) is not None:
+            values[field] = override
     for field in values:
         variable = f"INFEROPS_ADMISSION_{field.upper()}"
-        if variable in os.environ:
-            values[field] = os.environ[variable]
+        if (override := central.environment_override(variable)) is not None:
+            values[field] = override
     admission = AdmissionSettings.model_validate(values)
     models = ModelPool(definition, max_concurrency=admission.local_device_capacity,
                        triton_concurrency=admission.remote_outstanding,
@@ -216,6 +239,13 @@ def _restart_status(previous, candidate, section=None):
                       and previous.platform.get("runtime") != candidate.platform.get("runtime"))
     preparation = (section == 'project' and not admission_only) or startup_contract(previous) != startup_contract(candidate)
     restart = preparation or startup_platform(previous) != startup_platform(candidate)
+    def workspace_startup(definition):
+        document = dict(definition.workspace_configuration)
+        document.pop("sources", None)  # Defaults are used when registering a new source.
+        document.pop("platform", None)  # Compared above, excluding live admission.
+        document["projects"] = {key: value.get("root") for key, value in document.get("projects", {}).items()}
+        return document
+    restart = restart or workspace_startup(previous) != workspace_startup(candidate)
     return preparation, restart or (previous.manifest != candidate.manifest and not admission_only)
 
 
@@ -229,8 +259,9 @@ async def update_config(request: Request, section: str, name: str, payload: Upda
     async with lock:
         create = request.method == 'POST'
         path = _path(engine,section,name,create=create)
+        previous = engine.application.definition
         if payload.version is not None and not create:
-            version = hashlib.sha256(path.read_text(encoding="utf-8").encode()).hexdigest()
+            version = _entry(path,section,definition=previous)["version"]
             if version != payload.version:
                 raise HTTPException(409, 'Configuration changed since it was opened. Reopen it before saving.')
         content = payload.content if payload.content is not None else yaml.safe_dump(
@@ -239,30 +270,59 @@ async def update_config(request: Request, section: str, name: str, payload: Upda
         if not isinstance(data,dict):
             raise HTTPException(400,'configuration must be a mapping')
         validate_document(section, data)
-        candidate = _loader(engine).load(overrides={path:data})
+        write_path = path
+        central_path = previous.source_dirs.get("workspace_config")
+        original_workspace = None
+        if central_path:
+            original_workspace = central_path.read_text(encoding="utf-8")
+            workspace = central.read_config(central_path)
+            pointer = central.document_pointer(central_path, workspace, previous.root,
+                                               previous.source_dirs["platform_configs"], path)
+            if pointer is not None:
+                workspace = central.replace_document(workspace, pointer, parse_yaml(content, interpolate=False))
+                validate_document("settings", workspace)
+                write_path = central_path
+                saved_content = content if pointer == () else yaml.safe_dump(workspace, sort_keys=False, allow_unicode=True)
+                candidate = _loader(engine).load(overrides={central_path:workspace})
+            else:
+                # Independent library/legacy projects retain their own documents
+                # until registered with this workspace. Never redirect their writes
+                # into an unrelated configured project's namespace.
+                original_workspace = None
+                saved_content = content
+                candidate = _loader(engine).load(overrides={path:data})
+        else:
+            saved_content = content
+            candidate = _loader(engine).load(overrides={path:data})
         from inferops.application.projects import validate_server_revision
         validate_server_revision(engine.application, candidate)
-        previous = engine.application.definition
         preparation_required, restart_required = _restart_status(previous, candidate, section)
         if payload.validate_only:
             return {'valid':True, 'saved':False, 'restart_required':restart_required,
                     'preparation_required':preparation_required}
         def commit():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,delete=False,encoding='utf-8') as output:
-                output.write(content)
+            if original_workspace is not None and central_path.read_text(encoding="utf-8") != original_workspace:
+                raise HTTPException(409, 'Workspace configuration changed during validation. Reopen it before saving.')
+            write_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode='w',dir=write_path.parent,delete=False,encoding='utf-8') as output:
+                output.write(saved_content)
                 output.flush()
                 os.fsync(output.fileno())
                 temporary = output.name
             try:
-                if create:
+                if write_path.exists():
+                    metadata = write_path.stat()
+                    os.chmod(temporary, stat.S_IMODE(metadata.st_mode))
+                    if os.geteuid() == 0:
+                        os.chown(temporary, metadata.st_uid, metadata.st_gid)
+                if create and write_path == path:
                     try:
-                        os.link(temporary,path)  # Fail rather than overwrite an external creator.
+                        os.link(temporary,write_path)  # Fail rather than overwrite an external creator.
                     except FileExistsError as exc:
                         raise HTTPException(409, 'configuration already exists') from exc
                 else:
-                    os.replace(temporary,path)
-                descriptor = os.open(path.parent,os.O_RDONLY)
+                    os.replace(temporary,write_path)
+                descriptor = os.open(write_path.parent,os.O_RDONLY)
                 try:
                     os.fsync(descriptor)
                 finally:
@@ -279,7 +339,7 @@ async def update_config(request: Request, section: str, name: str, payload: Upda
     count = len(candidate.models) if section == 'models' else len(getattr(candidate, section, {})) if section in {'pipelines','fusion','alerts'} else 0
     result = {'section':section,'reloaded':count if activated else 0,
               'restart_required':restart_required}
-    return {**_entry(path,section,editor=True),'name':name,'saved':True,'revision':candidate.revision,
+    return {**_entry(path,section,editor=True,definition=candidate),'name':name,'saved':True,'revision':candidate.revision,
             'enabled':data.get('name') in candidate.pipelines if section == 'pipelines' else None,
             'restart_required':result['restart_required'],'preparation_required':preparation_required,
             'reload':result if payload.reload else None, **applied,

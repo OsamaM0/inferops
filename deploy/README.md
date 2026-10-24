@@ -34,12 +34,14 @@ root `compose.yaml`. Preserve an existing `.env`:
 cp .env.example .env             # first setup only
 ```
 
-Select the project and runtime in `.env`:
+Select the project, runtime and API port under `runtime` in
+[`configs/inferops.yaml`](../configs/inferops.yaml). Docker images/ports, optional
+services, media, evidence, source defaults and project parameters also live
+there. Keep secrets and essential host overrides in `.env`. See
+[central configuration](../docs/configuration.md).
 
-```dotenv
-INFEROPS_PROJECT_ROOT=./projects/driver_behaviour
-INFEROPS_EXECUTION_MODE=cpu
-INFEROPS_API_PORT=8080
+```bash
+./run.sh configure
 ```
 
 Then validate and start:
@@ -59,7 +61,7 @@ startup, not throughput or full dependency health. Check `/v1/system/status`,
 Prometheus targets and representative inference/evidence as well.
 
 The root [Compose entry point](../compose.yaml) includes the
-[base stack](compose.yaml) and runtime overlay using
+[base stack](compose.yaml) and the generated runtime selection using
 [Compose include](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/)
 (Docker Compose 2.20.3+). `project_directory: .` resolves mounts/build context
 from the repository root. Run the root entry point rather than invoking the
@@ -92,7 +94,7 @@ Choose a free port without stopping the other service:
 
 ```bash
 ./run.sh --port 8082
-# To persist the choice, set INFEROPS_API_PORT=8082 in .env.
+# To persist the choice, set runtime.api_port: 8082 in configs/inferops.yaml.
 ```
 
 `./run.sh` waits up to 600 seconds for service readiness and prints recent API,
@@ -133,11 +135,12 @@ make run MODE=cpu RUN_ARGS='--profiles storage'
 For direct Compose, select both the adapter and service profile:
 
 ```bash
-INFEROPS_STORAGE_KIND=s3 docker compose --profile storage up -d --build
+# Set storage.kind: s3 and runtime.services: [storage] in configs/inferops.yaml.
+./run.sh
 ```
 
-For repeated use, set `INFEROPS_STORAGE_KIND=s3` and add `storage` to
-`COMPOSE_PROFILES` in `.env`. An external S3 endpoint needs the adapter settings
+For repeated use, set `storage.kind: s3` and add `storage` to
+`runtime.services` in `configs/inferops.yaml`. An external S3 endpoint needs the adapter settings
 without starting local MinIO. Install the `s3` extra for a minimal native install.
 The static-workers overlay explicitly uses shared S3 storage.
 
@@ -217,16 +220,14 @@ publication job with a setup message; pull requests need no Docker Hub secret.
 The build/test/push sequence follows Docker's
 [test-before-push workflow](https://docs.docker.com/build/ci/github-actions/test-before-push/).
 
-To deploy a published image, set these values in the existing `.env`:
-
-```dotenv
-INFEROPS_EXECUTION_MODE=cpu
-INFEROPS_IMAGE=osamam0/inferops-driverbeh:cpu
-```
+To deploy a published image, set `runtime.mode: cpu` and
+`docker.image: osamam0/inferops-driverbeh:cpu` in `configs/inferops.yaml`.
+`INFEROPS_IMAGE` remains available as an essential host override in `.env`.
 
 Then run from the repository root:
 
 ```bash
+./run.sh configure
 docker compose pull api prepare
 docker compose up -d --no-build --wait --wait-timeout 600
 # Or use the Docker-only launcher after pulling: ./run.sh --no-build

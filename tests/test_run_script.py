@@ -18,7 +18,9 @@ def launcher(tmp_path):
     workspace = tmp_path / "workspace with spaces"
     workspace.mkdir()
     shutil.copy2(ROOT / "run.sh", workspace / "run.sh")
-    (workspace / ".env.example").write_text("INFEROPS_EXECUTION_MODE=cpu\nINFEROPS_API_PORT=55981\n")
+    (workspace / ".env.example").write_text("# Credentials only\n")
+    (workspace / "configs").mkdir()
+    (workspace / "configs/inferops.yaml").write_text("runtime:\n  mode: cpu\n  api_port: 55981\n")
     binary = tmp_path / "bin"
     binary.mkdir()
     docker = binary / "docker"
@@ -37,10 +39,16 @@ elif args[0] == "inspect":
     print(os.getenv("API_NETWORKS", "1"))
 elif args[0] == "ps":
     print(os.getenv("PORT_OWNER", ""))
+elif args[0] == "run":
+    # Simulate only the configuration helper, without an image or daemon.
+    import yaml
+    values = yaml.safe_load(Path("configs/inferops.yaml").read_text())["runtime"]
+    Path(".run").mkdir(exist_ok=True)
+    Path(".run/compose.env").write_text(f"INFEROPS_EXECUTION_MODE={values['mode']}\\nINFEROPS_API_PORT={values['api_port']}\\n")
 elif args[0] == "compose":
-    args = args[5:]  # project directory and root Compose file
+    args = args[7:]  # project directory, root file, generated env file
     if args == ["config", "--environment"]:
-        values = dict(line.split("=", 1) for line in Path(".env").read_text().splitlines() if "=" in line)
+        values = dict(line.split("=", 1) for line in Path(".run/compose.env").read_text().splitlines() if "=" in line)
         values.update({key: value for key, value in os.environ.items() if key.startswith("INFEROPS_")})
         print("\\n".join(f"{key}={value}" for key, value in values.items()))
     elif args == ["ps", "-a", "-q", "api"]:
@@ -65,7 +73,7 @@ elif args[0] == "compose":
 
 
 def compose_actions(calls):
-    return [call[5:] for call in calls if call[:2] == ["compose", "--project-directory"]]
+    return [call[7:] for call in calls if call[:2] == ["compose", "--project-directory"]]
 
 
 def test_first_start_creates_settings_and_waits_for_readiness(launcher):

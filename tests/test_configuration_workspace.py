@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 
 import pytest
@@ -270,3 +271,96 @@ async def test_admission_save_applies_pool_limits_live_and_respects_environment(
     assert response.status_code == 200, response.text
     assert not response.json()["restart_required"] and not response.json()["preparation_required"]
     assert engine.application.models.max_concurrency == 6
+
+
+@pytest.fixture
+async def central_workspace(workspace, monkeypatch):
+    from inferops.adapters.inbound.http.configs import _activate
+    from inferops.adapters.outbound.projects import central
+    root, core, engine, client = workspace
+    document = {"runtime": {"project": "inspection", "mode": "cpu", "api_port": 8080},
+                "platform": {"obs": {"log_level": "INFO"}},
+                "sources": {"inference_fps": 30, "max_width": 1280, "max_height": 720},
+                "projects": {"inspection": {"root": str(root), "parameters": {}, "configuration": {}}}}
+    path = core / "inferops.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+    # Live environment defaults are owned by this test, never the operator.
+    monkeypatch.setenv("INFEROPS_CONFIG_VALUES", "{}")
+    monkeypatch.setattr(central, "_exported", {})
+    for key in central.environment(path, document):
+        existed = key in os.environ
+        monkeypatch.setenv(key, os.getenv(key, ""))
+        if not existed:
+            os.environ.pop(key)
+    await _activate(engine, ProjectLoader(root, configs_dir=core).load())
+    return root, core, engine, client, path
+
+
+async def test_central_editor_saves_only_the_authoritative_file(central_workspace):
+    root, _, engine, client, path = central_workspace
+    template = root / "models/detector/model.yaml"
+    original = template.read_bytes()
+    metadata = path.stat()
+    entry = (await client.get("/v1/configs/models/detector")).json()
+    assert entry["path"] == str(path)
+    entry["data"]["defaults"]["labels"] = ["central-label"]
+    saved = await client.put("/v1/configs/models/detector", json={"data": entry["data"], "version": entry["version"]})
+    assert saved.status_code == 200, saved.text
+    assert not saved.json()["restart_required"]
+    assert template.read_bytes() == original
+    assert path.stat().st_mode == metadata.st_mode and path.stat().st_uid == metadata.st_uid
+    central = yaml.safe_load(path.read_text())
+    assert central["projects"]["inspection"]["configuration"]["models"]["detector"] == entry["data"]
+    assert engine.application.definition.models["objects_onnx"].label_list() == ["central-label"]
+    conflict = await client.put("/v1/configs/models/detector", json={"data": entry["data"], "version": entry["version"]})
+    assert conflict.status_code == 409
+    catalog = (await client.get("/v1/configs")).json()
+    assert "settings" in catalog["sections"]
+    assert all(item["path"] == str(path) for item in catalog["files"] if item["section"] != "project")
+
+
+async def test_central_new_document_and_removed_stages_are_persisted(central_workspace):
+    root, core, _, client, path = central_workspace
+    response = await client.post("/v1/configs/pipelines/new", json={"data": {"name": "new", "stages": []}})
+    assert response.status_code == 201, response.text
+    assert not (root / "configs/pipelines/new.yaml").exists()
+    assert (await client.get("/v1/configs/pipelines/new")).json()["data"] == {"name": "new", "stages": []}
+    entry = (await client.get("/v1/configs/pipelines/process")).json()
+    entry["data"]["stages"] = entry["data"]["stages"][:1]
+    response = await client.put("/v1/configs/pipelines/process", json={"data": entry["data"]})
+    assert response.status_code == 200, response.text
+    loaded = ProjectLoader(root, configs_dir=core).load()
+    assert [stage.name for stage in loaded.pipelines["inspection"].stages] == ["detect"]
+    assert "new" in loaded.pipelines
+    assert yaml.safe_load(path.read_text())["projects"]["inspection"]["configuration"]["pipelines"]["new"]
+
+
+async def test_central_runtime_edits_require_restart_and_source_defaults_apply_live(central_workspace):
+    from inferops.adapters.outbound.persistence.source_catalog import MemorySourceStore
+    from inferops.application.sources import SourceManager
+    _, _, engine, client, path = central_workspace
+    sources = SourceManager(engine.application, MemorySourceStore(), frames=None, render=None, serialize=None)
+    client._transport.app.state.sources = sources
+    await sources.start()
+    try:
+        catalog = (await client.get("/v1/cameras")).json()
+        assert catalog["defaults"]["inference_fps"] == 30
+        response = await client.post("/v1/cameras", json={"camera_id": "test", "name": "Test", "kind": "rtsp",
+                                                           "uri": "rtsp://camera/live", "pipeline": "inspection"})
+        assert response.status_code == 201, response.text
+        assert sources.specs["test"].inference_fps == 30
+        assert sources.specs["test"].max_width == 1280
+        document = (await client.get("/v1/configs/settings/inferops")).json()
+        document["data"]["sources"]["inference_fps"] = 24
+        response = await client.put("/v1/configs/settings/inferops", json={"data": document["data"]})
+        assert response.status_code == 200, response.text
+        assert not response.json()["restart_required"]
+        assert (await client.get("/v1/cameras")).json()["defaults"]["inference_fps"] == 24
+        assert sources.specs["test"].inference_fps == 30
+        document["data"]["runtime"]["api_port"] = 8089
+        response = await client.put("/v1/configs/settings/inferops", json={"data": document["data"]})
+        assert response.status_code == 200 and response.json()["restart_required"], response.text
+        assert engine.application.definition.workspace_configuration["runtime"]["api_port"] == 8080
+        assert yaml.safe_load(path.read_text())["runtime"]["api_port"] == 8089
+    finally:
+        await sources.close()

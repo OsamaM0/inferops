@@ -5,7 +5,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 usage() {
     cat <<'EOF'
-Usage: ./run.sh [up|repair|stop|status|logs|check] [options]
+Usage: ./run.sh [up|repair|stop|status|logs|check|configure] [options]
 
   up             Build and start enabled services; wait until the API is ready (default)
   repair         Recreate the API container and restore its network; keep all data volumes
@@ -13,10 +13,11 @@ Usage: ./run.sh [up|repair|stop|status|logs|check] [options]
   status         Show service status
   logs           Follow the last 100 lines of service logs
   check          Check Docker, configuration, API networking and port availability
+  configure      Render Docker files from configs/inferops.yaml without starting services
 
 Options:
-  --mode MODE    cpu, auto, cuda or triton; otherwise use .env (default: cpu)
-  --port PORT    Published API port; otherwise use .env (default: 8080)
+  --mode MODE    One-run override; otherwise runtime.mode in configs/inferops.yaml
+  --port PORT    One-run override; otherwise runtime.api_port in configs/inferops.yaml
   --no-build     Reuse existing images for a faster start
   -h, --help     Show this help
 
@@ -31,19 +32,22 @@ EOF
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 action=up
 build=(--build)
+config_arguments=()
 while (($#)); do
     case "$1" in
-        up|repair|stop|status|logs|check) action=$1; shift ;;
+        up|repair|stop|status|logs|check|configure) action=$1; shift ;;
         --mode)
             (($# >= 2)) || fail '--mode requires cpu, auto, cuda or triton'
             case "$2" in cpu|auto|cuda|triton) ;; *) fail "Unknown runtime: $2" ;; esac
             export INFEROPS_EXECUTION_MODE=$2
+            config_arguments+=(--mode "$2")
             shift 2 ;;
         --port)
             (($# >= 2)) || fail '--port requires a port number'
             [[ "$2" =~ ^[0-9]{1,5}$ ]] || fail 'Port must be between 1 and 65535'
             ((10#$2 > 0 && 10#$2 <= 65535)) || fail 'Port must be between 1 and 65535'
             export INFEROPS_API_PORT=$((10#$2))
+            config_arguments+=(--port "$INFEROPS_API_PORT")
             shift 2 ;;
         --no-build) build=(); shift ;;
         -h|--help) usage; exit 0 ;;
@@ -61,8 +65,17 @@ if [[ ! -f .env ]]; then
     printf 'Created .env from .env.example.\n'
 fi
 
-compose=(docker compose --project-directory "$PWD" -f "$PWD/compose.yaml")
+# Only this small helper needs Python. It runs inside Docker, with no model stack.
+docker build --quiet --file deploy/docker/config.Dockerfile --tag inferops-config:local . >/dev/null
+config_environment=()
+while IFS= read -r variable; do
+    case "$variable" in INFEROPS_*|HF_TOKEN|COMPOSE_PROFILES) config_environment+=(--env "$variable") ;; esac
+done < <(compgen -e)
+docker run --rm --user "$(id -u):$(id -g)" --mount "type=bind,source=$PWD,target=$PWD" \
+    --workdir "$PWD" "${config_environment[@]}" inferops-config:local "${config_arguments[@]}"
+compose=(docker compose --project-directory "$PWD" -f "$PWD/compose.yaml" --env-file "$PWD/.run/compose.env")
 "${compose[@]}" config --quiet
+if [[ "$action" == configure ]]; then exit 0; fi
 case "$action" in
     stop) exec "${compose[@]}" stop -t 60 ;;
     status) exec "${compose[@]}" ps -a ;;

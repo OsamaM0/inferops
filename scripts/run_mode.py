@@ -65,7 +65,7 @@ def ensure_container_port(port: int) -> None:
 
 
 def runtime_environment(
-    mode: str, port: int, *, domain: str | None = None, domain_root: str | None = None,
+    mode: str | None, port: int | None, *, domain: str | None = None, domain_root: str | None = None,
 ) -> dict[str, str]:
     """Resolve all project paths once; no project-specific names in the launcher."""
     sys.path.insert(0, str(APP))
@@ -80,10 +80,10 @@ def runtime_environment(
         repository = APP / "model_repository"
     env = dict(os.environ)
     env.update({
-        "INFEROPS_EXECUTION_MODE": mode,
+        "INFEROPS_EXECUTION_MODE": mode or settings.execution_mode,
         "INFEROPS_CONFIGS_DIR": str(APP / "configs"),
         "INFEROPS_MODEL_REPOSITORY": str(repository),
-        "INFEROPS_API_PORT": str(port),
+        "INFEROPS_API_PORT": str(port if port is not None else settings.api.port),
     })
     env.setdefault("INFEROPS_TRITON_REPOSITORY", env.get("INFEROPS_TRITON_MODEL_REPOSITORY") or str(repository))
     env.setdefault("INFEROPS_TRANSPORT_KIND", "inproc")
@@ -101,13 +101,13 @@ def runtime_environment(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=["auto", "cpu", "cuda", "triton"], default="cpu")
+    parser.add_argument("--mode", choices=["auto", "cpu", "cuda", "triton"], help="Override runtime.mode in the central YAML")
     parser.add_argument("--domain", "--project", help="Project block under projects/")
     parser.add_argument("--domain-root", help="Project block folder, including outside this repository")
     parser.add_argument("--container", action="store_true", help="Run the API in the reusable engine image")
     parser.add_argument("--build", action="store_true", help="Rebuild the engine image (not needed to swap projects)")
-    parser.add_argument("--profiles", default="", help="Additional services: storage (MinIO/S3),broker,monitoring")
-    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--profiles", help="Override runtime.services: storage (MinIO/S3),broker,monitoring")
+    parser.add_argument("--port", type=int, help="Override runtime.api_port")
     parser.add_argument("--no-services", action="store_true", help="Use already running optional services")
     parser.add_argument("--stop", action="store_true", help="Stop this repository's native API")
     maintenance = parser.add_mutually_exclusive_group()
@@ -120,7 +120,12 @@ def main() -> None:
         stop_native_api()
         return
     env = runtime_environment(args.mode, args.port, domain=args.domain, domain_root=args.domain_root)
-    optional = {name.strip() for name in args.profiles.split(",") if name.strip()}
+    args.mode = args.mode or env.get("INFEROPS_EXECUTION_MODE", "cpu")
+    args.port = args.port if args.port is not None else int(env.get("INFEROPS_API_PORT", "8080"))
+    from inferops.adapters.outbound.projects import central
+    workspace = central.read_config(APP / "configs/inferops.yaml")
+    optional = ({name.strip() for name in args.profiles.split(",") if name.strip()} if args.profiles is not None
+                else set(workspace.get("runtime", {}).get("services", [])))
     if optional - {"storage", "broker", "monitoring", "media"}:
         parser.error("profiles must be storage,broker,monitoring,media")
     container = args.container
@@ -143,7 +148,10 @@ def main() -> None:
         env.setdefault("INFEROPS_MEDIAMTX_API_URL", "http://127.0.0.1:" + env.get("INFEROPS_MEDIAMTX_API_PORT", "9997"))
         env.setdefault("INFEROPS_MEDIAMTX_RTSP_URL", "rtsp://127.0.0.1:" + env.get("INFEROPS_MEDIAMTX_RTSP_PORT", "8554"))
         env.setdefault("INFEROPS_MEDIAMTX_PLAYBACK_URL", "http://127.0.0.1:" + env.get("INFEROPS_MEDIAMTX_PLAYBACK_PORT", "9996"))
-    compose = ["docker", "compose", "-f", str(APP / "compose.yaml")]
+    from scripts.configure import render
+    rendered = render(environ=env, mode=args.mode, port=args.port, profiles=sorted(optional))
+    env = {**env, **rendered}
+    compose = ["docker", "compose", "-f", str(APP / "compose.yaml"), "--env-file", str(APP / ".run/compose.env")]
     compose += ["--profile", args.mode]
     for profile in sorted(optional):
         compose += ["--profile", profile]

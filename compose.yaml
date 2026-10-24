@@ -1,7 +1,5 @@
-# Run from this project directory: docker compose up -d --build.
+# ./run.sh generates the included file from configs/inferops.yaml and .env.
+# After configuration, ordinary docker compose commands also work.
 name: inferops
 include:
-  - path:
-      - ./deploy/compose.yaml
-      - ./deploy/compose/${INFEROPS_EXECUTION_MODE:-cpu}.yaml
-    project_directory: .
+  - ./.run/compose.yaml

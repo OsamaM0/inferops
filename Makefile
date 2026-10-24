@@ -4,14 +4,14 @@ VENV_PY := $(CURDIR)/$(APP_DIR)/.venv/bin/python
 PY ?= $(if $(wildcard $(VENV_PY)),$(VENV_PY),python3)
 PROJECT ?= $(DOMAIN)
 PROJECT_ROOT ?=
-MODE ?= cpu
-API_PORT ?= 8080
+MODE ?=
+API_PORT ?=
 GPU ?= 0
 LABELS ?= person,helmet,vest
 FORMAT ?= yolo
 SELECT = $(if $(PROJECT_ROOT),--domain-root "$(abspath $(PROJECT_ROOT))",$(if $(PROJECT),--domain "$(PROJECT)",))
 SELECT_ENV = $(if $(PROJECT_ROOT),INFEROPS_DOMAIN_ROOT="$(abspath $(PROJECT_ROOT))",$(if $(PROJECT),INFEROPS_ACTIVE_DOMAIN="$(PROJECT)",))
-LAUNCH = $(PY) $(APP_DIR)/scripts/run_mode.py --mode $(MODE) --port $(API_PORT) $(SELECT)
+LAUNCH = $(PY) $(APP_DIR)/scripts/run_mode.py $(if $(MODE),--mode $(MODE),) $(if $(API_PORT),--port $(API_PORT),) $(SELECT)
 GPU_ARG = $(if $(filter 1,$(GPU)),--gpu,)
 
 .DEFAULT_GOAL := help
@@ -23,7 +23,7 @@ GPU_ARG = $(if $(filter 1,$(GPU)),--gpu,)
 help: ## Show common commands; select PROJECT=<name> or PROJECT_ROOT=/path/to/project
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {print $$1 "  " $$2}' $(MAKEFILE_LIST)
 
-start: ## Build and start Docker using .env; no host Python needed (START_ARGS='--mode cpu --port 8082')
+start: ## Build and start Docker using configs/inferops.yaml; no host Python needed
 	./run.sh $(START_ARGS)
 
 repair: ## Recreate the Docker API to repair networking; preserve all data
@@ -64,7 +64,7 @@ validate: ## Validate YAML and references between models, pipelines, fusion and 
 	cd $(APP_DIR) && $(PY) -m inferops.adapters.inbound.cli validate $(SELECT)
 
 preflight: ## Check configuration, plugins, dependencies and artifacts for MODE
-	cd $(APP_DIR) && INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli preflight $(SELECT)
+	cd $(APP_DIR) && $(if $(MODE),INFEROPS_EXECUTION_MODE=$(MODE),) $(PY) -m inferops.adapters.inbound.cli preflight $(SELECT)
 
 run: ## Start the native API; optional services via RUN_ARGS='--profiles storage,broker,monitoring'
 	$(LAUNCH) $(RUN_ARGS)
@@ -127,10 +127,10 @@ fmt: ## Format Python code
 	cd $(APP_DIR) && $(PY) -m ruff format .
 
 worker-pipeline: ## Run a source-driven worker: PIPELINE=<name>
-	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli worker pipeline "$(PIPELINE)"
+	cd $(APP_DIR) && $(SELECT_ENV) $(if $(MODE),INFEROPS_EXECUTION_MODE=$(MODE),) $(PY) -m inferops.adapters.inbound.cli worker pipeline "$(PIPELINE)"
 
 worker-topic: ## Run a topic worker: PIPELINE=<name> INPUT=<topic> OUTPUT=<topic>
-	cd $(APP_DIR) && $(SELECT_ENV) INFEROPS_EXECUTION_MODE=$(MODE) $(PY) -m inferops.adapters.inbound.cli worker topic "$(PIPELINE)" --input-topic "$(INPUT)" --output-topic "$(OUTPUT)"
+	cd $(APP_DIR) && $(SELECT_ENV) $(if $(MODE),INFEROPS_EXECUTION_MODE=$(MODE),) $(PY) -m inferops.adapters.inbound.cli worker topic "$(PIPELINE)" --input-topic "$(INPUT)" --output-topic "$(OUTPUT)"
 
 clean: ## Remove caches and Python packaging output (CLEAN_ARGS=--dry-run)
 	$(PY) $(APP_DIR)/scripts/clean_workspace.py $(CLEAN_ARGS)

@@ -117,7 +117,7 @@ output categories and parameter schemas. `StageDecl` carries the
 fields marked `x-reference` offer logical model, fusion or alert names. Custom
 stage references and arbitrary plugin parameter mappings remain supported.
 
-Sections are `project`, `platform`, `models`, `pipelines`, `fusion` and `alerts`.
+Sections are `settings` (the central file), `project`, `platform`, `models`, `pipelines`, `fusion` and `alerts`.
 Saving validates YAML and references. Configuration entries report `reload_behavior`:
 `live` for pipelines/fusion/alerts, `conditional` for models whose artifact changes
 can need preparation, and `restart` for project/platform settings. Live reload applies to models, pipelines,
@@ -125,7 +125,9 @@ fusion and alerts; project/platform and artifact changes may need restart or
 preparation. `POST /v1/configs/reload` applies saved live settings together to new
 sessions. It reports `restart_required` without activation if pending startup or
 artifact changes exist. Existing sessions retain their compiled configuration.
-Platform entries use `platform/platform` for installation defaults and
+`settings/inferops` edits the full central document. Registered project and
+platform editors save into that document. Legacy standalone adapters use
+`platform/platform` for installation defaults and
 `platform/project` for an existing project `configs/platform.yaml`; project
 manifest overrides are edited through `project/project`.
 

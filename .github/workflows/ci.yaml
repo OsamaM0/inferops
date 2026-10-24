@@ -144,7 +144,7 @@ jobs:
           assets = files('inferops.adapters.inbound.http')
           for asset in ('templates/dashboard.html', 'static/dashboard.js', 'static/dashboard.css'):
               assert assets.joinpath(asset).is_file(), asset
-          assert Path('/app/configs/platform.yaml').is_file()
+          assert Path('/app/configs/inferops.yaml').is_file()
           print(f'{runtime} image passed smoke tests')
           PYCODE
       - name: Generate Docker tags and labels

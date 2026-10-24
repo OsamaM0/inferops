@@ -18,6 +18,7 @@ from inferops.domain.models import ModelSpec
 from inferops.domain.pipeline import PipelineSpec
 
 SECTIONS = {
+    "settings": "Workspace settings",
     "project": "Project",
     "models": "Models",
     "pipelines": "Pipelines",
@@ -45,7 +46,10 @@ def load_platform(configs_dir: Path, root: Path | None, manifest, *, overrides=N
             if not isinstance(data, dict):
                 raise ConfigError(f"{path}: platform configuration must be a mapping")
             merged = deep_merge(merged, data)
-    return deep_merge(merged, manifest.platform) if manifest else merged
+    merged = deep_merge(merged, manifest.platform) if manifest else merged
+    # The workspace is authoritative over packaged project platform defaults.
+    central_platform = overrides.get((configs_dir / "platform.yaml").resolve())
+    return deep_merge(merged, central_platform) if central_platform is not None else merged
 
 
 def configuration_paths(definition) -> dict[tuple[str, str], Path]:
@@ -66,13 +70,27 @@ def configuration_paths(definition) -> dict[tuple[str, str], Path]:
             found["project", "project"] = path
     configs_dir = definition.source_dirs.get("platform_configs", definition.source_dirs["pipelines"].parent)
     for index, path in enumerate(platform_paths(configs_dir, definition.root)):
-        if path.is_file():
+        if path.is_file() or (index == 0 and "workspace_config" in definition.source_dirs):
             found["platform", "platform" if index == 0 else "project"] = path
+    central_path = definition.source_dirs.get("workspace_config")
+    if central_path:
+        from inferops.adapters.outbound.projects import central
+        data = central.read_config(central_path)
+        found["settings", "inferops"] = central_path
+        for path in central.documents(central_path, data, definition.root, configs_dir):
+            for section in ("models", "pipelines", "fusion", "alerts"):
+                directory = definition.source_dirs[section]
+                if path.parent == directory or (section == "models" and path.parent.parent == directory and path.name == "model.yaml"):
+                    found[section, path.parent.name if path.name == "model.yaml" else path.stem] = path
     return found
 
 
 def configuration_schema(section: str, data: dict) -> dict:
     """Use runtime schemas for forms, including partial model variant overrides."""
+    if section == "settings":
+        return {"type": "object", "title": "Workspace configuration", "additionalProperties": True,
+                "properties": {key: {"type": "object"} for key in
+                               ("runtime", "platform", "sources", "evidence", "media", "storage", "docker", "projects", "workers")}}
     if section == "platform":
         # Imported only by the HTTP editor, never by the library loader.
         from inferops.adapters.outbound.projects.settings import Settings
@@ -110,7 +128,24 @@ def configuration_schema(section: str, data: dict) -> dict:
 
 def validate_document(section: str, data: dict) -> None:
     """Validate supplied platform fields without consulting environment overrides."""
-    if section == "platform":
+    if section == "settings":
+        from pydantic import TypeAdapter
+
+        from inferops.adapters.outbound.projects.central import validate_config
+        from inferops.domain.evidence import EvidenceConfig
+        from inferops.domain.sources import SourceSpec
+        from inferops.domain.workers import WorkerManifest
+        validate_config(data)
+        validate_document("platform", data.get("platform", {}))
+        TypeAdapter(EvidenceConfig).validate_python(data.get("evidence", {}))
+        if data.get("workers"):
+            WorkerManifest.model_validate({**data["workers"], "cameras": []})
+        defaults = data.get("sources", {})
+        allowed = set(SourceSpec.model_fields) - {"camera_id", "name", "kind", "uri", "pipeline", "group", "location"}
+        if set(defaults) - allowed:
+            raise ConfigError(f"unknown source defaults: {sorted(set(defaults) - allowed)}")
+        SourceSpec(camera_id="validation", name="Validation", kind="rtsp", uri="rtsp://validation/live", pipeline="validation", **defaults)
+    elif section == "platform":
         # BaseSettings init reads environment; TypeAdapter validates only this data.
         from pydantic import TypeAdapter
 

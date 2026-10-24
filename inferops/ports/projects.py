@@ -34,6 +34,7 @@ class ProjectDefinition:
     resolver: Any = None
     manifest: Any = None
     platform: Mapping[str, Any] = field(default_factory=dict)
+    workspace_configuration: Mapping[str, Any] = field(default_factory=dict)
 
     def resolve_model(self, name: str) -> str:
         return self.resolver.resolve(name, self.mode) if self.resolver is not None else name

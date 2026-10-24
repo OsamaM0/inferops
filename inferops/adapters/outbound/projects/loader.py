@@ -16,11 +16,12 @@ from typing import Any
 
 import yaml
 
+from inferops.adapters.outbound.projects import central
 from inferops.adapters.outbound.projects.configuration import load_platform, platform_paths
 from inferops.adapters.outbound.projects.manifest import DomainManifest, load_domain_manifest, manifest_path
 from inferops.adapters.outbound.projects.models import expand_model_config, model_config_files
 from inferops.adapters.outbound.projects.resolver import ModelResolver, canonical_mode
-from inferops.adapters.outbound.projects.yaml import load_yaml
+from inferops.adapters.outbound.projects.yaml import _interp, load_yaml
 from inferops.domain.errors import BackendError, ConfigError
 from inferops.domain.fusion.spec import FusionSpec
 from inferops.domain.incident_spec import AlertSpec
@@ -214,6 +215,15 @@ class ProjectLoader:
         Existing definitions, files, and runtime resources remain untouched.
         """
         overrides = {Path(path).resolve(): value for path, value in (overrides or {}).items()}
+        central_path = central.find_config(self.configs_dir)
+        workspace = {}
+        if central_path:
+            workspace = overrides.pop(central_path, None)
+            if workspace is None:
+                workspace = central.read_config(central_path)
+            central.validate_config(workspace)
+            overrides = {**central.documents(central_path, workspace, self.root, self.configs_dir), **overrides}
+            overrides = {path: _interp(data) for path, data in overrides.items()}
         directories = self._directories()
         platform_file = (self.root / "configs" if self.root else self.configs_dir) / "platform.yaml"
         special_paths = {platform_file, *platform_paths(self.configs_dir, self.root)}
@@ -240,6 +250,8 @@ class ProjectLoader:
 
         sources = _python_sources(self.root)
         revision = self._revision(directories, sources, overrides)
+        if central_path:
+            revision = hashlib.sha256((revision + yaml.safe_dump(workspace, sort_keys=True)).encode()).hexdigest()
         plugins = ProjectPluginResolver(self.root, revision, sources)
         manifest = (DomainManifest(**read(manifest_path(self.root)))
                     if self.root and manifest_path(self.root) in overrides else load_domain_manifest(self.root))
@@ -247,6 +259,8 @@ class ProjectLoader:
         models: dict[str, ModelSpec] = {}
         source_dirs: dict[str, Path] = dict(directories)
         source_dirs["platform_configs"] = self.configs_dir
+        if central_path:
+            source_dirs["workspace_config"] = central_path
         if self.artifact_root is not None:
             source_dirs["artifact_root"] = self.artifact_root
         for path, raw in ((source, spec) for source in files("models") for spec in expand_model_config(read(source))):
@@ -312,7 +326,8 @@ class ProjectLoader:
                                  alerts=MappingProxyType(alerts), source_dirs=MappingProxyType(source_dirs),
                                  plugin_resolver=plugins, object_loader=plugins.load_object,
                                  backend_factory=factory, resolver=resolver, manifest=manifest,
-                                 platform=MappingProxyType(platform))
+                                 platform=MappingProxyType(platform),
+                                 workspace_configuration=MappingProxyType(workspace))
 
     @staticmethod
     def _validate(pipelines, fusion, alerts, resolver, manifest) -> None:

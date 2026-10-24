@@ -44,8 +44,8 @@ need no downloads. Explicit prewarm models are also prepared.
 
 Open **Configuration** in `/ui/` to manage the active project. Settings are grouped
 by purpose: Project, Models, Pipelines, Signals & rules, Alerts & actions, Platform.
-The forms come from the same schemas used by InferOps and save the existing YAML
-documents. They support nested fields, ordered stages, model choices, runtime
+The forms come from the same schemas used by InferOps. Registered workspace
+projects save overrides into the central `configs/inferops.yaml` document. They support nested fields, ordered stages, model choices, runtime
 overrides, rule expressions and custom plugin parameters. YAML remains available
 under **Advanced YAML**; switching editors with unsaved changes asks before discarding them.
 
@@ -71,21 +71,13 @@ Forms preserve fields they do not recognize and literal `${ENV}` references.
 Form saves normalize YAML formatting and remove comments; use Advanced YAML to
 retain comments and formatting. The UI does not create a separate settings database.
 
-Platform precedence is shared by the server settings loader and project loader:
-
-1. `configs/platform.yaml`: installation defaults.
-2. `<project>/configs/platform.yaml`: optional compatibility overrides.
-3. `project.yaml` → `platform`: preferred home for project-specific overrides.
-4. Environment variables: server/deployment overrides, including secrets.
-
-The library remains explicit about runtime options; it does not read server
-environment variables. YAML `${ENV}` interpolation remains available in both.
-Keep each setting in its owning layer rather than copying the platform defaults
-into every project. The UI shows startup environment variable names without
-copying their resolved values into YAML. Environment-only deployment controls
-(Compose profiles, worker ownership, storage and media services) still belong in
-`.env` / deployment configuration; source input, rate and preview controls live
-in **Sources**.
+Workspace configuration is centralized in [`configs/inferops.yaml`](../configs/inferops.yaml).
+Packaged project YAMLs provide baseline contracts; `projects.<key>.parameters`
+and `projects.<key>.configuration` customize them. Dashboard edits write only
+to the central file. `.env` holds secrets and essential host overrides. See
+[central configuration](configuration.md) for precedence, examples and migration.
+Standalone adapters without a central workspace keep legacy platform/project
+loading for compatibility. Library runtime options remain explicit.
 
 Add `tags.label` and `tags.description` to pipelines to explain their purpose in
 the UI. A pipeline refers to logical model names such as `detector`; a model's
@@ -178,7 +170,7 @@ Triton weights must reside at `<repository>/<triton_model_name>/<version>/model.
 
 ## Docker and local commands
 
-Copy `.env.example` once, set the project folder and execution mode, then run
+Select the project folder and execution mode in `configs/inferops.yaml`, keep secrets in `.env`, then run
 `docker compose up -d --build` from the project root. Absolute external folders
 work too. The engine container mounts that folder at `/project`; use relative
 plugin references such as `.models.detector.adapter:Postprocess` and

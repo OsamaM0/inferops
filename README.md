@@ -8,7 +8,8 @@ Run the complete application with Docker (no host Python setup required):
 ```
 
 Open the workspace at **http://localhost:8080/ui/**, or the port printed by the
-launcher. Existing `.env` settings are preserved. To override the runtime/port
+launcher. Edit [`configs/inferops.yaml`](configs/inferops.yaml) for all workspace settings;
+keep secrets and essential host overrides in `.env`. See [central configuration](docs/configuration.md). To override the runtime/port
 for one launch, use `./run.sh --mode cpu --port 8082`. Use `./run.sh stop` to
 stop services, `./run.sh logs` for logs and `./run.sh check` for startup checks.
 If an existing API container has lost its Docker network, startup automatically
@@ -49,7 +50,7 @@ completed evidence storage.
 Completed evidence uses `.run/server/evidence` for the native server, or
 `/var/lib/inferops/data/evidence` on Docker's persistent `engine-data` volume.
 To enable optional MinIO/S3, use `make run-container MODE=cpu RUN_ARGS='--profiles storage'`,
-or `INFEROPS_STORAGE_KIND=s3 docker compose --profile storage up -d --build`.
+or set `storage.kind: s3` and `runtime.services: [storage]` in the central YAML.
 See [storage configuration](deploy/README.md#what-starts-and-where) for native and external S3 options.
 
 ```python
@@ -176,8 +177,7 @@ need newer images. Validate compatibility before provisioning the server.
 
 The supplied Compose stack publishes ports on all host interfaces and uses
 development credentials. Before exposing it to remote users, change MinIO and
-Grafana credentials in `.env`, replace PostgreSQL's hard-coded development
-password in the deployment configuration and matching `INFEROPS_PG_URL`, and
+Grafana and PostgreSQL credentials in `.env`, and
 restrict access to internal services. The workspace/API has no built-in login;
 put it behind an authenticated HTTPS reverse proxy or private access gateway
 with WebSocket support. Grafana enables anonymous viewer access by default.
@@ -190,11 +190,12 @@ evidence access; see [interfaces and ports](docs/interfaces.md) for all settings
 Docker-published ports require Docker-aware firewall or upstream network rules;
 see [Docker's firewall guidance](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
 
-From this directory, after selecting the project/runtime in `.env`:
+From this directory, after selecting the project/runtime in `configs/inferops.yaml`:
 
 ```bash
 docker version
 docker compose version
+./run.sh configure
 docker compose config --quiet
 # GPU modes only: check the host driver, then verify container GPU access.
 # nvidia-smi
@@ -231,7 +232,7 @@ Use `./run.sh --no-build` to reuse images, and `./run.sh --help` for all options
 The equivalent manual startup, without the launcher's checks, is:
 
 ```bash
-cp -n .env.example .env          # first setup only; retain an existing .env
+./run.sh configure              # read YAML + .env; generate Docker inputs
 docker compose up -d --build --wait --wait-timeout 600
 ```
 
@@ -262,13 +263,17 @@ its example credentials and public MinIO metrics are configured for local use.
 
 ## Select the project and runtime
 
-Edit `.env`:
+Edit `configs/inferops.yaml`:
 
-```dotenv
-INFEROPS_PROJECT_ROOT=./projects/driver_behaviour
-INFEROPS_EXECUTION_MODE=cpu
-INFEROPS_API_PORT=8080
+```yaml
+runtime:
+  project: driver_behaviour
+  mode: cpu
+  api_port: 8080
 ```
+
+Project roots, Docker images/ports, source defaults and evidence settings also
+live in that file. See [central configuration](docs/configuration.md).
 
 `cpu`, `cuda` and `triton` select the matching Compose overlay;
 `auto` is a CPU alias. GPU modes require configured NVIDIA drivers and
@@ -301,7 +306,8 @@ Project weights remain in `projects/<name>/model_repository/`.
 
 ```text
 README.md, pyproject.toml       Project documentation and Python package metadata
-.env.example, .env             Example and local configuration
+configs/inferops.yaml          Central workspace configuration
+.env.example, .env             Secrets and essential host overrides
 Makefile, compose.yaml          Development commands and Compose entry point
 .dockerignore                  Build context exclusions
 inferops/                      Importable Python engine
@@ -378,22 +384,16 @@ The launcher handles its own native API occupying the requested port. It does
 not stop unrelated processes. `API_PORT=<port>` chooses another native/API
 host port. Custom native storage ports also require matching service endpoints.
 
-| Configure | Location in `projects/<project>/` |
-| --- | --- |
-| Identity, enabled pipelines, prewarm and service overrides | `project.yaml` |
-| Weights, tensors, labels, adapters and runtime variants | `models/<model>/model.yaml` |
-| Sources, stage ordering, tracking and evidence | `configs/pipelines/*.yaml` |
-| Temporal signals and rules | `configs/fusion/*.yaml` |
-| Severity, cooldowns, dedupe and actions | `configs/alerts/*.yaml` |
+All workspace settings live in [`configs/inferops.yaml`](configs/inferops.yaml).
+The dashboard's **Workspace settings**, model, pipeline, rule and alert editors
+save into that same file. Optional project packages retain their baseline
+contracts; workspace overrides belong under `projects.<key>.configuration`.
+Secrets and essential host overrides belong in `.env`.
 
-Platform defaults come from `configs/platform.yaml`; project settings and
-environment variables can override them. **Configuration** in the UI provides
-forms for each project, model, pipeline, rule and alert setting, grouped by
-purpose. Use **Add configuration**, **Validate**, then **Save changes**; Advanced
-YAML remains available. Both editors save the same files. New projects discover
-added pipelines automatically, and logical models group their runtime variants.
-Live settings apply to new sessions; startup, artifact, tensor and platform
-changes may require preparation and restart.
+Live changes can restart managed streams with the saved revision. Artifact,
+tensor and startup settings may require preparation/restart. Registered sources
+retain their saved per-stream values; YAML supplies defaults for new streams.
+See [central configuration](docs/configuration.md) for precedence and migration.
 
 See [interfaces and ports](docs/interfaces.md), [API reference](docs/api.md),
 [project configuration](docs/project-blocks.md), [project examples](projects/README.md)

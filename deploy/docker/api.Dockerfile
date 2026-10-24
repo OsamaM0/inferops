@@ -19,8 +19,10 @@ RUN if [ "$INSTALL_CUDA" = "true" ]; then \
 COPY inferops ./inferops
 COPY README.md ./
 RUN pip install --no-cache-dir --no-deps .
-COPY configs/platform.yaml ./configs/platform.yaml
-RUN mkdir -p /app/model_repository /project
+# The generic image carries no selected project. Compose mounts the workspace's
+# authoritative configs/inferops.yaml; standalone users can supply their own.
+RUN mkdir -p /app/configs /app/model_repository /project \
+    && printf '{}\n' > /app/configs/inferops.yaml
 
 EXPOSE 8080
 HEALTHCHECK --interval=5s --timeout=3s --start-period=120s --retries=12 \

@@ -21,20 +21,25 @@ def main():
     import uvicorn
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--runtime", choices=["cpu", "cuda", "triton"], default="cuda")
-    parser.add_argument("--triton-url", default="127.0.0.1:8001")
-    parser.add_argument("--project", default="projects/driver_behaviour")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8081)
-    parser.add_argument("--data", default=".run/local-control")
+    parser.add_argument("--runtime", choices=["cpu", "cuda", "triton"])
+    parser.add_argument("--triton-url")
+    parser.add_argument("--project")
+    parser.add_argument("--host")
+    parser.add_argument("--port", type=int)
+    parser.add_argument("--data")
     args = parser.parse_args()
-    root = Path(args.data).resolve()
-    os.environ.update(INFEROPS_EXECUTION_MODE=args.runtime, INFEROPS_TRITON_URL=args.triton_url,
-                      INFEROPS_DOMAIN_ROOT=str(Path(args.project).resolve()), INFEROPS_DATA_PATH=str(root),
-                      INFEROPS_SPOOL_PATH=str(root / "spool"))
+    for key, value in {"INFEROPS_EXECUTION_MODE": args.runtime, "INFEROPS_TRITON_URL": args.triton_url,
+                       "INFEROPS_DOMAIN_ROOT": str(Path(args.project).resolve()) if args.project else None,
+                       "INFEROPS_API_HOST": args.host, "INFEROPS_API_PORT": str(args.port) if args.port else None,
+                       "INFEROPS_DATA_PATH": str(Path(args.data).resolve()) if args.data else None}.items():
+        if value is not None:
+            os.environ[key] = value
+    from inferops.adapters.outbound.projects.settings import load_settings
+    settings = load_settings()
+    root = Path(os.environ.get("INFEROPS_DATA_PATH", ".run/server")).resolve()
     engine, hub = build_server_engine()
     app = create_application(engine, hub=hub, source_root=root / "sources")
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=settings.api.host, port=settings.api.port)
 
 
 if __name__ == "__main__":

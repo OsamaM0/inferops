@@ -8,6 +8,7 @@ the engine owns execution, isolated sessions, incident acceptance and evidence.
 
 | Your goal | Read |
 | --- | --- |
+| Configure the platform, projects and Docker in one place | [Central YAML configuration](configuration.md) |
 | Understand the design and why each layer exists | [Architecture and Hexagonal design](architecture.md) |
 | Follow startup, a frame, an incident and shutdown | [Full application lifecycle](lifecycle.md) |
 | Understand Redpanda, topics, outbox, inbox and retries | [Messaging and Redpanda](messaging.md) |

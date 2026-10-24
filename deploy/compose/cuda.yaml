@@ -1,6 +1,6 @@
 services:
   api:
-    image: ${INFEROPS_IMAGE:-inferops-engine:cuda}
+    image: ${INFEROPS_IMAGE}
     build:
       args:
         INFERENCE_EXTRAS: cuda
@@ -11,6 +11,11 @@ services:
       resources:
         reservations:
           devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+          - driver: nvidia
+            count: all
+            capabilities:
+            - gpu
+  prepare:
+    build:
+      args:
+        INFERENCE_EXTRAS: cuda

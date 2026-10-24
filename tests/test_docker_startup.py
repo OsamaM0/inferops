@@ -52,70 +52,52 @@ def test_container_start_diagnoses_an_existing_port_without_killing_other_proces
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker Compose is unavailable")
 @pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "triton"])
 @pytest.mark.parametrize("image", [None, "osamam0/inferops-driverbeh:1.2.3-cpu"])
-def test_env_selects_runtime_and_orders_preparation(tmp_path, mode, image):
-    root = PROJECT_ROOT
+def test_central_yaml_selects_runtime_and_orders_preparation(tmp_path, mode, image):
+    import yaml
+
+    from scripts.configure import render
+
+    config = tmp_path / "configs/inferops.yaml"
+    config.parent.mkdir()
+    data = yaml.safe_load((PROJECT_ROOT / "configs/inferops.yaml").read_text())
+    data["runtime"].update(mode=mode, api_port=8099, services=["storage", "broker", "monitoring"])
+    data["storage"]["kind"] = "s3"
+    data["projects"]["driver_behaviour"]["root"] = str(PROJECT_ROOT / "projects/driver_behaviour")
+    if image:
+        data["docker"]["image"] = image
+    config.write_text(yaml.safe_dump(data))
+    (tmp_path / ".env").write_text("INFEROPS_S3_ACCESS_KEY=verification-key\nINFEROPS_S3_SECRET_KEY=verification-secret\n")
+    output = tmp_path / "generated"
+    render(config_file=config, output=output, environ={})
     environment = {key: value for key, value in os.environ.items() if not key.startswith(("COMPOSE_", "INFEROPS_"))}
-    environment["INFEROPS_EXECUTION_MODE"] = mode
-    environment["INFEROPS_S3_ACCESS_KEY"] = "verification-key"
-    environment["INFEROPS_S3_SECRET_KEY"] = "verification-secret"
-    if image:
-        environment["INFEROPS_IMAGE"] = image
-    env_file = tmp_path / ".env"
-    env_file.write_text((root / ".env.example").read_text())
-    result = subprocess.run(["docker", "compose", "--env-file", str(env_file), "config", "--format", "json"],
-                            cwd=root, env=environment, capture_output=True, text=True, check=True)
-    services = json.loads(result.stdout)["services"]
-    assert {"prepare", "api"} <= services.keys()
-    assert {"postgres", "mediamtx"} <= services.keys()
-    if image:
-        assert services["api"]["image"] == services["prepare"]["image"] == image
-    else:
-        assert services["api"]["image"] == f"inferops-engine:{mode if mode in {'cuda', 'triton'} else 'local'}"
-        assert services["prepare"]["image"] == f"inferops-engine:{'triton' if mode == 'triton' else 'local'}"
-    assert not {"minio", "minio-init", "redis", "redpanda", "grafana", "prometheus"} & services.keys()
-    assert services["api"]["environment"]["INFEROPS_TRANSPORT_KIND"] == "inproc"
-    assert services["api"]["environment"]["INFEROPS_STORAGE_KIND"] == "filesystem"
-    evidence_mount = next(mount for mount in services["api"]["volumes"]
-                          if mount["target"] == "/var/lib/inferops/data")
-    assert evidence_mount["type"] == "volume" and evidence_mount["source"] == "engine-data"
-    environment["COMPOSE_PROFILES"] = f"{mode},storage,broker,monitoring"
-    environment["INFEROPS_STORAGE_KIND"] = "s3"
-    result = subprocess.run(["docker", "compose", "--env-file", str(env_file), "config", "--format", "json"],
-                            cwd=root, env=environment, capture_output=True, text=True, check=True)
-    services = json.loads(result.stdout)["services"]
-    assert services["minio"]["environment"]["MINIO_ROOT_USER"] == services["api"]["environment"]["INFEROPS_S3_ACCESS_KEY"]
-    assert services["minio"]["environment"]["MINIO_ROOT_PASSWORD"] == services["api"]["environment"]["INFEROPS_S3_SECRET_KEY"]
-    assert services["prepare"]["command"] == ["inferops", "project", "prepare"]
-    assert services["api"]["depends_on"]["prepare"]["condition"] == "service_completed_successfully"
-    assert services["api"]["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
-    assert services["api"]["depends_on"]["minio-init"]["required"] is False
+    root = tmp_path / "compose.yaml"
+    root.write_text(yaml.safe_dump({"name": "inferops", "include": [str(output / "compose.yaml")]}))
+    command = ["docker", "compose", "--env-file", str(output / "compose.env"), "-f", str(root)]
+    stack = json.loads(subprocess.check_output([*command, "config", "--format", "json"], env=environment, text=True))
+    services = stack["services"]
+    assert {"api", "prepare", "postgres", "mediamtx", "minio", "redpanda", "grafana", "prometheus"} <= services.keys()
+    assert services["api"]["image"] == services["prepare"]["image"] == (image or data["docker"]["image"])
+    assert services["api"]["environment"]["INFEROPS_S3_SECRET_KEY"] == "verification-secret"
+    assert services["minio"]["environment"]["MINIO_ROOT_PASSWORD"] == "verification-secret"
+    assert services["api"]["ports"][0]["published"] == "8099"
+    assert services["api"]["environment"]["INFEROPS_API_PORT"] == "8080"
     assert services["api"]["environment"]["INFEROPS_STORAGE_KIND"] == "s3"
-    assert "redis" not in services
-    assert services["postgres"]["volumes"][0]["type"] == "volume"
-    if mode in {"triton"}:
+    assert services["api"]["depends_on"]["prepare"]["condition"] == "service_completed_successfully"
+    assert services["api"]["depends_on"]["minio-init"]["required"] is False
+    config_mount = next(mount for mount in services["api"]["volumes"] if mount["target"] == "/app/configs")
+    assert config_mount["source"] == str(config.parent) and not config_mount.get("read_only", False)
+    project_mount = next(mount for mount in services["api"]["volumes"] if mount["target"] == "/project")
+    assert project_mount["source"] == str(PROJECT_ROOT / "projects/driver_behaviour")
+    if mode == "triton":
         assert services["triton"]["depends_on"]["prepare"]["condition"] == "service_completed_successfully"
         assert services["api"]["depends_on"]["triton"]["condition"] == "service_healthy"
     else:
         assert "triton" not in services
-    if mode in {"cuda"}:
+    if mode == "cuda":
         assert services["api"]["deploy"]["resources"]["reservations"]["devices"][0]["capabilities"] == ["gpu"]
-    else:
-        assert "deploy" not in services["api"]
-
-    # The thin root entry point selects the same definitions as an explicit
-    # base/overlay merge, with all paths resolved from the project root.
-    root_args = ["docker", "compose", "--env-file", str(env_file), "-f", "compose.yaml",
-                 "--profile", mode, "--profile", "observability", "config", "--format", "json"]
-    explicit_args = ["docker", "compose", "--env-file", str(env_file), "--project-directory", str(root),
-                     "-f", "deploy/compose.yaml", "-f", f"deploy/compose/{mode}.yaml",
-                     "--profile", mode, "--profile", "observability", "config", "--format", "json"]
-    root_stack = json.loads(subprocess.check_output(root_args, cwd=root, env=environment, text=True))
-    explicit_stack = json.loads(subprocess.check_output(explicit_args, cwd=root, env=environment, text=True))
-    assert explicit_stack["services"] == root_stack["services"]
-    assert explicit_stack["volumes"] == root_stack["volumes"]
-    project_mount = next(mount for mount in services["api"]["volumes"] if mount["target"] == "/project")
-    assert project_mount["source"] == str(PROJECT_ROOT / "projects" / "driver_behaviour")
-    assert {"grafana", "prometheus"} <= services.keys()
-    assert services["minio"]["image"] == "inferops-minio:console"
-    assert services["minio"]["build"]["dockerfile"] == "deploy/docker/minio.Dockerfile"
-    assert services["api"]["build"]["context"] == str(PROJECT_ROOT)
+        assert services["prepare"]["build"]["args"]["INFERENCE_EXTRAS"] == "cuda"
+    # Root include and direct base+overlay produce identical effective services.
+    explicit = ["docker", "compose", "--env-file", str(output / "compose.env"), "--project-directory", str(PROJECT_ROOT),
+                "-f", str(PROJECT_ROOT / "deploy/compose.yaml"), "-f", str(PROJECT_ROOT / f"deploy/compose/{mode}.yaml")]
+    direct = json.loads(subprocess.check_output([*explicit, "config", "--format", "json"], env=environment, text=True))
+    assert direct["services"] == services

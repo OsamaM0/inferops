@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
-  const state = { sources: [], pipelines: [], filter: "all", editing: null, cards: new Map(), refreshing: false, capacityRequest: 0, live: null, liveRequest: 0 };
+  const state = { sources: [], defaults: {}, pipelines: [], filter: "all", editing: null, cards: new Map(), refreshing: false, capacityRequest: 0, live: null, liveRequest: 0 };
   const esc = value => String(value ?? "").replace(/[&<>"']/g, x => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[x]));
   const number = (value, digits = 1) => value == null ? "—" : Number(value).toFixed(digits);
   const gib = bytes => number(bytes / 1024 ** 3);
@@ -24,6 +24,18 @@
   function openForm(source = null) {
     state.editing = source?.camera_id || null;
     const form = $("sourceForm"); form.reset();
+    const values = source || state.defaults;
+    for (const [key, value] of Object.entries(values)) {
+      const input = form.elements[key];
+      if (!input || ["max_width", "max_height"].includes(key)) continue;
+      if (input.type === "checkbox") input.checked = Boolean(value);
+      else input.value = value ?? "";
+    }
+    if (values.max_width && values.max_height) {
+      const resolution = `${values.max_width}x${values.max_height}`;
+      if (![...$("sourceResolution").options].some(x => x.value === resolution)) $("sourceResolution").add(new Option(resolution, resolution));
+      $("sourceResolution").value = resolution;
+    }
     $("formError").textContent = "";
     $("sourceDialogTitle").textContent = source ? "Edit source" : "Add a source";
     $("saveSource").textContent = source ? "Save changes" : "Register source";
@@ -233,6 +245,7 @@
     try {
       const [catalog,hardware] = await Promise.all([api("/cameras"),api("/system/hardware")]);
       state.sources=catalog.cameras;
+      state.defaults=catalog.defaults || {};
       $("activeSources").innerHTML = `${catalog.active} <em>/ ${catalog.active_limit} limit</em>`;
       $("registeredSources").textContent = `${catalog.cameras.length} registered · ${catalog.cameras.length-catalog.active} inactive`;
       renderSources();renderHardware(hardware);
