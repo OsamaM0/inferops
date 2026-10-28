@@ -14,7 +14,7 @@ dependencies = ["inferops>=0.1.0,<0.2"]
 driver_behaviour = "driver_behaviour"
 
 [tool.setuptools]
-packages = ["driver_behaviour", "driver_behaviour.models", "driver_behaviour.models.face_mesh", "driver_behaviour.models.rfdetr_driver", "driver_behaviour.plugins"]
+packages = ["driver_behaviour", "driver_behaviour.models", "driver_behaviour.models.face_mesh", "driver_behaviour.models.buffalo_detector", "driver_behaviour.models.head_pose", "driver_behaviour.models.rfdetr_driver", "driver_behaviour.plugins"]
 package-dir = {driver_behaviour = "."}
 include-package-data = false
 

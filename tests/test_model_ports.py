@@ -23,9 +23,9 @@ async def test_logical_models_group_variants_and_select_runtime(mode, monkeypatc
     definition = ProjectLoader(PROJECT_ROOT / "projects/driver_behaviour", mode=mode).load()
     registry = ModelPool(definition)
     try:
-        assert len(definition.models) == 6
+        assert len(definition.models) == 12
         models = registry.logical_models()
-        assert [model["name"] for model in models] == ["face_mesh", "rfdetr_driver"]
+        assert [model["name"] for model in models] == ["buffalo_detector", "face_mesh", "head_pose", "rfdetr_driver"]
         suffix = "triton" if mode in {"triton"} else "tensorrt" if mode == "tensorrt" else "onnx"
         assert all(model["selected_variant"] == f"{model['name']}_{suffix}" for model in models)
         assert all(len(model["variants"]) == 3 and not model["loaded_variants"] for model in models)

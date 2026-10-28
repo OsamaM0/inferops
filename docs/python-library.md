@@ -110,7 +110,7 @@ asyncio.run(main())
 ```
 
 This example assumes your project defines image preprocessors for both models.
-The driver adapter's face-mesh model depends on an RF-DETR face crop and is run
+The driver adapter's face-mesh model depends on an SCRFD face crop and is run
 by its custom `FaceMeshStage`; use its existing `driver_behaviour` pipeline for
 the complete crop/landmarks/fusion workflow, rather than calling `predict` on the
 face-mesh model directly.

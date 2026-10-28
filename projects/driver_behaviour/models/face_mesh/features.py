@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+import cv2
 import numpy as np
 
 from inferops.adapters.outbound.stages.base import Stage
@@ -27,6 +28,16 @@ EAR_DROWSY_THRESHOLD = 0.21
 DISTRACT_YAW_DEG = 28.0
 DISTRACT_PITCH_DEG = 28.0
 
+# Six vertices from MediaPipe's canonical_face_model.obj (Apache-2.0), with
+# Y/Z reversed to OpenCV camera coordinates: X right, Y down, face toward -Z.
+# https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj
+POSE_INDICES = (NOSE_TIP, CHIN, LEFT_EYE_OUTER, RIGHT_EYE_OUTER, LEFT_MOUTH, RIGHT_MOUTH)
+POSE_MODEL = np.array([
+    (0.0, 1.126865, -7.475604), (0.0, 9.403378, -4.264492),
+    (-4.445859, -2.663991, -3.173422), (4.445859, -2.663991, -3.173422),
+    (-2.456206, 4.342621, -4.283884), (2.456206, 4.342621, -4.283884),
+], dtype=np.float64)
+
 
 def eye_aspect_ratio(points: np.ndarray, indices: Sequence[int]) -> float:
     """Return EAR using the six-point formula from the legacy face worker."""
@@ -37,50 +48,44 @@ def eye_aspect_ratio(points: np.ndarray, indices: Sequence[int]) -> float:
     return float((a + b) / (2.0 * c + 1e-6))
 
 
-def head_pose(points: np.ndarray, width: int, height: int) -> dict[str, float]:
-    """Return coarse yaw/pitch/roll in degrees from stable landmark geometry."""
-    left_eye = points[LEFT_EYE_OUTER]
-    right_eye = points[RIGHT_EYE_OUTER]
-    nose = points[NOSE_TIP]
-    mouth_mid = (points[LEFT_MOUTH] + points[RIGHT_MOUTH]) / 2.0
-    eye_mid = (left_eye + right_eye) / 2.0
+def head_pose(points: np.ndarray, width: int, height: int) -> dict[str, float] | None:
+    """Fit a 3D face to pixels; positive yaw=driver left, positive pitch=down.
 
-    left_dist = np.linalg.norm(nose - left_eye)
-    right_dist = np.linalg.norm(nose - right_eye)
-    # MediaPipe LEFT_EYE_OUTER (33) is the person's anatomical left eye, which
-    # appears on the RIGHT side of the image.  When the driver looks to their
-    # LEFT the face turns to the camera's right, the nose approaches that eye
-    # and left_dist DECREASES while right_dist INCREASES.  Negating the
-    # numerator (right_dist - left_dist) makes yaw > 0 = "driver looking left",
-    # consistent with the Haar-based yaw below.
-    yaw = float(np.clip(
-        ((right_dist - left_dist) / (left_dist + right_dist + 1e-6)) * 90.0,
-        -45.0,
-        45.0,
-    ))
-
-    eye_to_nose = float(nose[1] - eye_mid[1])
-    nose_to_mouth = float(mouth_mid[1] - nose[1])
-    # Calibrated pitch: use the fractional position of the nose between the eye
-    # midpoint and the mouth midpoint.  In a neutral, forward-facing head the
-    # nose sits at roughly 57 % of that span; subtracting 0.57 centres pitch at
-    # zero for a neutral face regardless of camera height.
-    # Positive pitch → nose below the neutral point → driver looking DOWN.
-    # Negative pitch → nose above the neutral point → driver looking UP.
-    total_y = max(abs(eye_to_nose) + abs(nose_to_mouth), 1.0)
-    nose_ratio = eye_to_nose / total_y
-    pitch = float(np.clip(
-        (nose_ratio - 0.57) * 200.0,
-        -35.0,
-        35.0,
-    ))
-
-    roll = float(np.degrees(np.arctan2(
-        right_eye[1] - left_eye[1],
-        right_eye[0] - left_eye[0],
-    )))
-
-    return {"yaw": yaw, "pitch": pitch, "roll": roll}
+    Intrinsics are approximated from frame size. A fixed camera needs neutral
+    yaw/pitch calibration; these are estimates, not measured gaze angles.
+    """
+    if width <= 0 or height <= 0 or len(points) <= max(POSE_INDICES):
+        return None
+    image_points = np.asarray(points[list(POSE_INDICES), :2], dtype=np.float64)
+    span = np.ptp(image_points, axis=0)
+    if not np.isfinite(image_points).all() or min(span) < 8:
+        return None
+    focal = float(max(width, height))
+    camera = np.array(((focal, 0, width / 2), (0, focal, height / 2), (0, 0, 1)), dtype=np.float64)
+    distortion = np.zeros((4, 1), dtype=np.float64)
+    try:
+        # A six-point DLT initialization can choose a flipped solution on
+        # shallow face geometry. SQPnP supplies a stable global initialization.
+        ok, rotation, translation = cv2.solvePnP(
+            POSE_MODEL, image_points, camera, distortion, flags=cv2.SOLVEPNP_SQPNP)
+        if not ok or not np.isfinite(rotation).all() or translation[2, 0] <= 0:
+            return None
+        rotation, translation = cv2.solvePnPRefineLM(
+            POSE_MODEL, image_points, camera, distortion, rotation, translation)
+        projected, _ = cv2.projectPoints(POSE_MODEL, rotation, translation, camera, distortion)
+        error = float(np.sqrt(np.mean(np.sum((projected.reshape(-1, 2) - image_points) ** 2, axis=1))))
+        if error / max(span) > 0.12:
+            return None
+        matrix, _ = cv2.Rodrigues(rotation)
+    except cv2.error:
+        return None
+    sy = float(np.hypot(matrix[0, 0], matrix[1, 0]))
+    pitch = float(np.degrees(np.arctan2(matrix[2, 1], matrix[2, 2])))
+    yaw = -float(np.degrees(np.arctan2(-matrix[2, 0], sy)))
+    roll = float(np.degrees(np.arctan2(matrix[1, 0], matrix[0, 0])))
+    if abs(pitch) > 85 or abs(yaw) > 85:
+        return None
+    return {"yaw": yaw, "pitch": pitch, "roll": roll, "reprojection_error_px": error}
 
 
 def behavior_scores_from_face(
@@ -93,15 +98,19 @@ def behavior_scores_from_face(
     yaw_threshold: float = DISTRACT_YAW_DEG,
     pitch_threshold: float = DISTRACT_PITCH_DEG,
 ) -> dict[str, float]:
-    """Convert face features to the legacy drowsy/distracted signal scores."""
+    """Map configured physical thresholds to the fusion decision score of 0.5."""
     scores: dict[str, float] = {}
-    if ear_left is not None and ear_right is not None:
-        ear = (ear_left + ear_right) / 2.0
-        scores["drowsy_ear"] = max(0.0, min(1.0, (ear_threshold - ear) / ear_threshold))
-    if yaw is not None and pitch is not None:
-        yaw_off = max(0.0, abs(yaw) - yaw_threshold) / 30.0
-        pitch_off = max(0.0, abs(pitch) - pitch_threshold) / 20.0
-        scores["distracted_score"] = min(1.0, max(yaw_off, pitch_off))
+    if (ear_left is not None and ear_right is not None
+            and np.isfinite([ear_left, ear_right]).all() and min(ear_left, ear_right) >= 0):
+        # Require bilateral closure; one closed eye must not imply drowsiness.
+        ear = max(ear_left, ear_right)
+        if np.isfinite(ear) and ear_threshold > 0:
+            scores["drowsy_ear"] = float(np.clip(0.5 + (ear_threshold - ear) / 0.06, 0, 1))
+    axes = [(value, threshold) for value, threshold in ((yaw, yaw_threshold), (pitch, pitch_threshold))
+            if value is not None and np.isfinite(value) and threshold > 0]
+    if axes:
+        scores["distracted_score"] = float(max(np.clip(
+            0.5 + (abs(value) - threshold) / 20.0, 0, 1) for value, threshold in axes))
     return scores
 
 
@@ -136,8 +145,8 @@ class FaceFeatures(Stage):
             ear_left = eye_aspect_ratio(points, LEFT_EYE)
             ear_right = eye_aspect_ratio(points, RIGHT_EYE)
             pose = head_pose(points, width, height)
-            yaw = pose["yaw"]
-            pitch = pose["pitch"]
+            yaw = pose["yaw"] if pose else None
+            pitch = pose["pitch"] if pose else None
 
         item.payload.update(behavior_scores_from_face(ear_left, ear_right, yaw, pitch))
         return item

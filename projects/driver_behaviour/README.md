@@ -20,6 +20,8 @@ configured models before inference starts.
 | [models/rfdetr_driver/adapter.py](models/rfdetr_driver/adapter.py) | RF-DETR output decoding |
 | [models/face_mesh/model.yaml](models/face_mesh/model.yaml) | FaceMesh tensors and runtime variants |
 | [models/face_mesh/adapter.py](models/face_mesh/adapter.py) | Face crops, landmark decoding and feature extraction |
+| [models/buffalo_detector/model.yaml](models/buffalo_detector/model.yaml) | Independent SCRFD face detector and runtime variants |
+| [models/head_pose/model.yaml](models/head_pose/model.yaml) | Learned 6DRepNet head orientation and runtime variants |
 | configs/pipelines | Stage order, mode choices, tracking and evidence triggers |
 | configs/fusion/driver.yaml | Temporal signals and driver safety rules |
 | configs/alerts/driver.yaml | Severity, dedupe, cooldown and actions |
@@ -38,17 +40,25 @@ See the [extension guide](../../docs/project-blocks.md) for adding models and
 actions, and the [dashboard guide](../../docs/interfaces.md) for video use.
 
 In **Configuration**, edit settings through forms and follow a pipeline's links
-to its models, rules and alert policy. The two models are `rfdetr_driver` and
-`face_mesh`; ONNX, TensorRT and Triton are runtime variants of those models.
+to its models, rules and alert policy. The four models are `rfdetr_driver`,
+`buffalo_detector`, `head_pose` and `face_mesh`; ONNX, TensorRT and Triton are
+runtime variants of those models. See the [face-model research and configuration
+guide](../../docs/driver-face-models.md) for model comparisons, driver-region and
+camera calibration settings, licensing and validation limits.
 
 | UI name | Stable pipeline ID | Purpose |
 | --- | --- | --- |
 | Full driver monitoring | `driver_behaviour` | Detection, face landmarks, temporal eye/head features, tracking, alerts and evidence |
 | Detector-only monitoring | `driver_video` | Detection and phone, seatbelt, smoking and eating rules, alerts and WebSocket output; no FaceMesh, tracking or evidence sink |
+| Driver face and eyes | `driver_face` | Verified face search, learned head direction, eye states and confirmed face-related incidents without RF-DETR object detection |
 
-Both pipelines accept images, videos and live frames. The older `driver_video`
+The older `driver_video`
 name describes a reduced workflow, not a restriction to video inputs. IDs stay
 unchanged so existing sources and clients keep working.
+
+All three profiles accept images, videos and live frames. See the
+[recovery and activation report](../../docs/driver-face-recovery.md) for
+per-camera `driver_roi` selection and bounded recovery settings.
 
 Hands-off-wheel requires an external `hand_on_wheel` signal producer and is not
 a verified detector-only feature. See [pipeline declarations](configs/pipelines/).

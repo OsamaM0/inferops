@@ -42,6 +42,9 @@ def spec(**kwargs):
         {"kind": "image", "loop": True},
         {"kind": "rtsp", "uri": "file:///etc/passwd"},
         {"kind": "video", "uri": "https://example/video.mp4"},
+        {"driver_roi": [.8, 0, .2, 1]},
+        {"driver_roi": [0, 0, float('nan'), 1]},
+        {"driver_roi": [0, 0, 2, 1]},
     ],
 )
 def test_source_validation(patch):
@@ -126,6 +129,7 @@ async def test_http_image_upload_runs_results_preview_evidence_and_restart(tmp_p
         payload = spec().model_dump()
         payload["uri"] = upload.json()["uri"]
         payload["preview_enabled"] = preview_enabled
+        payload["driver_roi"] = [.1, .2, .9, .8]
         created = await client.post("/v1/cameras", json=payload)
         assert created.status_code == 201 and "uri" not in created.json()
         assert (await client.post("/v1/cameras", json=payload)).status_code == 400
@@ -152,6 +156,7 @@ async def test_http_image_upload_runs_results_preview_evidence_and_restart(tmp_p
         assert {r["session_id"] for r in results} == set(sessions)
         assert all(r["camera_id"] == "front-1" for r in results)
         assert all(r["results"][0]["stream_id"] == "front-1" for r in results)
+        assert all(r["results"][0]["payload"]["driver_roi"] == [.1, .2, .9, .8] for r in results)
         await app.state.engine.application.evidence.wait_idle()
         evidence = (await client.get("/v1/evidence/records")).json()
         assert {r["session_id"] for r in evidence} == set(sessions)

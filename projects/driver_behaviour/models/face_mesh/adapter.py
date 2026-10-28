@@ -3,16 +3,15 @@
 Runs a MediaPipe FaceMesh-compatible ONNX model on the detected face region.
 After the object-detection stage this stage:
 
-1. Finds the driver face crop (from the ``DriverBehaviour`` detection class or
-   the largest detection).
+1. Finds the driver face crop from SCRFD (legacy: ``DriverBehaviour`` boxes).
 2. Resizes the crop to the configured model input size and runs the face-mesh model.
-3. Maps the 468 landmarks back to normalised full-frame coordinates.
+3. Maps the 468/478 landmarks back to normalised full-frame coordinates.
 4. Computes:
    - ``drowsy_ear``           - EAR-based drowsiness score  [0, 1]
    - ``distracted_score``     - head-pose distraction score [0, 1]
    - ``smoking_face_score``   - cigarette x mouth-region intersection [0, 1]
    - ``eating_face_score``    - food x mouth-region intersection     [0, 1]
-   - ``face_landmarks``       - list[dict] 468 items, keys x/y/z normalised
+   - ``face_landmarks``       - list[dict] 468/478 items, keys x/y/z normalised
    - ``face_mesh_confidence`` - model face-flag confidence [0, 1]
 
 All values are written into ``item.payload`` so the fusion engine can read
@@ -69,10 +68,21 @@ def _get_face_box(results, frame_w: int, frame_h: int) -> tuple[float, float, fl
     """
     Return the best (x1, y1, x2, y2) normalised face box from results.
 
-    Only considers detections labelled ``DriverBehaviour``; other classes
-    (phone, cigarette, etc.) are deliberately ignored so they cannot be
-    mistaken for the driver's face crop.
+    Prefer the dedicated SCRFD result, including an empty result. Legacy
+    pipelines can supply ``DriverBehaviour`` detections. Other object classes
+    are ignored so they cannot become the driver's face crop.
     """
+    dedicated = [r for r in results if (r.raw or {}).get("face_detector") == "scrfd"]
+    if dedicated:
+        selected = (dedicated[-1].raw or {}).get("selected_face_box")
+        if selected is not None:
+            return tuple(selected)
+        candidates = [d for r in dedicated for d in (r.raw or {}).get("by_class", {}).get("DriverFace", [])]
+        # The largest visible face is a default only. Set driver_region in
+        # FaceDetectionStage when passengers can be visible in this camera.
+        candidates = [d for d in candidates if len(d.get("box", [])) == 4
+                      and np.isfinite(d["box"]).all() and _box_area(tuple(d["box"])) > 0]
+        return tuple(max(candidates, key=lambda d: _box_area(tuple(d["box"])) * d["score"])["box"]) if candidates else None
     best_score = -1.0
     best_box: tuple | None = None
     for result in results:
@@ -95,15 +105,16 @@ def _crop_face(
     """Crop face region with padding; return (crop_bgr, (x1_px, y1_px, x2_px, y2_px))."""
     h, w = img.shape[:2]
     x1n, y1n, x2n, y2n = box_norm
-    pw = padding * (x2n - x1n)
-    ph = padding * (y2n - y1n)
-    x1 = max(0, int((x1n - pw) * w))
-    y1 = max(0, int((y1n - ph) * h))
-    x2 = min(w, int((x2n + pw) * w))
-    y2 = min(h, int((y2n + ph) * h))
-    if x2 <= x1 or y2 <= y1:
-        return img, (0, 0, w, h)
-    return img[y1:y2, x1:x2], (x1, y1, x2, y2)
+    side = max(1, int(np.ceil(max((x2n - x1n) * w, (y2n - y1n) * h) * (1 + 2 * padding))))
+    x1 = int(np.floor((x1n + x2n) * w / 2 - side / 2))
+    y1 = int(np.floor((y1n + y2n) * h / 2 - side / 2))
+    x2, y2 = x1 + side, y1 + side
+    # Preserve the model's square crop even at frame edges, without stretching
+    # the face. crop_box includes padding so inverse landmark mapping is exact.
+    padded = cv2.copyMakeBorder(img, max(0, -y1), max(0, y2 - h),
+                                max(0, -x1), max(0, x2 - w), cv2.BORDER_CONSTANT)
+    sx, sy = max(0, x1), max(0, y1)
+    return padded[sy:sy + side, sx:sx + side], (x1, y1, x2, y2)
 
 
 def _box_area(box: tuple[float, float, float, float]) -> float:
@@ -205,7 +216,7 @@ def _parse_face_mesh_output(
     crop_w = max(x2 - x1, 1)
     crop_h = max(y2 - y1, 1)
 
-    # ── locate landmark tensor (size ≥ 1404) ──────────────────────────────
+    # ── locate the 468- or 478-point landmark tensor ───────────────────────
     lm_arr: np.ndarray | None = None
     confidence = 0.0
 
@@ -214,9 +225,8 @@ def _parse_face_mesh_output(
     )
 
     for size, arr in outputs_by_size:
-        if size >= 1404:
-            flat = arr.reshape(-1)[:1404]
-            lm_arr = flat.reshape(468, 3)
+        if size in (1404, 1434):
+            lm_arr = arr.reshape(-1, 3)
             break
 
     # FaceMeshV2's second output is the face-presence logit. Other scalar
@@ -311,10 +321,12 @@ def _face_status_label(drowsy_score: float | None, pose: dict[str, float] | None
         yaw = pose.get("yaw_deg", pose.get("yaw"))
         pitch = pose.get("pitch_deg", pose.get("pitch"))
     if drowsy_score is not None and drowsy_score >= 0.5:
-        labels.append("Drowsy")
-    if yaw is not None and abs(yaw) >= DISTRACT_YAW_DEG:
+        labels.append("Eyes Closed")
+    yaw_threshold = pose.get("yaw_threshold_deg", DISTRACT_YAW_DEG) if pose else DISTRACT_YAW_DEG
+    pitch_threshold = pose.get("pitch_threshold_deg", DISTRACT_PITCH_DEG) if pose else DISTRACT_PITCH_DEG
+    if yaw is not None and abs(yaw) >= yaw_threshold:
         labels.append("Looking Left" if yaw > 0 else "Looking Right")
-    elif pitch is not None and abs(pitch) >= DISTRACT_PITCH_DEG:
+    elif pitch is not None and abs(pitch) >= pitch_threshold:
         labels.append("Looking Down" if pitch > 0 else "Looking Up")
     return " | ".join(labels) or "Driver Face"
 
@@ -426,6 +438,9 @@ class FaceMeshStage(Stage):
     SIGNAL_KEYS = (
         "face_source", "face_mesh_confidence", "face_status_label",
         "drowsy_ear", "distracted_score", "smoking_face_score", "eating_face_score",
+        "eyes_state", "left_eye_state", "right_eye_state", "ear_left", "ear_right",
+        "eyes_closed_ms", "head_direction", "head_pose_source",
+        "face_detection_age_ms", "face_detection_confidence", "face_search_method", "face_direction",
     )
 
     def __init__(
@@ -438,6 +453,13 @@ class FaceMeshStage(Stage):
         face_flag_is_logit: bool = True,
         crop_padding: float = 0.25,
         min_infer_interval_ms: int = 66,
+        ear_closed_threshold: float = EAR_DROWSY_THRESHOLD,
+        ear_open_threshold: float = 0.24,
+        min_eye_width_px: float = 6.0,
+        neutral_yaw_deg: float = 0.0,
+        neutral_pitch_deg: float = 0.0,
+        direction_yaw_threshold: float = 25.0,
+        direction_pitch_threshold: float = 18.0,
     ) -> None:
         super().__init__(
             model=model,
@@ -448,7 +470,31 @@ class FaceMeshStage(Stage):
             face_flag_is_logit=face_flag_is_logit,
             crop_padding=crop_padding,
             min_infer_interval_ms=min_infer_interval_ms,
+            ear_closed_threshold=ear_closed_threshold,
+            ear_open_threshold=ear_open_threshold,
+            min_eye_width_px=min_eye_width_px,
+            neutral_yaw_deg=neutral_yaw_deg,
+            neutral_pitch_deg=neutral_pitch_deg,
+            direction_yaw_threshold=direction_yaw_threshold,
+            direction_pitch_threshold=direction_pitch_threshold,
         )
+        if not 0 < ear_closed_threshold < ear_open_threshold < 1:
+            raise ValueError("EAR thresholds must satisfy 0 < closed < open < 1")
+        if not np.isfinite(min_eye_width_px) or min_eye_width_px <= 0:
+            raise ValueError("min_eye_width_px must be finite and positive")
+        if not np.isfinite([neutral_yaw_deg, neutral_pitch_deg]).all():
+            raise ValueError("neutral camera angles must be finite")
+        if not all(np.isfinite(value) and 0 < value < 90 for value in (
+                direction_yaw_threshold, direction_pitch_threshold)):
+            raise ValueError("direction thresholds must be finite and between 0 and 90 degrees")
+        self.ear_closed_threshold = ear_closed_threshold
+        self.ear_open_threshold = ear_open_threshold
+        self.min_eye_width_px = min_eye_width_px
+        self.neutral_yaw_deg = neutral_yaw_deg
+        self.neutral_pitch_deg = neutral_pitch_deg
+        self.direction_yaw_threshold = direction_yaw_threshold
+        self.direction_pitch_threshold = direction_pitch_threshold
+        self._eye_history: dict[str, dict[str, Any]] = {}
         self.model = model
         self.fallback_model = None  # Legacy parameter is accepted; model fallback is disabled.
         self.face_confidence_threshold = face_confidence_threshold
@@ -512,6 +558,8 @@ class FaceMeshStage(Stage):
             "distracted_score",
             "face_pose",
             "face_status_label",
+            "eyes_state", "left_eye_state", "right_eye_state", "ear_left", "ear_right",
+            "eyes_closed_ms", "head_direction", "head_pose_source",
         ):
             if key in item.payload:
                 payload[key] = item.payload[key]
@@ -684,20 +732,23 @@ class FaceMeshStage(Stage):
         )
 
     def _publish_signals(self, item: StageItem) -> None:
-        if "face_box" not in item.payload:
-            return
         signals = item.payload.setdefault("signals", {})
         for key in self.SIGNAL_KEYS:
             value = item.payload.get(key)
             if isinstance(value, (int, float, str)) and not isinstance(value, bool):
                 signals[key] = round(value, 3) if isinstance(value, float) else value
         pose = item.payload.get("face_pose") or {}
-        for axis in ("yaw", "pitch"):
+        for axis in ("yaw", "pitch", "roll"):
             value = pose.get(f"{axis}_deg", pose.get(axis))
             if isinstance(value, (int, float)):
                 signals[f"head_{axis}_deg"] = round(float(value), 1)
+        if "face_box" not in item.payload:
+            return
         label = str(item.payload.get("face_status_label") or "Face")
-        tone = "danger" if "Drowsy" in label else ("warn" if any(
+        eyes = item.payload.get("eyes_state", "unknown")
+        if "Eyes Closed" not in label:
+            label += f" | Eyes {str(eyes).title()}"
+        tone = "danger" if eyes == "closed" or "Drowsy" in label else ("warn" if any(
             k in label for k in ("Looking", "Eating", "Smoking")) else "ok")
         item.payload["overlay_boxes"] = [{
             "label": label,
@@ -709,9 +760,82 @@ class FaceMeshStage(Stage):
         try:
             return await self._process(item)
         finally:
+            if item.payload.get("eyes_state") == "unknown":
+                self._eye_history.pop(item.stream_id, None)
             self._publish_signals(item)
 
+    async def teardown(self) -> None:
+        self._face_cache.clear()
+        self._eye_history.clear()
+
+    def _apply_pose(self, item: StageItem, raw_pose) -> dict[str, float] | None:
+        if raw_pose is None:
+            return None
+        pose = dict(raw_pose)
+        pose["yaw"] -= self.neutral_yaw_deg
+        pose["pitch"] -= self.neutral_pitch_deg
+        pose["yaw_deg"], pose["pitch_deg"] = pose["yaw"], pose["pitch"]
+        pose["yaw_threshold_deg"] = self.direction_yaw_threshold
+        pose["pitch_threshold_deg"] = self.direction_pitch_threshold
+        item.payload["face_pose"] = pose
+        item.payload.update(behavior_scores_from_face(None, None, pose["yaw"], pose["pitch"],
+            yaw_threshold=self.direction_yaw_threshold, pitch_threshold=self.direction_pitch_threshold))
+        item.payload["head_direction"] = (
+            ("left" if pose["yaw"] > 0 else "right") if abs(pose["yaw"]) >= self.direction_yaw_threshold
+            else ("down" if pose["pitch"] > 0 else "up") if abs(pose["pitch"]) >= self.direction_pitch_threshold
+            else "forward")
+        item.payload["face_direction"] = item.payload["head_direction"]
+        item.payload["face_status_label"] = _face_status_label(None, pose)
+        return pose
+
+    def _apply_eye_state(self, item: StageItem, points: np.ndarray, pose) -> None:
+        eye_points = points[list(LEFT_EYE + RIGHT_EYE)]
+        widths = [np.linalg.norm(points[eye[0]] - points[eye[3]]) for eye in (LEFT_EYE, RIGHT_EYE)]
+        image = item.payload["image_np"]
+        h, w = image.shape[:2]
+        # Extreme pose, off-screen eyes and tiny crops cannot establish closure.
+        if (pose is None or abs(pose["yaw"]) > 40 or abs(pose["pitch"]) > 35
+                or min(widths) < self.min_eye_width_px or not np.isfinite(eye_points).all()
+                or (eye_points <= 0).any() or (eye_points >= (w - 1, h - 1)).any()):
+            return
+        # Legacy LEFT_EYE indices are on image-left (driver's anatomical right).
+        # Publish the driver's anatomical left/right for an unmirrored image.
+        ears = [eye_aspect_ratio(points, eye) for eye in (RIGHT_EYE, LEFT_EYE)]
+        if not all(np.isfinite(ear) and 0 <= ear <= 0.6 for ear in ears):
+            return
+        ts = int(item.ts_ms)
+        history = self._eye_history.get(item.stream_id, {})
+        if not 0 < ts - history.get("ts_ms", ts - 1) <= 1000:
+            history = {}
+        face_box = item.payload.get("face_box")
+        if face_box is not None and history.get("face_box") is not None and not _boxes_are_close(
+                tuple(face_box), tuple(history["face_box"])):
+            history = {}
+        states = []
+        for key, ear in zip(("left", "right"), ears, strict=True):
+            state = "closed" if ear <= self.ear_closed_threshold else (
+                "open" if ear >= self.ear_open_threshold else history.get(key, "unknown"))
+            states.append(state)
+        state = states[0] if states[0] == states[1] else "mixed"
+        since = history.get("since_ms", ts) if state == history.get("state") == "closed" else ts
+        item.payload.update({"ear_left": ears[0], "ear_right": ears[1],
+                             "left_eye_state": states[0], "right_eye_state": states[1],
+                             "eyes_state": state, "eyes_closed_ms": ts - since if state == "closed" else 0})
+        if state in ("open", "closed"):
+            # The state uses hysteresis, while fusion retains three-second
+            # confirmation. A blink is visible but does not become an incident.
+            item.payload["drowsy_ear"] = 1.0 if state == "closed" else 0.0
+        elif state == "mixed":
+            item.payload["drowsy_ear"] = 0.0
+        self._eye_history[item.stream_id] = {"ts_ms": ts, "left": states[0], "right": states[1],
+                                            "state": state, "since_ms": since, "face_box": face_box}
+
     async def _process(self, item: StageItem) -> StageItem:
+        verified = item.payload.pop("_verified_face_mesh", None)
+        item.payload.update({"eyes_state": "unknown", "left_eye_state": "unknown",
+                             "right_eye_state": "unknown", "head_direction": "unknown"})
+        # A learned pose remains available even when eyelid landmarks fail.
+        self._apply_pose(item, item.payload.get("face_pose_raw"))
         img: np.ndarray | None = item.payload.get("image_np")
         if img is None:
             return item
@@ -744,10 +868,11 @@ class FaceMeshStage(Stage):
         crop, crop_box = _crop_face(img, face_box, padding=self.crop_padding)
 
         # ── 3. infer ───────────────────────────────────────
-        raw, used_model, used_input_size = await _infer_face_mesh(
-            self,
-            crop,
-        )
+        if (verified and verified["model"] == self.model and verified["frame_size"] == (w, h)
+                and tuple(verified["crop_box"]) == tuple(crop_box)):
+            raw, used_model, used_input_size = verified["raw"], self.model, verified["input_size"]
+        else:
+            raw, used_model, used_input_size = await _infer_face_mesh(self, crop)
 
         if raw is None:
             if self.allow_haar_fallback and haar_face is not None:
@@ -784,20 +909,13 @@ class FaceMeshStage(Stage):
         pts = np.array([[lm["x"] * w, lm["y"] * h] for lm in landmarks],
                        dtype=np.float64)
 
-        ear_l = eye_aspect_ratio(pts, LEFT_EYE)
-        ear_r = eye_aspect_ratio(pts, RIGHT_EYE)
-        pose = head_pose(pts, w, h)
-
-        scores = behavior_scores_from_face(
-            ear_l, ear_r, pose.get("yaw"), pose.get("pitch"),
-            ear_threshold=EAR_DROWSY_THRESHOLD,
-            yaw_threshold=DISTRACT_YAW_DEG,
-            pitch_threshold=DISTRACT_PITCH_DEG,
-        )
-        item.payload.update(scores)
-        pose["yaw_deg"] = pose.get("yaw", 0.0)
-        pose["pitch_deg"] = pose.get("pitch", 0.0)
-        item.payload["face_pose"] = pose
+        raw_pose = item.payload.get("face_pose_raw")
+        if raw_pose is None:
+            raw_pose = head_pose(pts, w, h)
+            item.payload["head_pose_source"] = "landmark_pnp" if raw_pose else "unknown"
+        pose = self._apply_pose(item, raw_pose)
+        # Eye visibility depends on physical camera pose, before calibration.
+        self._apply_eye_state(item, pts, raw_pose)
         item.payload["face_status_label"] = _face_status_label(
             item.payload.get("drowsy_ear"),
             pose,

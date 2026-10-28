@@ -1,0 +1,61 @@
+name: driver_face
+version: 1
+tags:
+  label: Driver face and eyes
+  description: Verified driver-face detection, learned head direction and eye state
+    without the RF-DETR object detector.
+source:
+  name: src
+  stage: source_rest
+stages:
+- name: decode
+  stage: decode_any
+  params:
+    every_n: 1
+- name: detect_face
+  stage: .models.buffalo_detector.adapter:FaceDetectionStage
+  params:
+    model: buffalo_detector
+    min_infer_interval_ms: 100
+    driver_region: null
+    verification_model: face_mesh
+    verification_confidence: 0.8
+    search_tiles: true
+    enhance_on_miss: true
+    max_search_views: 3
+    negative_cache_ms: 350
+    full_search_interval_ms: 1000
+- name: head_pose
+  stage: .models.head_pose.adapter:HeadPoseStage
+  params:
+    model: head_pose
+    crop_padding: 0.2
+    min_infer_interval_ms: 100
+- name: face_mesh
+  stage: .models.face_mesh.adapter:FaceMeshStage
+  params:
+    model: face_mesh
+    crop_padding: 0.25
+    face_confidence_threshold: 0.8
+    allow_haar_fallback: false
+    ear_closed_threshold: 0.21
+    ear_open_threshold: 0.24
+    min_eye_width_px: 6.0
+    neutral_yaw_deg: 0.0
+    neutral_pitch_deg: 0.0
+    direction_yaw_threshold: 25.0
+    direction_pitch_threshold: 18.0
+    min_infer_interval_ms: 100
+- name: fuse
+  stage: fuse
+  params:
+    fusion: driver_fusion
+- name: alert
+  stage: alert
+  params:
+    alerts: driver_alerts
+sinks:
+- name: evidence
+  stage: evidence
+  params:
+    annotator: .plugins.frame_annotator:DriverAnnotator

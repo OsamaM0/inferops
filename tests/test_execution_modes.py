@@ -29,6 +29,8 @@ async def test_production_modes_do_not_fall_back_to_synthetic(monkeypatch, mode,
     stages = {s.name: s for s in definition.pipelines["driver_behaviour"].stages}
     assert stages["detect"].params["model"] == model
     assert stages["face_mesh"].params["model"] == face
+    assert stages["detect_face"].params["model"] == f"buffalo_detector_{face.removeprefix('face_mesh_')}"
+    assert stages["head_pose"].params["model"] == f"head_pose_{face.removeprefix('face_mesh_')}"
     assert stages["detect"].params["fallback_model"] is None
     assert stages["face_mesh"].params["fallback_model"] is None
     registry = ModelPool(definition)

@@ -146,7 +146,8 @@ the configured server. Override the executable with `INFEROPS_TRITON_BINARY`.
 
 The default repository belongs to the selected project. Set
 `INFEROPS_TRITON_REPOSITORY` for a separately prepared repository. The bundled
-project loads `face_mesh_onnx` and `rfdetr_driver_behaviour_onnx` from
+project loads `buffalo_detector_onnx`, `head_pose_onnx`, `face_mesh_onnx` and
+`rfdetr_driver_behaviour_onnx` from
 `/workspace/inferops/projects/driver_behaviour/model_repository`.
 See [Triton serving](triton-serving.md) for qualified batching repositories.
 API model loading still validates model names and tensor contracts; readiness

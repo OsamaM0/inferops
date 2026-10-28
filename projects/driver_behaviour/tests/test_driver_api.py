@@ -31,7 +31,7 @@ async def test_driver_pipeline_via_api():
         data = r.json()
         assert data["active_domain"] == "driver_behaviour"
         assert data["domain_pack"]["name"] == "driver_behaviour"
-        assert data["domain_pack"]["pipelines"] == ["driver_behaviour", "driver_video"]
+        assert data["domain_pack"]["pipelines"] == ["driver_behaviour", "driver_video", "driver_face"]
         assert any(d["id"] == "driver_behaviour" for d in data["domains"])
 
         files = {"image": ("img.jpg", io.BytesIO(_jpeg()), "image/jpeg")}

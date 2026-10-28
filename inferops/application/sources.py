@@ -283,6 +283,8 @@ class SourceManager:
                 if spec.kind != "image":
                     frame.payload["_admission_deadline"] = deadline
                 state["status"] = "running"
+                if spec.driver_roi is not None:
+                    frame.payload["driver_roi"] = list(spec.driver_roi)
                 started = time.monotonic()
                 outputs = await session.process(frame, observed=True)
                 if frame.payload.get("_admission_expired"):

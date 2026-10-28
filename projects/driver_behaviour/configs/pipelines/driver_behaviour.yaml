@@ -2,7 +2,7 @@ name: driver_behaviour
 version: 1
 tags:
   label: Full driver monitoring
-  description: RF-DETR detection, face landmarks, drowsiness and head-pose signals, tracking, alerts and incident evidence. Use for full in-cab monitoring with both models prepared.
+  description: RF-DETR behaviors, verified multi-scale driver-face detection, learned head pose, eye state and confirmed incidents.
 
 source:
   name: src
@@ -18,6 +18,29 @@ stages:
     params:
       model: rfdetr_driver
 
+  - name: detect_face
+    stage: .models.buffalo_detector.adapter:FaceDetectionStage
+    params:
+      model: buffalo_detector
+      min_infer_interval_ms: 100
+      # Set [x1, y1, x2, y2] in normalized camera coordinates if passengers
+      # can be visible. Otherwise the largest detected face is selected.
+      driver_region: null
+      verification_model: face_mesh
+      verification_confidence: 0.8
+      search_tiles: true
+      enhance_on_miss: true
+      max_search_views: 3
+      negative_cache_ms: 350
+      full_search_interval_ms: 1000
+
+  - name: head_pose
+    stage: .models.head_pose.adapter:HeadPoseStage
+    params:
+      model: head_pose
+      crop_padding: 0.2
+      min_infer_interval_ms: 100
+
   # Pack-relative plugin reference: resolved against this domain's package.
   - name: face_mesh
     stage: .models.face_mesh.adapter:FaceMeshStage
@@ -28,9 +51,16 @@ stages:
       face_confidence_threshold: 0.80
       # Haar cascade fallback emits heuristic confidence, not model probabilities.
       allow_haar_fallback: false
-      # In live mode (15 fps camera) only re-infer face mesh every 200 ms;
-      # intermediate frames reuse the cached landmarks → halves CPU load.
-      min_infer_interval_ms: 200
+      ear_closed_threshold: 0.21
+      ear_open_threshold: 0.24
+      min_eye_width_px: 6.0
+      # Calibrate with the driver facing the road in this camera mounting.
+      neutral_yaw_deg: 0.0
+      neutral_pitch_deg: 0.0
+      direction_yaw_threshold: 25.0
+      direction_pitch_threshold: 18.0
+      # Sample at up to 10 Hz; intermediate frames reuse recent landmarks.
+      min_infer_interval_ms: 100
 
   - name: fuse
     stage: fuse

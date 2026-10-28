@@ -54,9 +54,15 @@ class SourceSpec(BaseModel):
     rtsp_transport: Literal["tcp", "udp"] = "tcp"
     timeout_s: float = Field(default=5, ge=1, le=30)
     decoder_threads: int = Field(default=1, ge=1, le=16)
+    driver_roi: tuple[float, float, float, float] | None = None
 
     @model_validator(mode="after")
     def validate_location(self):
+        if self.driver_roi is not None:
+            x1, y1, x2, y2 = self.driver_roi
+            if not all(isfinite(value) and 0 <= value <= 1 for value in self.driver_roi) or not (
+                    x1 < x2 and y1 < y2):
+                raise ValueError("driver_roi must be normalized [x1, y1, x2, y2]")
         if self.kind == "rtsp":
             parsed = urlsplit(self.uri)
             if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.hostname:

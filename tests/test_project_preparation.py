@@ -57,9 +57,13 @@ def test_logical_models_and_tracking_share_selection(mode, expected):
     pipelines, models = selected_surface(stack, mode)
     primary = next(item for item in pipelines if item.name == "driver_behaviour")
     assert primary.stages[1].params["model"] == f"rfdetr_driver_{expected}"
-    assert primary.stages[2].params["model"] == f"face_mesh_{expected}"
+    assert primary.stages[2].params["model"] == f"buffalo_detector_{expected}"
+    assert primary.stages[3].params["model"] == f"head_pose_{expected}"
+    assert primary.stages[4].params["model"] == f"face_mesh_{expected}"
     assert primary.tracking.model_filter == [f"rfdetr_driver_{expected}"]
-    assert {model.name for _, model in models} == {f"rfdetr_driver_{expected}", f"face_mesh_{expected}"}
+    assert {model.name for _, model in models} == {
+        f"rfdetr_driver_{expected}", f"face_mesh_{expected}", f"buffalo_detector_{expected}",
+        f"head_pose_{expected}"}
     resolver = ModelResolver(stack.spec_dir("models"))
     assert resolver.resolve("rfdetr_driver_triton", "cpu") == "rfdetr_driver_triton"
 
