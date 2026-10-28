@@ -15,6 +15,7 @@ stop services, `./run.sh logs` for logs and `./run.sh check` for startup checks.
 If an existing API container has lost its Docker network, startup automatically
 recreates it; `./run.sh repair` also forces API recreation. Data volumes are kept.
 See [startup troubleshooting](deploy/README.md#startup-troubleshooting).
+For a native RunPod deployment, see [RunPod startup and Triton setup](docs/runpod.md).
 
 GitHub Actions checks the code, builds the CPU/CUDA/Triton client images and
 publishes passing builds to Docker Hub. See [CI/CD setup and prebuilt images](deploy/README.md#cicd-and-docker-hub).

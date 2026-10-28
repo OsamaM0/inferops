@@ -164,21 +164,25 @@ export INFEROPS_CONFIGS_DIR="$APP/configs"
 export HF_HOME="$DATA/huggingface"
 mkdir -p "$HF_HOME"
 
-# Install/update Python requirements when the project dependency spec changes.
+# Include both local CUDA and remote Triton backends so changing runtime.mode
+# never leaves a persistent Pod without its selected backend's client library.
+# Hash this script too: changing the installed extras must invalidate old caches.
 if [[ ! -x "$VENV/bin/inferops" ]]; then
     info 'Creating InferOps Python virtual environment...'
     python3.11 -m venv "$VENV"
+    rm -f "$DATA/python-requirements.sha256"
 fi
-spec_hash="$(sha256sum pyproject.toml | cut -d' ' -f1)"
+spec_hash="$(sha256sum pyproject.toml runpod-start.sh | sha256sum | cut -d' ' -f1)"
 if [[ "$(cat "$DATA/python-requirements.sha256" 2>/dev/null || true)" != "$spec_hash" ]]; then
-    info 'Installing InferOps CUDA dependencies...'
+    info 'Installing InferOps CUDA and Triton client dependencies...'
     "$VENV/bin/python" -m pip install --upgrade pip
-    "$VENV/bin/python" -m pip install -e '.[server,cuda,video]'
+    "$VENV/bin/python" -m pip install -e '.[server,cuda,triton,video]'
     printf '%s\n' "$spec_hash" > "$DATA/python-requirements.sha256"
 fi
 
 info 'Preparing project model artifacts...'
 "$VENV/bin/inferops" project prepare
+"$VENV/bin/python" scripts/runpod_preflight.py
 info 'Starting InferOps using runtime/project/API settings from configs/inferops.yaml...'
 "$VENV/bin/python" scripts/serve_local.py --data "$DATA/app" &
 API_PID=$!
