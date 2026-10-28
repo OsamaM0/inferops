@@ -112,13 +112,21 @@ class NativeRuntimeTests(unittest.TestCase):
 
     def test_readiness_failure_stops_owned_server_and_prints_its_log(self):
         self.log.parent.mkdir()
-        self.log.write_text("model failed to load: CUDA initialization failed\n")
+        self.log.write_text("previous attempt: stale error\n")
+
+        def spawn(*_args, **_kwargs):
+            with self.log.open("a") as output:
+                output.write("model failed to load: CUDA initialization failed\n" + "shutdown detail\n" * 50)
+            return self.triton
+
+        self.spawn.side_effect = spawn
         self.wait.side_effect = RuntimeError("not ready")
         with self.assertRaisesRegex(RuntimeError, "not ready"):
             self.run_runtime()
         self.assertEqual(self.spawn.call_count, 1)
         self.triton.terminate.assert_called_once()
         self.assertIn("CUDA initialization failed", self.stderr.getvalue())
+        self.assertNotIn("previous attempt: stale error", self.stderr.getvalue())
 
     def test_native_server_exit_during_startup_reports_log_and_never_starts_api(self):
         self.triton.poll.return_value = 1
@@ -200,6 +208,28 @@ class OwnedProcessTests(unittest.TestCase):
             if process.poll() is None:
                 process.kill()
             process.wait()
+
+
+class StartupLogTests(unittest.TestCase):
+    def test_large_output_is_bounded_and_explicitly_marked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triton.log"
+            path.write_text("backend error\n" + "x" * 1000)
+            captured = io.StringIO()
+            with contextlib.redirect_stderr(captured):
+                runpod_runtime.print_startup_log(path, 0, max_bytes=100)
+            self.assertIn("backend error", captured.getvalue())
+            self.assertIn("truncated at 100 bytes", captured.getvalue())
+            self.assertNotIn("x" * 101, captured.getvalue())
+
+    def test_replaced_log_is_read_from_beginning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "triton.log"
+            path.write_bytes(b"backend error: bad byte \xff\n")
+            captured = io.StringIO()
+            with contextlib.redirect_stderr(captured):
+                runpod_runtime.print_startup_log(path, 1000)
+            self.assertIn("backend error", captured.getvalue())
 
 
 if __name__ == "__main__":

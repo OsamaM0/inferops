@@ -10,7 +10,6 @@ import socket
 import subprocess
 import sys
 import time
-from collections import deque
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -71,6 +70,18 @@ def stop_owned(process) -> None:
         process.wait()
 
 
+def print_startup_log(path: Path, start: int, *, max_bytes: int = 262144) -> None:
+    """Include early backend errors, excluding output from previous attempts."""
+    with suppress(OSError), path.open("rb") as output:
+        end = output.seek(0, os.SEEK_END)
+        output.seek(start if start <= end else 0)
+        content = output.read(max_bytes + 1)
+        print(f"[inferops/runpod] Triton startup output ({path}):", file=sys.stderr, flush=True)
+        print(content[:max_bytes].decode("utf-8", errors="replace"), file=sys.stderr, flush=True)
+        if len(content) > max_bytes:
+            print(f"[inferops/runpod] Startup output truncated at {max_bytes} bytes; full log: {path}", file=sys.stderr, flush=True)
+
+
 def run_runtime(settings, *, repository: Path, data: Path, triton_log: Path,
                 timeout_s: float = 60, autostart: str = "auto") -> int:
     from scripts.runpod_preflight import wait_for_triton
@@ -78,6 +89,7 @@ def run_runtime(settings, *, repository: Path, data: Path, triton_log: Path,
     if autostart not in {"auto", "true", "false"}:
         raise ValueError("INFEROPS_TRITON_AUTOSTART must be auto, true or false")
     triton = api = None
+    log_start = 0
     try:
         if settings.execution_mode == "triton":
             if not math.isfinite(timeout_s) or timeout_s <= 0:
@@ -94,6 +106,7 @@ def run_runtime(settings, *, repository: Path, data: Path, triton_log: Path,
                     triton_log.parent.mkdir(parents=True, exist_ok=True)
                     print(f"[inferops/runpod] Starting native Triton; log: {triton_log}", flush=True)
                     with triton_log.open("ab") as output:
+                        log_start = output.tell()
                         triton = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT)
                 elif autostart == "true":
                     raise RuntimeError("tritonserver is missing; use a compatible NVIDIA Triton image or configure an external server")
@@ -115,10 +128,7 @@ def run_runtime(settings, *, repository: Path, data: Path, triton_log: Path,
         return code
     except BaseException:
         if triton is not None and triton_log.is_file():
-            print(f"[inferops/runpod] Last Triton log lines ({triton_log}):", file=sys.stderr, flush=True)
-            with suppress(OSError), triton_log.open(errors="replace") as output:
-                for line in deque(output, maxlen=30):
-                    print(line.rstrip(), file=sys.stderr)
+            print_startup_log(triton_log, log_start)
         raise
     finally:
         stop_owned(api)
