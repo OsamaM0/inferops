@@ -7,10 +7,11 @@ import math
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 
-def wait_for_triton(url: str, *, timeout_s: float) -> None:
+def wait_for_triton(url: str, *, timeout_s: float, check_running: Callable[[], None] | None = None) -> None:
     """Wait for gRPC readiness using the same endpoint as the inference backend."""
     if not math.isfinite(timeout_s) or timeout_s <= 0:
         raise ValueError("Triton startup timeout must be finite and positive")
@@ -28,6 +29,8 @@ def wait_for_triton(url: str, *, timeout_s: float) -> None:
     reason = "server reported not ready"
     with grpc.InferenceServerClient(url=url) as client:
         while (remaining := deadline - time.monotonic()) > 0:
+            if check_running is not None:
+                check_running()
             try:
                 if client.is_server_ready(client_timeout=min(5.0, remaining)):
                     return
@@ -40,10 +43,10 @@ def wait_for_triton(url: str, *, timeout_s: float) -> None:
 
     raise RuntimeError(
         f"Triton gRPC server at {url} was not ready within {timeout_s:g}s: {reason}. "
-        "runpod-start.sh starts native PostgreSQL, MediaMTX and InferOps; it does not "
-        "launch Triton Server or Docker Compose. Start a compatible Triton server "
-        "with the project's models, or set INFEROPS_TRITON_URL to an existing "
-        "server's reachable host:port. See docs/runpod.md."
+        "Native Triton autostart requires a compatible tritonserver binary and "
+        "an unused local gRPC port. Check the listener/proxy if this endpoint "
+        "returns HTTP/1.x. Alternatively set INFEROPS_TRITON_URL to an existing "
+        "Triton server's reachable host:port. See docs/runpod.md."
     )
 
 

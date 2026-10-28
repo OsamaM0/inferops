@@ -6,7 +6,7 @@ umask 077
 
 APP=/workspace/inferops
 DATA=/workspace/inferops-data
-VENV=/workspace/.venvs/inferops
+PYTHON=${INFEROPS_PYTHON:-python3}
 PGPORT=55432  # Internal-only port; avoids an apt-created PostgreSQL cluster on 5432.
 MTX_VERSION=1.21.2  # Match deploy/compose.yaml.
 PG_PID_STARTED=0
@@ -34,6 +34,16 @@ trap 'exit 143' TERM
 [[ "$(id -u)" == 0 ]] || fail 'This RunPod bootstrap needs a root-based CUDA Pod image.'
 [[ "$(uname -m)" == x86_64 ]] || fail 'This bootstrap currently supports x86_64 CUDA Pods.'
 [[ -f "$APP/pyproject.toml" ]] || fail "Repository not found at $APP (clone it before calling this script)."
+command -v "$PYTHON" >/dev/null || fail "Python executable not found: $PYTHON"
+PYTHON_VERSION="$("$PYTHON" -c 'import sys; assert sys.version_info >= (3, 10), "Python 3.10+ required"; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+# Never reuse a Python 3.11 environment after switching to a Python 3.12 image.
+# Keep the previous environment intact so changing images is reversible.
+VENV="/workspace/.venvs/inferops-py${PYTHON_VERSION}"
+info "Using $PYTHON ($PYTHON_VERSION); virtual environment: $VENV"
+# Local services must bypass any proxy inherited from the Pod template.
+export no_proxy="${no_proxy:+$no_proxy,}${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost,::1"
+export NO_PROXY="$no_proxy"
+export no_grpc_proxy="${no_grpc_proxy:+$no_grpc_proxy,}$no_proxy"
 mkdir -p "$DATA"/{bin,logs,secrets,recordings,app}
 # Root owns the shared /workspace data folder, while PostgreSQL runs as an
 # unprivileged OS user. Grant directory *traversal* (not listing) so postgres
@@ -42,26 +52,31 @@ chmod 0711 "$DATA" "$DATA/logs"
 chmod 0700 "$DATA/secrets"
 
 # OS packages disappear on a rebuilt Pod. Python/model artifacts stay on /workspace.
-if ! command -v pg_config >/dev/null || ! command -v curl >/dev/null || ! command -v ffmpeg >/dev/null; then
-    info 'Installing PostgreSQL, curl and FFmpeg...'
+if ! command -v pg_config >/dev/null || ! command -v curl >/dev/null || ! command -v ffmpeg >/dev/null || ! "$PYTHON" -c 'import ensurepip' >/dev/null 2>&1; then
+    info 'Installing PostgreSQL, curl, FFmpeg and Python venv support...'
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y --no-install-recommends postgresql postgresql-client ca-certificates curl ffmpeg
+    apt-get install -y --no-install-recommends postgresql postgresql-client ca-certificates curl ffmpeg python3-venv
 fi
-command -v python3.11 >/dev/null || fail 'Use a RunPod CUDA base image with Python 3.11.'
+"$PYTHON" -c 'import ensurepip' >/dev/null 2>&1 || fail "Install venv/ensurepip support for $PYTHON."
 PGBIN="$(pg_config --bindir)"
 [[ -x "$PGBIN/initdb" ]] || fail 'PostgreSQL server binaries are missing.'
 
 # Database passwords are generated once and persisted; no development defaults.
 password_file="$DATA/secrets/postgres_password"
 if [[ ! -s "$password_file" ]]; then
-    python3.11 -c 'import secrets; print(secrets.token_hex(24))' > "$password_file"
+    "$PYTHON" -c 'import secrets; print(secrets.token_hex(24))' > "$password_file"
 fi
 chmod 600 "$password_file"
 PGPASSWORD_LOCAL="$(cat "$password_file")"
 PGDATA="$DATA/postgres"
 PGSOCK="$DATA/postgres-socket"
 PGLOG="$DATA/logs/postgres.log"
+if [[ -f "$PGDATA/PG_VERSION" ]]; then
+    pg_existing="$(cat "$PGDATA/PG_VERSION")"
+    pg_installed="$("$PGBIN/postgres" --version | sed -E 's/.* ([0-9]+).*/\1/')"
+    [[ "$pg_existing" == "$pg_installed" ]] || fail "Persistent PostgreSQL $pg_existing data requires matching server binaries or an explicit pg_upgrade; this image provides $pg_installed. Existing database data was preserved."
+fi
 install -d -m 700 -o postgres -g postgres "$PGDATA" "$PGSOCK"
 touch "$PGLOG"
 chown postgres:postgres "$PGLOG"
@@ -119,12 +134,12 @@ fi
 
 media_password_file="$DATA/secrets/mediamtx_password"
 if [[ ! -s "$media_password_file" ]]; then
-    python3.11 -c 'import secrets; print(secrets.token_hex(24))' > "$media_password_file"
+    "$PYTHON" -c 'import secrets; print(secrets.token_hex(24))' > "$media_password_file"
 fi
 chmod 600 "$media_password_file"
 MEDIA_PASSWORD="$(cat "$media_password_file")"
 MTX_CONFIG="$DATA/mediamtx.yml"
-python3.11 - "$APP/deploy/media/mediamtx.yml" "$MTX_CONFIG" "$DATA/recordings" "$MEDIA_PASSWORD" <<'PY'
+"$PYTHON" - "$APP/deploy/media/mediamtx.yml" "$MTX_CONFIG" "$DATA/recordings" "$MEDIA_PASSWORD" <<'PY'
 from pathlib import Path
 import sys
 source, target, recordings, password = sys.argv[1:]
@@ -169,21 +184,23 @@ mkdir -p "$HF_HOME"
 # Hash this script too: changing the installed extras must invalidate old caches.
 if [[ ! -x "$VENV/bin/inferops" ]]; then
     info 'Creating InferOps Python virtual environment...'
-    python3.11 -m venv "$VENV"
+    "$PYTHON" -m venv "$VENV"
     rm -f "$DATA/python-requirements.sha256"
 fi
-spec_hash="$(sha256sum pyproject.toml runpod-start.sh | sha256sum | cut -d' ' -f1)"
+client_version=${INFEROPS_TRITON_CLIENT_VERSION:-}
+[[ -z "$client_version" || "$client_version" =~ ^2\.(68|69|70|71|72|73)\.[0-9]+$ ]] || fail 'INFEROPS_TRITON_CLIENT_VERSION must be a supported 2.68.x through 2.73.x version.'
+client_requirement=()
+if [[ -n "$client_version" ]]; then client_requirement=("tritonclient[grpc,http]==$client_version"); fi
+spec_hash="$( { sha256sum pyproject.toml runpod-start.sh; printf '%s\n' "$PYTHON_VERSION" "$client_version"; } | sha256sum | cut -d' ' -f1)"
 if [[ "$(cat "$DATA/python-requirements.sha256" 2>/dev/null || true)" != "$spec_hash" ]]; then
     info 'Installing InferOps CUDA and Triton client dependencies...'
     "$VENV/bin/python" -m pip install --upgrade pip
-    "$VENV/bin/python" -m pip install -e '.[server,cuda,triton,video]'
+    "$VENV/bin/python" -m pip install -e '.[server,cuda,triton,video]' "${client_requirement[@]}"
     printf '%s\n' "$spec_hash" > "$DATA/python-requirements.sha256"
 fi
 
 info 'Preparing project model artifacts...'
 "$VENV/bin/inferops" project prepare
-"$VENV/bin/python" scripts/runpod_preflight.py
-info 'Starting InferOps using runtime/project/API settings from configs/inferops.yaml...'
-"$VENV/bin/python" scripts/serve_local.py --data "$DATA/app" &
+"$VENV/bin/python" scripts/runpod_runtime.py --data "$DATA/app" --triton-log "$DATA/logs/triton.log" &
 API_PID=$!
 wait "$API_PID"

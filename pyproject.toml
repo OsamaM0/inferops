@@ -21,7 +21,7 @@ dependencies = [
 cpu = ["onnxruntime>=1.17,<1.27"]
 cuda = ["onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27"]
 gpu = ["onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27"] # compatibility alias
-triton = ["tritonclient[grpc,http]>=2.73,<2.74"]
+triton = ["tritonclient[grpc,http]>=2.68,<2.74"]
 # ONNX Runtime TensorRT EP, using the CUDA 12 TensorRT 10 ABI.
 tensorrt = ["onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27", "tensorrt-cu12>=10,<11"]
 video = ["av>=12.0"]
