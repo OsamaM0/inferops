@@ -98,15 +98,24 @@
   }
   function createCard(source) {
     const article = document.createElement("article"); article.className = "source-card";
-    article.innerHTML = `<div class="card-preview"><div class="preview-placeholder"><span>▣</span><div>Waiting for a processed frame</div></div><img alt="" hidden><div class="card-tags"><span class="tag state-tag"></span><span class="tag kind-tag"></span></div><span class="frame-time"></span></div><div class="card-body"><div class="card-title"><h2></h2></div><p class="card-id"></p><div class="card-stats"></div><div class="card-controls"><button class="button toggle"></button><button class="button live" hidden>Live video</button><button class="button recordings" hidden>Recordings</button><button class="button history">History</button><button class="button edit">Edit</button><button class="button remove" aria-label="Remove source">✕</button></div><p class="state-note"></p></div>`;
-    const card = {element:article,version:null, visible:true};
+    article.innerHTML = `<div class="card-preview"><div class="preview-placeholder"><span>▣</span><div>Waiting for a processed frame</div></div><img alt="" hidden><div class="card-tags"><span class="tag state-tag"></span><span class="tag kind-tag"></span></div><span class="frame-time"></span><button class="icon-button expand-stream" aria-label="Expand stream" title="Full view">⛶</button><iframe class="stream-preview" title="Original live stream" allow="autoplay; fullscreen; picture-in-picture" hidden></iframe></div><div class="card-body"><div class="card-title"><h2></h2></div><p class="card-id"></p><div class="card-stats"></div><div class="card-controls"><button class="button toggle"></button><button class="button live" hidden>Live video</button><button class="button recordings" hidden>Recordings</button><button class="button history">History</button><button class="button edit">Edit</button><button class="button remove" aria-label="Remove source">✕</button></div><p class="state-note"></p></div>`;
+    const card = {element:article,version:null, visible:true, pending:false, nextFrame:0, liveLoading:false};
+    article.querySelector(".expand-stream").addEventListener("click", () => {
+      const current = state.sources.find(s => s.camera_id === source.camera_id);
+      if (current.live_video_available) showLive(current).catch(e => notice(e.message,true));
+      else {
+        $("previewTitle").textContent = `${current.name} · annotated preview`;
+        $("previewDialog").dataset.cameraId = current.camera_id;
+        $("previewDialog").showModal();
+      }
+    });
     for (const kind of ["toggle","live","recordings","history","edit","remove"]) article.querySelector(`.${kind}`).addEventListener("click", event => {
       const current = state.sources.find(s => s.camera_id === source.camera_id);
       action(current, kind === "toggle" ? current.active ? "stop":"start":kind,event.currentTarget).catch(e => notice(e.message,true));
     });
     const image = article.querySelector("img");
-    image.addEventListener("load", () => { image.hidden = false; article.querySelector(".preview-placeholder").hidden = true; });
-    image.addEventListener("error", () => {image.hidden = true;article.querySelector(".preview-placeholder").hidden = false;});
+    image.addEventListener("load", () => { card.pending = false; image.hidden = false; article.querySelector(".preview-placeholder").hidden = true; });
+    image.addEventListener("error", () => {card.pending = false; card.nextFrame = Date.now() + 2000;image.hidden = true;article.querySelector(".preview-placeholder").hidden = false;});
     observer.observe(article);
     return card;
   }
@@ -118,7 +127,8 @@
     const visible = state.sources.filter(s => (state.filter === "all" || (state.filter === "active") === s.active) && `${s.name} ${s.camera_id} ${s.group || ""} ${s.location || ""}`.toLowerCase().includes(search));
     const ids = new Set(state.sources.map(s=>s.camera_id));
     for (const [id, card] of state.cards) if (!ids.has(id)) {observer.unobserve(card.element);card.element.remove();state.cards.delete(id);}
-    for (const card of state.cards.values()) card.element.hidden = true;
+    const visibleIds = new Set(visible.map(source => source.camera_id));
+    for (const [id, card] of state.cards) card.element.hidden = !visibleIds.has(id);
     for (const source of visible) {
       let card = state.cards.get(source.camera_id);
       if (!card) {card = createCard(source);state.cards.set(source.camera_id,card);$("sourceGrid").append(card.element);}
@@ -145,19 +155,58 @@
       if (source.preview_error) diagnostics.push(source.preview_error);
       el.querySelector(".card-stats").title = diagnostics.join(" ");
       if (source.below_target && source.active) el.querySelector(".state-note").textContent += ` · ${diagnostics.join(" ")}`;
-      const version = `${source.session_id}-${source.preview_version}`;
-      if (source.preview_enabled !== false && source.preview_version && card.visible && card.version !== version && !document.hidden) {
-        el.querySelector("img").alt = `${source.name}: latest processed frame with model annotations`;
-        el.querySelector("img").src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/preview.jpg?v=${encodeURIComponent(version)}`;card.version=version;
-      } else if (source.preview_enabled === false || !source.preview_version) {
-        el.querySelector("img").hidden = true;el.querySelector(".preview-placeholder").hidden = false;card.version=null;
-      }
+      el.querySelector("img").alt = `${source.name}: latest processed frame with model annotations`;
+      el.querySelector(".expand-stream").setAttribute("aria-label", `Full view of ${source.name}`);
+
     }
     $("emptyState").hidden = visible.length > 0;
     $("emptyState").querySelector("h2").textContent = state.sources.length ? "No matching sources":"Your sources start here";
     $("navCount").textContent = $("allCount").textContent = state.sources.length;
     $("runningCount").textContent = state.sources.filter(s=>s.active).length;
   }
+  // Preview delivery runs independently of the dashboard/telemetry polling interval.
+  async function updatePreviews() {
+    const viewing = !document.hidden && ["sources", "overview"].includes(window.InferOps.view);
+    for (const source of state.sources) {
+      const card = state.cards.get(source.camera_id);
+      if (!card) continue;
+      const frame = card.element.querySelector(".stream-preview");
+      if (!source.live_video_available) card.element.querySelector(".frame-time").textContent = source.active ? "Annotated preview" : "Latest processed frame";
+      else card.element.querySelector(".frame-time").textContent = source.active ? "Original live video" : "Latest processed frame";
+      const visible = viewing && card.visible && !card.element.hidden && !$("liveDialog").open && !$("previewDialog").open;
+      if (visible && source.live_video_available && source.active) {
+        if (!frame.hasAttribute("src") && !card.liveLoading && Date.now() >= (card.liveRetry || 0)) {
+          card.liveLoading = true;
+          api(`/cameras/${encodeURIComponent(source.camera_id)}/live`).then(live => {
+            if (state.cards.get(source.camera_id) === card && !document.hidden && card.visible && !card.element.hidden && ["sources", "overview"].includes(window.InferOps.view) && !$("liveDialog").open && !$("previewDialog").open) {
+              frame.src = live.hls_proxy_url || live.hls_url;
+              frame.hidden = false;
+            }
+          }).catch(() => { card.liveRetry = Date.now() + 5000; }).finally(() => { card.liveLoading = false; });
+        }
+      } else { frame.removeAttribute("src"); frame.hidden = true; }
+      if (source.preview_enabled === false || !source.preview_version) {
+        card.element.querySelector("img").hidden = true;
+        card.element.querySelector(".preview-placeholder").hidden = false;
+      }
+      if (!visible || !frame.hidden || card.pending || Date.now() < card.nextFrame || source.preview_enabled === false || !source.preview_version) continue;
+      card.pending = true;
+      card.nextFrame = Date.now() + 1000 / Math.max(1, Math.min(15, source.preview_fps || 2));
+      card.element.querySelector("img").src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/preview.jpg?t=${Date.now()}`;
+    }
+    const dialog = $("previewDialog"), image = $("fullPreview");
+    const source = state.sources.find(s => s.camera_id === dialog.dataset.cameraId);
+    if (dialog.open && !document.hidden && source && !image.dataset.pending && Date.now() >= Number(image.dataset.next || 0)) {
+      image.dataset.pending = "true";
+      image.dataset.next = Date.now() + 1000 / Math.max(1, Math.min(15, source.preview_fps || 2));
+      image.src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/preview.jpg?t=${Date.now()}`;
+    }
+  }
+  for (const event of ["load", "error"]) $("fullPreview").addEventListener(event, () => { delete $("fullPreview").dataset.pending; });
+  $("previewDialog").addEventListener("close", () => { $("fullPreview").removeAttribute("src"); delete $("fullPreview").dataset.pending; });
+  setInterval(updatePreviews, 67);
+  document.addEventListener("visibilitychange", updatePreviews);
+  document.addEventListener("inferops:navigate", updatePreviews);
   function renderHardware(info) {
     $("serverName").textContent = info.hostname || "Server";
     const gpu = info.gpus?.[0];
@@ -239,7 +288,7 @@
   $("liveProtocol").addEventListener("change", playLive);
   $("liveDialog").addEventListener("close", () => { state.live = null; playLive(); });
   document.addEventListener("visibilitychange", playLive);
-  window.addEventListener("pagehide", () => $("liveFrame").removeAttribute("src"));
+  window.addEventListener("pagehide", () => { $("liveFrame").removeAttribute("src"); for (const card of state.cards.values()) card.element.querySelector(".stream-preview").removeAttribute("src"); });
   async function refresh() {
     if (state.refreshing) return; state.refreshing=true;
     try {
