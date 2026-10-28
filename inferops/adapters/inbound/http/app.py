@@ -616,9 +616,8 @@ def create_application(engine=None, *, hub=None, source_store=None, source_root=
             raise HTTPException(400, "provide at most one rtsp_url, mjpeg_url or video_path")
         # Keep existing rtsp_url callers compatible when they pass a local path.
         local_path = video_path or (rtsp_url if rtsp_url and "://" not in rtsp_url else None)
-        if local_path:
-            if "://" in local_path or not await asyncio.to_thread(Path(local_path).is_file):
-                raise HTTPException(400, "video_path must be an existing server-local video file")
+        if local_path and ("://" in local_path or not await asyncio.to_thread(Path(local_path).is_file)):
+            raise HTTPException(400, "video_path must be an existing server-local video file")
         declaration = None
         if not (rtsp_url or mjpeg_url or video_path):
             definition = selected.application.definition
