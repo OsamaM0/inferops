@@ -1,73 +1,103 @@
 # RunPod native startup
 
-`runpod-start.sh` runs PostgreSQL, MediaMTX and the InferOps API as native
-processes in a root-based x86_64 CUDA Pod with Python 3.11. The checkout lives
-at `/workspace/inferops`; Python packages, weights, database, recordings and
-logs persist under `/workspace`. It does not run Docker Compose, so
-`COMPOSE_PROFILES` does not start services in this deployment.
+`runpod-start.sh` runs PostgreSQL, MediaMTX and InferOps as native processes in
+a root-based x86_64 Pod. In Triton mode it also starts an installed native model
+server for an unused local endpoint. It does not invoke Docker Compose;
+`COMPOSE_PROFILES` does not start services here.
 
-Use the existing clone/pull startup command:
+The checkout is `/workspace/inferops`. Python environments, model weights,
+database, recordings and logs persist under `/workspace`.
 
-```bash
-bash -lc '/start.sh & if [ -d /workspace/inferops/.git ]; then git -C /workspace/inferops pull --ff-only; else git clone https://github.com/OsamaM0/inferops.git /workspace/inferops; fi && exec bash /workspace/inferops/runpod-start.sh'
+## Image for the observed R595 host
+
+For the host reporting NVIDIA driver **595.91.07**, the deployment target is:
+
+```text
+nvcr.io/nvidia/tritonserver:26.04-py3
 ```
 
-`/start.sh` belongs to the RunPod template; this command assumes it exists.
-Select the project, mode and API port in `configs/inferops.yaml`, or override
-them with Pod environment variables:
+NVIDIA's [26.04 release notes](https://docs.nvidia.com/deeplearning/triton-inference-server/archives/triton-inference-server-2680/release-notes/rel-26-04.html)
+list Triton 2.68.0, Ubuntu 24.04, Python 3.12 and CUDA 13.2.1. The [CUDA driver
+table](https://docs.nvidia.com/cuda/archive/13.2.0/cuda-toolkit-release-notes/index.html)
+lists R595 for CUDA 13.2. The GPU must satisfy the release's compute capability
+requirement (7.5 or newer). GPU inference must still be verified on the Pod.
+
+The Compose deployment retains its separate 26.09 pin. The R595 Pod's 26.09
+entrypoint reported that driver compatibility was unavailable. Choose a compatible
+image or another RunPod host when this happens; Python packages cannot upgrade
+the host kernel driver. A PyTorch image's CUDA tag does not identify that driver.
+
+## Environment and startup command
+
+For the bundled project and the image above, configure:
 
 ```ini
 INFEROPS_PROJECT_ROOT=./projects/driver_behaviour
 INFEROPS_EXECUTION_MODE=triton
 INFEROPS_API_PORT=8082
-```
-
-Expose the API's selected HTTP port through RunPod. The bootstrap configures
-its own persistent loopback PostgreSQL and MediaMTX services and credentials.
-It replaces old database/media endpoint environment values at startup.
-
-## Triton requires a model server
-
-The bootstrap installs `.[server,cuda,triton,video]` so CPU, CUDA and Triton
-client modes work in the same persistent virtual environment. Its dependency
-fingerprint includes `pyproject.toml` and `runpod-start.sh`; upgrading from an
-older CUDA-only bootstrap automatically reinstalls the required extras, even
-when `pyproject.toml` is unchanged.
-
-The Triton Python client sends inference requests to **Triton Inference
-Server**. Installing the client or selecting `triton` does not install or
-launch the model server. Use a separately managed compatible server in the
-same Pod, or a reachable external server. Configure the native API endpoint:
-
-```ini
-# Same Pod; use the external server's reachable address for a separate host.
 INFEROPS_TRITON_URL=127.0.0.1:8001
 INFEROPS_TRITON_HTTP_URL=http://127.0.0.1:8000
+INFEROPS_TRITON_CLIENT_VERSION=2.68.0
+INFEROPS_TRITON_AUTOSTART=auto
 INFEROPS_TRITON_STARTUP_TIMEOUT_SECONDS=60
 ```
 
-`INFEROPS_TRITON_URL` is a gRPC `host:port`, without an `http://` prefix.
-It must be reachable from the InferOps process; an HTTP-only RunPod proxy is
-not a substitute for the gRPC endpoint. HTTP status/metrics configuration
-does not change the inference endpoint.
+Use this command after merging the native startup changes:
 
-Prepare and load the same project's model repository on the Triton host.
-For the bundled driver project, the server must load `face_mesh_onnx` and
-`rfdetr_driver_behaviour_onnx`. The bootstrap downloads the original weights
-into `/workspace/inferops/projects/driver_behaviour/model_repository`; an
-external server needs its own copy or shared access. A generated serving
-repository may be selected separately; see [Triton serving](triton-serving.md).
+```bash
+bash -lc 'if [ -x /start.sh ]; then /start.sh & fi; if [ -d /workspace/inferops/.git ]; then git -C /workspace/inferops pull --ff-only; else git clone https://github.com/OsamaM0/inferops.git /workspace/inferops; fi && exec bash /workspace/inferops/runpod-start.sh'
+```
 
-The repository pins Triton Server `nvcr.io/nvidia/tritonserver:26.09-py3`
-and client `>=2.73,<2.74`. Choose a server image compatible with the Pod's
-GPU and host driver; the CUDA Python packages installed for local inference
-do not supply Triton Server. Changing the Pod image also requires preserving
-the bootstrap's Python 3.11 requirement. See the [release and driver
-notes](triton-serving.md) before changing images.
+`/start.sh` is optional and belongs to the old RunPod template. NVIDIA's raw
+image does not supply that template's SSH, Jupyter or code-server setup. Expose
+**8082 as an HTTP port** to access InferOps at `/ui/`. The managed Triton
+services bind to loopback and need no public port exposure in this layout.
 
-After model preparation, startup checks the effective configured gRPC
-endpoint before launching the API. It retries until the startup timeout,
-then exits with the endpoint and setup guidance if the server is unreachable
-or not ready. CPU and CUDA modes skip this check. Readiness confirms server
-availability; the API's model loading still validates the required model
-names and tensor contracts.
+## Python and persistent state
+
+The bootstrap supports Python 3.10+ and uses `python3`; set `INFEROPS_PYTHON`
+to override the executable. It installs venv support and uses an interpreter-specific
+environment such as `/workspace/.venvs/inferops-py3.12`. Previous environments
+are preserved, so changing from a Python 3.11 image does not reuse its environment.
+
+It installs `.[server,cuda,triton,video]`. The optional client version constraint
+supports 2.68.x through 2.73.x. The dependency cache includes the package spec,
+bootstrap, Python version and client pin.
+
+PostgreSQL and MediaMTX use persistent generated credentials and loopback
+endpoints. Old database/media endpoint overrides are replaced at startup.
+If existing PostgreSQL data belongs to another major server version, startup
+stops with a migration message. It preserves the data and does not attempt an
+automatic major upgrade; use matching binaries or a planned PostgreSQL migration.
+
+## Triton process lifecycle
+
+After preparing model artifacts, startup resolves the effective project settings.
+For a local `127.0.0.1`/`localhost` endpoint with no listener, it finds
+`tritonserver` on PATH or at `/opt/tritonserver/bin/tritonserver`, starts it
+with the selected repository and explicit loading, and waits for gRPC readiness
+before starting the API.
+
+The launcher supervises its API and native Triton process together. It stops
+owned processes on shutdown or failure. An existing model server is reused and
+never killed. Native server failures print the last log lines into Pod output;
+the full log persists at `/workspace/inferops-data/logs/triton.log`.
+
+`INFEROPS_TRITON_AUTOSTART=false` uses an independently managed server.
+`true` requires an installed binary for an unused local endpoint.
+The default `auto` starts a native server when available and otherwise checks
+the configured server. Override the executable with `INFEROPS_TRITON_BINARY`.
+
+The default repository belongs to the selected project. Set
+`INFEROPS_TRITON_REPOSITORY` for a separately prepared repository. The bundled
+project loads `face_mesh_onnx` and `rfdetr_driver_behaviour_onnx` from
+`/workspace/inferops/projects/driver_behaviour/model_repository`.
+See [Triton serving](triton-serving.md) for qualified batching repositories.
+API model loading still validates model names and tensor contracts; readiness
+alone is not full inference qualification.
+
+For a remote server, set its reachable gRPC `host:port` and HTTP endpoint.
+An HTTP-only proxy is not a gRPC endpoint. The bootstrap preserves proxy
+exclusions and adds loopback exclusions. If a listener returns HTTP/1.x, check
+which service owns that port and the proxy configuration. The launcher does not
+terminate unrelated listeners. CPU and CUDA modes do not start or probe Triton.

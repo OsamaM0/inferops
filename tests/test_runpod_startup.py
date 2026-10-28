@@ -6,6 +6,7 @@ import hashlib
 import io
 import os
 import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -65,7 +66,7 @@ class TritonReadinessTests(unittest.TestCase):
 
     def test_connection_failure_is_included_in_timeout_diagnostic(self):
         self.client.is_server_ready.side_effect = ConnectionError("connection refused")
-        with self.assertRaisesRegex(RuntimeError, "connection refused.*does not launch Triton Server"):
+        with self.assertRaisesRegex(RuntimeError, "connection refused.*Native Triton autostart"):
             runpod_preflight.wait_for_triton("127.0.0.1:8001", timeout_s=1)
         self.client.__exit__.assert_called_once()
 
@@ -150,20 +151,22 @@ class RunPodDependencyTests(unittest.TestCase):
         self.spec = (checkout / "pyproject.toml").read_bytes()
         (self.root / "pyproject.toml").write_bytes(self.spec)
         self.log = self.root / "calls"
-        for name in ("python", "python3.11", "inferops"):
+        for name in ("python", "python3", "inferops"):
             executable = self.bin / name
             executable.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALL_LOG"\n')
             executable.chmod(0o755)
 
-    def install(self):
+    def install(self, **overrides):
         # Run the shipped dependency block without starting database/media services.
         start = self.script.index('if [[ ! -x "$VENV/bin/inferops" ]]; then')
         end = self.script.index("info 'Preparing project model artifacts...'")
         result = subprocess.run(
-            ["bash", "-euo", "pipefail", "-c", "info() { :; }\n" + self.script[start:end]],
+            ["bash", "-euo", "pipefail", "-c", "info() { :; }\nfail() { echo \"$*\" >&2; exit 1; }\n" + self.script[start:end]],
             cwd=self.root, check=True, capture_output=True, text=True,
             env={**os.environ, "VENV": str(self.bin.parent), "DATA": str(self.data),
-                 "CALL_LOG": str(self.log), "PATH": f"{self.bin}:{os.environ['PATH']}"},
+                 "CALL_LOG": str(self.log), "PATH": f"{self.bin}:{os.environ['PATH']}",
+                 "PYTHON": str(self.bin / "python3"), "PYTHON_VERSION": "3.12",
+                 "INFEROPS_TRITON_CLIENT_VERSION": "", **overrides},
         )
         self.assertEqual(result.stderr, "")
         calls = self.log.read_text() if self.log.exists() else ""
@@ -186,6 +189,59 @@ class RunPodDependencyTests(unittest.TestCase):
         calls = self.install()
         self.assertIn("-m venv", calls)
         self.assertIn("-m pip install -e", calls)
+
+    def test_changing_client_pin_reinstalls_matching_sdk(self):
+        self.install()
+        pin = {"INFEROPS_TRITON_CLIENT_VERSION": "2.68.0"}
+        self.assertIn("tritonclient[grpc,http]==2.68.0", self.install(**pin))
+        self.assertEqual(self.install(**pin), "")
+
+    def test_changing_python_version_invalidates_cache(self):
+        self.install()
+        self.assertIn("-m pip install -e", self.install(PYTHON_VERSION="3.11"))
+
+
+class RunPodImageTests(unittest.TestCase):
+    def setUp(self):
+        self.script = (Path(__file__).resolve().parents[1] / "runpod-start.sh").read_text()
+
+    def test_bootstrap_accepts_current_interpreter_and_isolates_its_environment(self):
+        start = self.script.index('command -v "$PYTHON"')
+        end = self.script.index("# Local services must bypass")
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", "info() { :; }\nfail() { exit 1; }\n" +
+             self.script[start:end] + '\nprintf "%s" "$VENV"'],
+            env={**os.environ, "PYTHON": sys.executable}, text=True, capture_output=True, check=True,
+        )
+        self.assertEqual(result.stdout, f"/workspace/.venvs/inferops-py{sys.version_info.major}.{sys.version_info.minor}")
+
+    def test_loopback_proxy_bypass_preserves_existing_exclusions(self):
+        lines = [line for line in self.script.splitlines() if line.startswith(("export no_proxy=", "export NO_PROXY=", "export no_grpc_proxy="))]
+        result = subprocess.run(
+            ["bash", "-eu", "-c", "\n".join(lines) + '\nprintf "%s" "$no_grpc_proxy"'],
+            env={"no_proxy": "internal.example", "NO_PROXY": "corp.example", "no_grpc_proxy": "grpc.example"},
+            text=True, capture_output=True, check=True,
+        )
+        for host in ("internal.example", "corp.example", "grpc.example", "127.0.0.1", "localhost", "::1"):
+            self.assertIn(host, result.stdout.split(","))
+
+    def test_postgres_major_mismatch_preserves_existing_cluster(self):
+        start = self.script.index('if [[ -f "$PGDATA/PG_VERSION" ]]; then')
+        end = self.script.index('install -d -m 700 -o postgres', start)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            version = root / "PG_VERSION"
+            version.write_text("14\n")
+            postgres = root / "postgres"
+            postgres.write_text('#!/bin/sh\necho "postgres (PostgreSQL) 16.15 (Ubuntu 16.15)"\n')
+            postgres.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", 'fail() { echo "$*" >&2; exit 1; }\n' + self.script[start:end]],
+                env={**os.environ, "PGDATA": str(root), "PGBIN": str(root)}, text=True, capture_output=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Persistent PostgreSQL 14 data requires matching server", result.stderr)
+            self.assertEqual(version.read_text(), "14\n")
 
 
 if __name__ == "__main__":
