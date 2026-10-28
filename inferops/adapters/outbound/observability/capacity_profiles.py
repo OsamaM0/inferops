@@ -70,6 +70,7 @@ def service_profile(application, *, media_router="direct", media_recording=False
         "sql_dialect": engine.dialect.name if engine is not None else None,
         "evidence_storage": type(storage).__name__ if storage is not None else None,
         "model_concurrency": application.models.max_concurrency,
+        "auto_scale": application.models.auto_scale,
         "triton_concurrency": application.models.triton_concurrency,
         "admission_pending": application.models.admission_pending,
         "admission_queue_ms": application.models.admission_queue_ms,

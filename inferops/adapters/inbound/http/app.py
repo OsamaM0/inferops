@@ -608,13 +608,19 @@ def create_application(engine=None, *, hub=None, source_store=None, source_root=
 
     @app.post("/v1/streams")
     async def start_stream(request: Request, pipeline: str, rtsp_url: str | None = None,
-                           mjpeg_url: str | None = None, stream_id: str | None = None, fps: float = Query(5, gt=0)):
+                           mjpeg_url: str | None = None, stream_id: str | None = None, fps: float = Query(5, gt=0, le=120),
+                           video_path: str | None = None, loop: bool = False):
         from inferops.adapters.inbound.sources import camera_frames, process_live_frames
         selected = active(request)
-        if rtsp_url and mjpeg_url:
-            raise HTTPException(400, "provide at most one rtsp_url or mjpeg_url")
+        if sum(bool(value) for value in (rtsp_url, mjpeg_url, video_path)) > 1:
+            raise HTTPException(400, "provide at most one rtsp_url, mjpeg_url or video_path")
+        # Keep existing rtsp_url callers compatible when they pass a local path.
+        local_path = video_path or (rtsp_url if rtsp_url and "://" not in rtsp_url else None)
+        if local_path:
+            if "://" in local_path or not await asyncio.to_thread(Path(local_path).is_file):
+                raise HTTPException(400, "video_path must be an existing server-local video file")
         declaration = None
-        if not (rtsp_url or mjpeg_url):
+        if not (rtsp_url or mjpeg_url or video_path):
             definition = selected.application.definition
             if pipeline not in definition.pipelines:
                 raise RegistryError(f"unknown pipeline: {pipeline}")
@@ -622,7 +628,7 @@ def create_application(engine=None, *, hub=None, source_store=None, source_root=
             if declaration is None or declaration.stage == "source_rest":
                 raise HTTPException(400, "provide a camera URL or configure an autonomous pipeline source")
         session = await selected.open_session(pipeline, stream_name=stream_id or "", owner_kind="camera")
-        async def loop():
+        async def stream_loop():
             try:
                 if declaration and declaration.stage == "source_kafka":
                     from inferops.adapters.inbound.workers.topic_worker import run_topic_worker
@@ -648,14 +654,15 @@ def create_application(engine=None, *, hub=None, source_store=None, source_root=
                         await source.teardown()
                 else:
                     from inferops.adapters.outbound.observability import FRAMES_DROPPED
-                    url = rtsp_url or mjpeg_url or declaration.params["url"]
+                    url = video_path or rtsp_url or mjpeg_url or declaration.params["url"]
                     rate = declaration.params.get("fps", fps) if declaration else fps
-                    await process_live_frames(session, camera_frames(url, fps=rate), on_drop=lambda:
+                    replay_loop = loop or bool(declaration and declaration.params.get("loop"))
+                    await process_live_frames(session, camera_frames(url, fps=rate, loop=replay_loop), on_drop=lambda:
                         FRAMES_DROPPED.labels(pipeline=pipeline, reason="latest_frame_replaced").inc())
             finally:
                 await session.close("source_closed")
                 streams.pop(session.id, None)
-        streams[session.id] = asyncio.create_task(loop())
+        streams[session.id] = asyncio.create_task(stream_loop())
         def completed(task):
             if not task.cancelled() and task.exception() is not None:
                 log.error("camera_stream_failed", extra={"session_id": session.id}, exc_info=task.exception())

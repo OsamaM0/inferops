@@ -190,6 +190,7 @@ async def _activate(engine, definition):
     if central_path:
         central.apply_environment(central_path, dict(definition.workspace_configuration))
     values = {"local_device_capacity": previous.max_concurrency,
+              "auto_scale": previous.auto_scale,
               "remote_outstanding": previous.triton_concurrency,
               "max_pending": previous.admission_pending, "max_queue_age_ms": previous.admission_queue_ms,
               **definition.platform.get("runtime", {}).get("admission", {})}
@@ -203,6 +204,7 @@ async def _activate(engine, definition):
             values[field] = override
     admission = AdmissionSettings.model_validate(values)
     models = ModelPool(definition, max_concurrency=admission.local_device_capacity,
+                       auto_scale=admission.auto_scale,
                        triton_concurrency=admission.remote_outstanding,
                        admission_pending=admission.max_pending,
                        admission_queue_ms=admission.max_queue_age_ms)

@@ -1631,7 +1631,7 @@
     async function startRtspStream() {
       const url = $("rtspUrlInput").value.trim();
       if (!url) {
-        setNotice("Enter an RTSP URL before starting a stream.", "status-warn");
+        setNotice("Enter an RTSP URL or a server video path before starting a stream.", "status-warn");
         return;
       }
 
@@ -1640,7 +1640,8 @@
         const fps = String(Math.max(1, Number($("rtspFpsInput").value) || 5));
         const params = new URLSearchParams({
           pipeline: currentPipeline(),
-          rtsp_url: url,
+          [url.includes("://") ? "rtsp_url" : "video_path"]: url,
+          loop: String($("rtspLoopInput").checked),
           stream_id: streamId,
           fps,
         });
@@ -1649,17 +1650,17 @@
         if (payload.capability) state.streamCapabilities[payload.stream_id] = payload.capability;
         connectAlertSocket(payload.stream_id);
         setPreview("empty", {
-          title: "RTSP stream started.",
-          body: `Backend pipeline ${payload.pipeline} is now consuming ${payload.input}. Browser playback is separate from the server-side stream run.`,
+          title: "Stream started.",
+          body: `Backend pipeline ${payload.pipeline} is processing the selected source. Review results in Activity.`,
           source: "rtsp",
           pipeline: payload.pipeline,
           streamId: payload.stream_id,
         });
         await refreshActivityOnly();
-        setNotice(`Started live RTSP stream ${payload.stream_id}.`, "status-ok");
+        setNotice(`Started stream ${payload.stream_id}.`, "status-ok");
       } catch (error) {
         console.error(error);
-        setNotice(`RTSP stream start failed: ${error.message}`, "status-err");
+        setNotice(`Stream start failed: ${error.message}`, "status-err");
       }
     }
 

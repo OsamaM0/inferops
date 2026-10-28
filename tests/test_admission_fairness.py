@@ -44,3 +44,33 @@ async def test_expiry_and_waiter_cancellation_leave_no_capacity_leak():
             await gate.__aenter__()
     finally:
         execution_deadline.reset(token)
+
+
+async def test_shrink_drains_existing_calls_before_admitting_waiters():
+    gate = FairAdmission(3)
+    for _ in range(3):
+        await gate.__aenter__()
+    gate.resize(1)
+    assert gate.diagnostics()["active"] == 3
+    waiting = asyncio.create_task(gate.__aenter__())
+    await asyncio.sleep(0)
+    for _ in range(2):
+        gate.release()
+        await asyncio.sleep(0)
+        assert not waiting.done()
+    gate.release()
+    await waiting
+    gate.release()
+    assert gate.available == gate.capacity == 1
+
+
+async def test_growing_capacity_wakes_queued_work():
+    gate = FairAdmission(1)
+    await gate.__aenter__()
+    waiting = asyncio.create_task(gate.__aenter__())
+    await asyncio.sleep(0)
+    gate.resize(2)
+    await asyncio.wait_for(waiting, 1)
+    gate.release()
+    gate.release()
+    assert gate.available == 2

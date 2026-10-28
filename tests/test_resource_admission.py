@@ -152,3 +152,51 @@ async def test_warmup_uses_shared_gpu_admission_and_drains_on_cancel():
     releases[1].set()
     await asyncio.gather(first, loading, second, return_exceptions=True)
     await models.close()
+
+
+async def test_auto_gpu_capacity_tracks_sessions_and_shares_models():
+    models, started, releases = pool(concurrency=3)
+    models.auto_scale = True
+    models.register_session("one")
+    first = request(models, "a", 0)
+    await turn_until(lambda: started == [0])
+    second = request(models, "b", 1)
+    await turn_until(lambda: models._gpu_slots[0].pending == 1)
+    assert models.gpu_concurrency == 1
+    models.register_session("two")
+    await turn_until(lambda: started == [0, 1])
+    models.register_session("three")
+    models.register_session("four")
+    assert models.gpu_concurrency == 3
+    models.unregister_session("two")
+    models.unregister_session("three")
+    models.unregister_session("four")
+    assert models.gpu_concurrency == 1
+    assert models.runtime_status()[0]["concurrency"] == 1
+    third = request(models, "a", 2)
+    await turn_until(lambda: models._gpu_slots[0].pending == 1)
+    releases[0].set()
+    await first
+    assert started == [0, 1]
+    releases[1].set()
+    await turn_until(lambda: started == [0, 1, 2])
+    releases[2].set()
+    await asyncio.gather(second, third)
+    models.unregister_session("one")
+    assert models._gpu_slots[0].available == 1
+    await models.close()
+
+
+async def test_session_lifecycle_resizes_its_model_pool(tmp_path):
+    from inferops import Engine
+    from tests.test_redesign_engine import project
+
+    engine = Engine.from_project(project(tmp_path), model_concurrency=3, auto_scale=True)
+    async with engine:
+        first = await engine.open_session("test")
+        second = await engine.open_session("test")
+        assert engine.application.models.gpu_concurrency == 2
+        await first.close()
+        assert engine.application.models.gpu_concurrency == 1
+        await second.close()
+        assert engine.application.models._session_ids == set()

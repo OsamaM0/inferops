@@ -180,6 +180,12 @@ services:
         create_host_path: false
     - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs
     - evidence-spool:/var/lib/inferops/spool
+    - type: bind
+      source: ${INFEROPS_MEDIA_ROOT}
+      target: ${INFEROPS_MEDIA_ROOT}
+      read_only: true
+      bind:
+        create_host_path: false
     - source-data:/var/lib/inferops/sources
     - ./.run/capacity:/var/lib/inferops/capacity:ro
     - engine-data:/var/lib/inferops/data

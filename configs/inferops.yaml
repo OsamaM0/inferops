@@ -10,7 +10,8 @@ runtime:
 platform:
   runtime:
     admission:
-      local_device_capacity: 1  # Increase only after measuring local concurrency
+      local_device_capacity: 8  # Upper bound for concurrent GPU calls; tune using measured FPS/VRAM
+      auto_scale: true  # One GPU slot per session, up to local_device_capacity
       remote_outstanding: 64
   obs:
     log_json: false

@@ -138,7 +138,7 @@
           <button class="mode-tab is-active" data-mode="camera">Camera</button>
           <button class="mode-tab" data-mode="image">Image</button>
           <button class="mode-tab" data-mode="video">Video</button>
-          <button class="mode-tab" data-mode="rtsp">RTSP</button>
+          <button class="mode-tab" data-mode="rtsp">RTSP / Server video</button>
         </div>
 
         <div class="mode-panels">
@@ -209,8 +209,8 @@
           <section class="mode-panel" id="mode-rtsp">
             <div class="field-grid">
               <div class="field">
-                <label class="panel-label" for="rtspUrlInput">RTSP URL</label>
-                <input id="rtspUrlInput" type="text" placeholder="rtsp://user:pass@host:554/stream" />
+                <label class="panel-label" for="rtspUrlInput">RTSP URL or server video path</label>
+                <input id="rtspUrlInput" type="text" placeholder="rtsp://host/stream or /workspace/video.mp4" />
               </div>
               <div class="field">
                 <label class="panel-label" for="rtspStreamIdInput">Stream id</label>
@@ -224,7 +224,8 @@
                 <input id="rtspFpsInput" type="number" min="1" max="60" step="1" value="5" />
               </div>
               <div class="field">
-                <label class="panel-label">RTSP controls</label>
+                <label class="panel-label">Stream controls</label>
+                <label><input id="rtspLoopInput" type="checkbox" /> Loop server video</label>
                 <div class="stack-row">
                   <button class="btn" id="rtspStartBtn">Start live stream</button>
                   <button class="ghost-btn is-danger" id="rtspStopBtn">Stop active stream</button>
@@ -232,7 +233,7 @@
               </div>
             </div>
 
-            <p class="note">RTSP runs as a long-lived backend stream. The dashboard shows status and events, but browser playback still depends on any separate restreaming component you choose to run.</p>
+            <p class="note">Enter an RTSP URL or a video path on this server, including paths with spaces. Video files replay at their original pace and finish at the end unless Loop is enabled. Use Sources for annotated previews and saved stream settings.</p>
           </section>
         </div>
 

@@ -80,6 +80,11 @@ def render(*, config_file=None, output=None, mode=None, port=None, profiles=None
     values["INFEROPS_CONFIG_PROJECT"] = central.project_key(path, data, root.resolve()) or ""
     values.setdefault("INFEROPS_TRITON_REPOSITORY", str(root.resolve() / "model_repository"))
     values["INFEROPS_CONFIG_DIRECTORY"] = str(path.parent)
+    # Preserve host absolute video paths inside API and camera workers.
+    media_root = Path(values.get("INFEROPS_MEDIA_ROOT", str(APP / "research"))).expanduser()
+    if not media_root.is_absolute():
+        media_root = path.parent.parent / media_root
+    values["INFEROPS_MEDIA_ROOT"] = str(media_root.resolve())
     values.setdefault("INFEROPS_IMAGE", "inferops-engine:local")
     values.setdefault("INFEROPS_KAFKA_HOST", data.get("docker", {}).get("kafka_host", "localhost"))
     values.setdefault("INFEROPS_PROMETHEUS_CONFIG", str(APP / "deploy/observability/prometheus.yml"))

@@ -21,8 +21,8 @@ async def registered_frames(spec, stats):
         return
     sequence = 0
     timeline_offset = 0
+    origin = time.monotonic()
     while True:
-        origin = time.monotonic()
         first_pts = None
         last_media = 0
         next_sample = 0
@@ -40,7 +40,7 @@ async def registered_frames(spec, stats):
                     continue
                 next_sample += int(1e9 / max(spec.inference_fps, spec.evidence_fps or 0))
                 # Pace file replay while preserving PTS for temporal rules.
-                await asyncio.sleep(max(0, origin + relative / 1e9 - time.monotonic()))
+                await asyncio.sleep(max(0, origin + (timeline_offset + relative) / 1e9 - time.monotonic()))
                 image = await asyncio.to_thread(_resize, frame.image, spec)
                 last_media = timeline_offset + relative
                 yield replace(

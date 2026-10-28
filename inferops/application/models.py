@@ -66,11 +66,13 @@ class _BoundedBackend:
 class ModelPool:
     def __init__(self, definition: ProjectDefinition, *, max_concurrency: int = 1,
                  triton_concurrency: int = 64, admission_pending: int = 1024,
-                 admission_queue_ms: float = 5000) -> None:
+                 admission_queue_ms: float = 5000, auto_scale: bool = False) -> None:
         if max_concurrency < 1 or triton_concurrency < 1:
             raise ValueError("model concurrency must be positive")
         self.definition = definition
         self.max_concurrency = max_concurrency
+        self.auto_scale = auto_scale
+        self._session_ids = set()
         self.triton_concurrency = triton_concurrency
         self.admission_pending, self.admission_queue_ms = admission_pending, admission_queue_ms
         self._admission_options = {"max_pending": admission_pending, "max_queue_ms": admission_queue_ms}
@@ -82,12 +84,28 @@ class ModelPool:
         self._closed = False
 
     @property
+    def gpu_concurrency(self):
+        return min(self.max_concurrency, max(1, len(self._session_ids))) if self.auto_scale else self.max_concurrency
+
+    def register_session(self, session_id):
+        self._session_ids.add(session_id)
+        self._resize_gpu_slots()
+
+    def unregister_session(self, session_id):
+        self._session_ids.discard(session_id)
+        self._resize_gpu_slots()
+
+    def _resize_gpu_slots(self):
+        for slots in self._gpu_slots.values():
+            slots.resize(self.gpu_concurrency)
+
+    @property
     def closed(self) -> bool:
         return self._closed
 
     def runtime_status(self):
         return [{"model": name, "device": backend.device, **backend.device_info,
-                 "concurrency": self.triton_concurrency if backend.device == "remote" else self.max_concurrency}
+                 "concurrency": backend._slots.capacity}
                 for name, backend in self._backends.items()]
 
     def get_spec(self, name: str) -> ModelSpec:
@@ -143,7 +161,7 @@ class ModelPool:
                     # Bounded RPCs must overlap for Triton to assemble batches.
                     concurrency, slots = self.triton_concurrency, self._rpc_slots
                 elif backend.device in {"gpu", "cuda"}:
-                    slots = self._gpu_slots.setdefault(spec.device.gpu_id, FairAdmission(self.max_concurrency, **self._admission_options))
+                    slots = self._gpu_slots.setdefault(spec.device.gpu_id, FairAdmission(self.gpu_concurrency, **self._admission_options))
                 bounded = _BoundedBackend(backend, concurrency, slots=slots)
                 try:
                     if spec.warmup.iterations and hasattr(backend, "warmup"):

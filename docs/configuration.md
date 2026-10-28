@@ -87,8 +87,22 @@ another global settings store.
 A target FPS limits sampling. Actual analysis FPS depends on decoding, inference
 latency and contention; free VRAM does not establish throughput. Change local
 admission under `platform.runtime.admission.local_device_capacity` after measuring
-representative streams. The central default keeps one local inference call at a
-time; remote RPC admission has its own limit.
+representative streams. With `auto_scale: true`, GPU admission allows one concurrent
+call per open processing session, capped by `local_device_capacity`. This workspace
+uses a cap of 8. Slots are shared fairly across models on each GPU, and shrink safely
+as sessions close. With `auto_scale: false` (the engine default), capacity is fixed.
+Remote RPC admission has its own limit. Concurrency increases GPU work overlap;
+it does not guarantee 100% utilization or sufficient VRAM for every workload.
+
+For server-local video, use **Sources → Add a source → Video file**, enter the
+absolute path (spaces are supported), and enable **Loop** for continuous replay.
+The playground's **RTSP / Server video** control accepts the same path. The stream
+API accepts `POST /v1/streams?pipeline=...&video_path=...&fps=30&loop=true` (URL-encode
+the path), and also accepts local paths through the existing `rtsp_url` parameter.
+Files replay using their presentation timestamps, share live inference admission,
+and finish at EOF unless looping is enabled. A `source_rtsp` YAML stage also accepts
+a local `url` path and `loop: true`. Paths refer to the API/worker filesystem; Docker
+deployments must mount the file at that path inside the processing container.
 
 ## Advanced settings and migration
 
@@ -115,3 +129,7 @@ For the optional two-worker Docker layout, add a `workers` mapping containing
 shared S3 and its `storage` service, and set `INFEROPS_WORKER_TOKEN` in `.env`.
 The renderer includes the worker wiring automatically. The legacy manifest
 reader still accepts standalone manifests for independent deployments.
+
+The launcher mounts the repository’s `research` directory read-only at the same
+absolute path in API and camera-worker containers. To use another media directory,
+set `INFEROPS_MEDIA_ROOT=/absolute/media/directory` in `.env` and recreate services.

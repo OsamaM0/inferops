@@ -9,6 +9,7 @@ x-camera-worker: &camera-worker
   volumes:
     - ${INFEROPS_PROJECT_ROOT}:/project:ro
     - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs:ro
+    - ${INFEROPS_MEDIA_ROOT}:${INFEROPS_MEDIA_ROOT}:ro
     - source-data:/var/lib/inferops/sources
     - worker-spool-a:/var/lib/inferops/spool
   depends_on:
@@ -37,6 +38,7 @@ services:
     volumes:
       - ${INFEROPS_PROJECT_ROOT}:/project:ro
       - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs:ro
+      - ${INFEROPS_MEDIA_ROOT}:${INFEROPS_MEDIA_ROOT}:ro
       - source-data:/var/lib/inferops/sources
       - worker-spool-b:/var/lib/inferops/spool
 volumes:

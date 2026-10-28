@@ -140,7 +140,11 @@ async def workspace(request: Request):
     storage = application.evidence.storage if application.evidence else None
     dialect = getattr(getattr(application.repository, "engine", None), "dialect", None)
     return {"project": definition.name, "runtime": definition.mode, "pipelines": pipelines, "models": models,
-            "admission": {"local_gpu_concurrency": application.models.max_concurrency,
+            "admission": {"local_gpu_concurrency": application.models.gpu_concurrency,
+                          "local_gpu_concurrency_limit": application.models.max_concurrency,
+                          "auto_scale": application.models.auto_scale,
+                          "local_gpus": {str(device): gate.diagnostics()
+                                         for device, gate in application.models._gpu_slots.items()},
                           "triton_outstanding_requests": application.models.triton_concurrency,
                           "max_pending": application.models.admission_pending,
                           "max_queue_age_ms": application.models.admission_queue_ms,

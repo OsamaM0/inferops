@@ -90,15 +90,22 @@ async def source_frames(source, *, every_n=1):
 
 
 async def camera_frames(url, *, fps=5, kind="rtsp", transport="tcp", timeout_s=5,
-                        max_width=7680, max_height=4320):
+                        max_width=7680, max_height=4320, loop=False, stats=None,
+                        stream_id="legacy", reconnect_s=0.5):
     """Compatibility entry point using the same bounded reader as the registry."""
     from types import SimpleNamespace
 
     from inferops.adapters.outbound.media.camera import capture_frames
-    spec = SimpleNamespace(uri=url, camera_id="legacy", kind=kind, inference_fps=fps or 120,
+    spec = SimpleNamespace(uri=url, camera_id=stream_id, kind=kind, inference_fps=fps or 120,
                            evidence_fps=None, rtsp_transport=transport, timeout_s=timeout_s,
-                           max_width=max_width, max_height=max_height)
-    frames = capture_frames(spec, {"decoded": 0, "dropped": 0})
+                           max_width=max_width, max_height=max_height, reconnect_initial_s=reconnect_s)
+    stats = stats if stats is not None else {"decoded": 0, "dropped": 0}
+    if "://" not in str(url):
+        from inferops.adapters.inbound.registered_sources import registered_frames
+        spec.kind, spec.loop = "video", loop
+        frames = registered_frames(spec, stats)
+    else:
+        frames = capture_frames(spec, stats)
     try:
         async for frame in frames:
             yield frame

@@ -11,6 +11,7 @@ def build_engine(root, *, runtime="cpu", configs_dir="configs", repository=None,
     max_sessions = options.pop("max_sessions", 128)
     idle_timeout_s = options.pop("idle_timeout_s", 300)
     model_concurrency = options.pop("model_concurrency", 1)
+    auto_scale = options.pop("auto_scale", False)
     triton_concurrency = options.pop("triton_concurrency", 64)
     admission_pending = options.pop("admission_pending", 1024)
     admission_queue_ms = options.pop("admission_queue_ms", 5000)
@@ -44,7 +45,7 @@ def build_engine(root, *, runtime="cpu", configs_dir="configs", repository=None,
             spool_path, max_bytes=config.max_spool_bytes, disk_reserve_bytes=config.disk_reserve_bytes),
             config=config, encoder=OpenCVMediaEncoder())
     annotators = build_annotators(definition)
-    application = PipelineApplication(definition, ModelPool(definition, max_concurrency=model_concurrency,
+    application = PipelineApplication(definition, ModelPool(definition, max_concurrency=model_concurrency, auto_scale=auto_scale,
                                                           triton_concurrency=triton_concurrency,
                                                           admission_pending=admission_pending,
                                                           admission_queue_ms=admission_queue_ms), repository,
@@ -137,6 +138,7 @@ def build_server_engine(*, settings=None, hub=None):
                           max_sessions=int(os.environ.get("INFEROPS_MAX_SESSIONS", "128")),
                           idle_timeout_s=float(os.environ.get("INFEROPS_SESSION_IDLE_SECONDS", "300")),
                           model_concurrency=settings.admission.local_device_capacity,
+                          auto_scale=settings.admission.auto_scale,
                           triton_concurrency=settings.admission.remote_outstanding,
                           admission_pending=settings.admission.max_pending,
                           admission_queue_ms=settings.admission.max_queue_age_ms)

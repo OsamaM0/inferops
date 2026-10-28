@@ -50,6 +50,7 @@ _PARAMETERS = {
     "source_folder": _parameters({"path": _TEXT, "glob": {"type": "string", "default": "*.jpg"},
         "interval_ms": {"type": "integer", "minimum": 0, "default": 0}, "stream_id": _TEXT}, ("path",)),
     "source_rtsp": _parameters({"url": _TEXT, "stream_id": _TEXT,
+        "loop": {"type": "boolean", "default": False},
         "fps": {"type": "number", "minimum": 0, "default": 0},
         "transport": {"type": "string", "enum": ["tcp", "udp"], "default": "tcp"},
         "timeout_s": {"type": "number", "exclusiveMinimum": 0, "default": 5},
@@ -88,7 +89,7 @@ _PARAMETERS = {
 }
 _LABELS = {
     "source_rest": "Registered sources / API", "source_folder": "Read a folder",
-    "source_rtsp": "Read an RTSP stream", "source_mjpeg": "Read an MJPEG stream",
+    "source_rtsp": "Read an RTSP stream or server video", "source_mjpeg": "Read an MJPEG stream",
     "source_kafka": "Read from Kafka", "decode_any": "Decode images or video",
     "decode_image": "Decode an image", "decode_video": "Decode a video",
     "infer": "Run a model", "model_group": "Run independent models",

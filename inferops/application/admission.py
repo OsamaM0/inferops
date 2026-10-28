@@ -31,7 +31,7 @@ class FairAdmission:
         self.last_key = None
 
     def _dispatch(self):
-        while self.available and self.queues:
+        while self.available > 0 and self.queues:
             if len(self.queues) > 1 and next(iter(self.queues)) == self.last_key:
                 self.queues.move_to_end(self.last_key)
             key, queue = self.queues.popitem(last=False)
@@ -75,6 +75,14 @@ class FairAdmission:
                 raise AdmissionExpired("inference admission deadline exceeded") from error
             raise
         return self
+
+    def resize(self, capacity):
+        """Preserve in-flight permits when shrinking; drain before new admission."""
+        if capacity < 1:
+            raise ValueError("admission capacity must be positive")
+        self.available += capacity - self.capacity
+        self.capacity = capacity
+        self._dispatch()
 
     def release(self):
         self.available += 1

@@ -205,6 +205,7 @@ class ObsSettings(BaseSettings):
 class AdmissionSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="INFEROPS_ADMISSION_", extra="forbid")
     local_device_capacity: int = Field(default=1, ge=1)
+    auto_scale: bool = False
     remote_outstanding: int = Field(default=64, ge=1)
     max_pending: int = Field(default=1024, ge=1)
     max_queue_age_ms: float = Field(default=5000, gt=0, allow_inf_nan=False)

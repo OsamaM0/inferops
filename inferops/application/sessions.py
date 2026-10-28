@@ -44,6 +44,7 @@ class ProcessingSession:
         self.annotator = application.annotators.get(pipeline)
 
     async def start(self):
+        self.models.register_session(self.id)
         await self.application.repository.save_session({
             "id": self.id, "pipeline": self.spec.name, "stream_name": self.stream_name,
             "owner": self.application.owner, "owner_kind": self.owner_kind,
@@ -213,6 +214,7 @@ class ProcessingSession:
                 await self.application.repository.close_session(self.id, "closed")
             except Exception as exc:
                 errors.append(exc)
+            self.models.unregister_session(self.id)
             self.application.sessions.pop(self.id, None)
             await self.application.collect_retired_models()
             if errors:
