@@ -38,11 +38,16 @@ def native_command(settings, repository: Path, binary: str) -> list[str]:
     if len({grpc_port, http_port, metrics_port}) != 3:
         raise ValueError("Triton gRPC, HTTP and metrics ports must be distinct")
     repository = repository.resolve()
-    if not repository.is_dir() or not any(repository.glob("*/config.pbtxt")):
+    # The artifact repository may also contain training checkpoints and other
+    # non-serving directories. Explicit mode must not load those via '*'.
+    models = sorted(path.parent.name for path in repository.glob("*/config.pbtxt") if path.is_file())
+    if not repository.is_dir() or not models:
         raise ValueError(f"No prepared Triton model configurations found in {repository}")
+    if "*" in models:
+        raise ValueError("Triton model directories cannot be named '*'")
     return [
         binary, f"--model-repository={repository}", "--strict-model-config=true",
-        "--model-control-mode=explicit", "--load-model=*", "--exit-on-error=true",
+        "--model-control-mode=explicit", *[f"--load-model={name}" for name in models], "--exit-on-error=true",
         "--rate-limit=execution_count", "--pinned-memory-pool-byte-size=134217728",
         "--cuda-memory-pool-byte-size=0:134217728",
         "--http-address=127.0.0.1", f"--http-port={http_port}",

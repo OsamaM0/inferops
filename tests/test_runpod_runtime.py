@@ -58,7 +58,8 @@ class NativeRuntimeTests(unittest.TestCase):
                 order.append("triton")
                 self.assertEqual(command[0], "/opt/tritonserver/bin/tritonserver")
                 self.assertIn(f"--model-repository={self.repository}", command)
-                self.assertIn("--load-model=*", command)
+                self.assertIn("--load-model=model", command)
+                self.assertNotIn("--load-model=*", command)
                 self.assertIn("--rate-limit=execution_count", command)
                 return self.triton
             self.assertEqual(order, ["triton", "ready"])
@@ -188,6 +189,29 @@ class NativeRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No prepared Triton model"):
             self.run_runtime()
         self.spawn.assert_not_called()
+
+    def test_checkpoint_directory_does_not_become_a_serving_model(self):
+        (self.repository / "model/config.pbtxt").unlink()
+        for name in ("face_mesh_onnx", "rfdetr_driver_behaviour_onnx"):
+            model = self.repository / name
+            model.mkdir()
+            (model / "config.pbtxt").write_text(f'name: "{name}"')
+        checkpoint = self.repository / "rfdetr_driver_behaviour_pth/1/model.pth"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_bytes(b"preserve this checkpoint")
+        command = runpod_runtime.native_command(self.settings, self.repository, "tritonserver")
+        self.assertEqual(
+            [argument for argument in command if argument.startswith("--load-model=")],
+            ["--load-model=face_mesh_onnx", "--load-model=rfdetr_driver_behaviour_onnx"],
+        )
+        self.assertEqual(checkpoint.read_bytes(), b"preserve this checkpoint")
+
+    def test_wildcard_directory_name_cannot_reenable_loading_all_artifacts(self):
+        model = self.repository / "*"
+        model.mkdir()
+        (model / "config.pbtxt").touch()
+        with self.assertRaisesRegex(ValueError, "cannot be named"):
+            runpod_runtime.native_command(self.settings, self.repository, "tritonserver")
 
 
 class OwnedProcessTests(unittest.TestCase):
