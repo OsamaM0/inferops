@@ -550,9 +550,10 @@
   <video id="recordingPlayer" controls playsinline style="width:100%;max-height:60vh"></video>
   <div id="recordingsList" class="stack-row"></div>
 </dialog>
+<dialog id="previewDialog" class="live-dialog"><div class="dialog-heading"><h2 id="previewTitle">Annotated preview</h2><button class="icon-button" data-close="previewDialog" aria-label="Close">×</button></div><img id="fullPreview" alt="Full view of annotated source preview"></dialog>
 <dialog id="liveDialog" class="live-dialog">
   <div class="dialog-heading"><h2 id="liveTitle">Live video</h2><button class="icon-button" data-close="liveDialog" aria-label="Close">×</button></div>
-  <p class="dialog-intro">Original camera video through MediaMTX. Annotations are shown separately in the processed wall preview. Live viewing can continue while analysis is stopped.</p>
+  <p class="dialog-intro">Original camera video through MediaMTX. The source wall plays original live video when available; sampled annotated previews are used for other sources. Live viewing can continue while analysis is stopped.</p>
   <div class="live-controls"><label>Playback<select id="liveProtocol"><option value="hls">HLS · works through the application proxy</option><option value="webrtc">WebRTC · low latency</option></select></label><a id="liveExternal" class="button" target="_blank" rel="noreferrer">Open player ↗</a></div>
   <iframe id="liveFrame" title="Original live camera video" allow="autoplay; fullscreen; picture-in-picture"></iframe>
   <p id="liveStatus" class="form-error" role="status" hidden></p>
