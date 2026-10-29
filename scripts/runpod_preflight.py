@@ -21,7 +21,7 @@ def wait_for_triton(url: str, *, timeout_s: float, check_running: Callable[[], N
         grpc = importlib.import_module("tritonclient.grpc")
     except ImportError as exc:
         raise RuntimeError(
-            "Triton client dependencies are unavailable. Reinstall with "
+            f"Triton client dependencies are unavailable ({exc}). Reinstall with "
             "the InferOps virtual environment's python -m pip install -e '.[triton]'."
         ) from exc
 

@@ -46,7 +46,7 @@ INFEROPS_TRITON_STARTUP_TIMEOUT_SECONDS=60
 Use this command after merging the native startup changes:
 
 ```bash
-bash -lc 'if [ -x /start.sh ]; then /start.sh & fi; if [ -d /workspace/inferops/.git ]; then git -C /workspace/inferops pull --ff-only; else git clone https://github.com/OsamaM0/inferops.git /workspace/inferops; fi && exec bash /workspace/inferops/runpod-start.sh'
+bash -lc 'set -e; if [ ! -d /workspace/inferops/.git ]; then git clone --branch main --single-branch https://github.com/OsamaM0/inferops.git /workspace/inferops; fi; exec bash /workspace/inferops/runpod-start.sh'
 ```
 
 `/start.sh` is optional and belongs to the old RunPod template. NVIDIA's raw
@@ -85,8 +85,13 @@ external SSH port is assigned by RunPod; it is usually different from 22.
 Use this startup command instead of the previous one (do not also run `/start.sh`):
 
 ```bash
-bash -lc 'if [ -d /workspace/inferops/.git ]; then git -C /workspace/inferops pull --ff-only; else git clone https://github.com/OsamaM0/inferops.git /workspace/inferops; fi && exec python3 /workspace/inferops/scripts/runpod_access.py'
+bash -lc 'set -e; if [ ! -d /workspace/inferops/.git ]; then git clone --branch main --single-branch https://github.com/OsamaM0/inferops.git /workspace/inferops; fi; exec python3 /workspace/inferops/scripts/runpod_access.py'
 ```
+
+Existing checkouts start without a Git update. Deploy reviewed source changes
+separately from restarting the Pod; a missing upstream branch or unavailable
+GitHub must not prevent SSH or the API from starting. The command does not
+change branches or discard local modifications.
 
 After restart:
 
@@ -151,8 +156,10 @@ project serves RF-DETR, SCRFD, 6DRepNet360, 2D106 and BlinkCNN through Triton fr
 Head direction is estimated by 6DRepNet360; 2D106 locates the eyes and BlinkCNN
 classifies their closure. The `driver_face` extra supplies Pillow for preprocessing.
 Project preparation validates the five prepared ONNX graphs and their checksums.
-The head graph is exported once from the pinned official checkpoint in a separate
-PyTorch export environment; PyTorch is not needed by the API or Triton.
+On a fresh volume, preparation automatically creates an isolated CPU-only
+PyTorch export environment in the project `.cache` directory and exports the
+head graph from its pinned checkpoint. The prepared ONNX graph is reused on
+later starts; PyTorch is not needed by the API or Triton.
 See [Triton serving](triton-serving.md) for qualified batching repositories.
 API model loading still validates model names and tensor contracts; readiness
 alone is not full inference qualification.

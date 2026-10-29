@@ -16,11 +16,15 @@ as `models/face_landmarker/model.yaml.example` for reference.
 
 Install the `driver_face` extra for Pillow, e.g. `pip install -e '.[driver_face]'`.
 Model preparation downloads the pinned 2D106 and BlinkCNN graphs and checks SHA-256.
-The full-rotation head graph is prepared once from the official checkpoint using
-`models/head_pose_360/prepare.py`. Export needs `torch==2.8.0`,
-`torchvision==0.23.0` and `onnx`; serving the prepared graph uses ONNX only.
-The optional `head_pose_export` extra declares export dependencies. A separate CPU
-export environment can use the PyTorch CPU wheel index and then install ONNX.
+When the full-rotation head graph is missing, `models/head_pose_360/prepare.py`
+automatically creates a separate CPU export environment under the project
+`.cache/head-pose-export-py<version>` directory. It installs Torch 2.8.0 and
+torchvision 0.23.0 from the official CPU wheel index, plus ONNX 1.23.2.
+The checkpoint and exported graph retain their pinned SHA-256 checks.
+First preparation needs network access and time to install the exporter.
+Later starts reuse the prepared graph and do not require Torch in the API
+environment. Interrupted dependency setup is checked and retried on the next
+preparation attempt. The `head_pose_export` extra remains available for manual tooling.
 
 The prepared artifacts live in `model_repository/{scrfd,head_pose_360,landmarks_106,blinkcnn}_onnx/1/model.onnx`.
 Pinned hashes and download revisions are in each `models/*/model.yaml`.

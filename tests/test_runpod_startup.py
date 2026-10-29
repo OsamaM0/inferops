@@ -77,6 +77,12 @@ class TritonReadinessTests(unittest.TestCase):
         self.grpc.InferenceServerClient.assert_not_called()
         self.assertEqual(self.clock.now, 0)
 
+    def test_missing_transitive_client_dependency_is_named_in_startup_error(self):
+        self.importer.side_effect = ImportError("No module named 'packaging'")
+        with self.assertRaisesRegex(RuntimeError, "No module named 'packaging'.*Reinstall"):
+            runpod_preflight.wait_for_triton("127.0.0.1:8001", timeout_s=30)
+        self.grpc.InferenceServerClient.assert_not_called()
+
     def test_rpc_time_counts_toward_deadline(self):
         def unavailable(*, client_timeout):
             self.clock.now += client_timeout

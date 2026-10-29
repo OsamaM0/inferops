@@ -4,17 +4,68 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import subprocess
+import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+from filelock import FileLock
 
 CHECKPOINT_URL = (
     "https://cloud.ovgu.de/s/TewGC9TDLGgKkmS/download/6DRepNet360_Full-Rotation_300W_LP%2BPanoptic.pth"
 )
 CHECKPOINT_SHA256 = "3ee08f1e04b8d452a6c4a40926a6f38051894ae6d0aaa6d191fe6d8bc6e4f9c6"
+EXPORT_VERSIONS = {"torch": "2.8.0", "torchvision": "0.23.0", "onnx": "1.23.2"}
+
+
+def export_python() -> Path:
+    """Prepare a persistent CPU exporter without changing the serving environment."""
+    root = Path(__file__).resolve().parents[2] / ".cache"
+    root.mkdir(parents=True, exist_ok=True)
+    environment = root / f"head-pose-export-py{sys.version_info.major}.{sys.version_info.minor}"
+    python = environment / "bin/python"
+    probe = (
+        "import torch, torchvision, onnx; "
+        f"expected = {EXPORT_VERSIONS!r}; "
+        "assert all(module.__version__.split('+')[0] == expected[module.__name__] "
+        "for module in (torch, torchvision, onnx)); assert torch.version.cuda is None"
+    )
+
+    def ready():
+        return python.is_file() and subprocess.run(
+            [str(python), "-c", probe], capture_output=True, timeout=60, check=False
+        ).returncode == 0
+
+    with FileLock(str(environment) + ".lock", timeout=900):
+        if ready():
+            return python
+        print(f"Preparing CPU-only head-pose exporter: {environment}", flush=True)
+        if not python.is_file():
+            subprocess.run([sys.executable, "-m", "venv", str(environment)], check=True)
+        subprocess.run(
+            [str(python), "-m", "pip", "install", "--disable-pip-version-check",
+             "torch==2.8.0", "torchvision==0.23.0", "--index-url", "https://download.pytorch.org/whl/cpu"],
+            check=True,
+        )
+        subprocess.run(
+            [str(python), "-m", "pip", "install", "--disable-pip-version-check", "onnx==1.23.2"],
+            check=True,
+        )
+        if not ready():
+            raise RuntimeError("The isolated head-pose export environment failed its version/CPU check")
+    return python
 
 
 def install(target: Path) -> None:
+    python = export_python()
+    subprocess.run(
+        [str(python), str(Path(__file__).resolve()), "--export-only", "--output", str(Path(target).resolve())],
+        check=True,
+    )
+
+
+def export(target: Path) -> None:
     try:
         import onnx
         import torch
@@ -61,4 +112,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
-    install(parser.parse_args().output)
+    parser.add_argument("--export-only", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    (export if args.export_only else install)(args.output)
