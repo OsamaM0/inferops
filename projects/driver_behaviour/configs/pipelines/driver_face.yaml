@@ -34,8 +34,8 @@ stages:
     min_infer_interval_ms: 100
     neutral_yaw_deg: 0.0
     neutral_pitch_deg: 0.0
-    direction_yaw_threshold: 10.0
-    direction_pitch_threshold: 8.0
+    direction_yaw_threshold: 25.0
+    direction_pitch_threshold: 18.0
     distraction_yaw_threshold: 25.0
     distraction_pitch_threshold: 18.0
 - name: eye_landmarks

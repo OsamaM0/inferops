@@ -20,8 +20,8 @@ class HeadPose360Stage(FaceMeshStage):
         min_infer_interval_ms=100,
         neutral_yaw_deg=0.0,
         neutral_pitch_deg=0.0,
-        direction_yaw_threshold=10.0,
-        direction_pitch_threshold=8.0,
+        direction_yaw_threshold=25.0,
+        direction_pitch_threshold=18.0,
         distraction_yaw_threshold=25.0,
         distraction_pitch_threshold=18.0,
     ):
@@ -61,7 +61,7 @@ class HeadPose360Stage(FaceMeshStage):
         pose["head_direction"] = direction
         item.payload.update(head_direction=direction, face_direction=direction)
         item.payload["face_status_label"] = _face_status_label(None, pose)
-        # Ordinary head movement is visible before it reaches the incident threshold.
+        # Display sensitivity and incident thresholds can be configured separately.
         item.payload.update(behavior_scores_from_face(
             None, None, pose["yaw"], pose["pitch"],
             yaw_threshold=self.distraction_yaw_threshold,

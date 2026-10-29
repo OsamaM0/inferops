@@ -90,10 +90,10 @@ def frame(ts=0, stream="driver", face=True, box=(0.2, 0.2, 0.8, 0.8), size=400):
     return item
 
 
-def workflow(interval=0):
+def workflow(interval=0, **head_params):
     registry = Registry()
     stages = [
-        Head(min_infer_interval_ms=interval),
+        Head(min_infer_interval_ms=interval, **head_params),
         Landmarks(min_infer_interval_ms=interval),
         Eyes(min_infer_interval_ms=interval),
     ]
@@ -138,8 +138,8 @@ async def test_all_driver_head_directions_and_full_yaw_range(yaw, down, label):
 @pytest.mark.parametrize("yaw,pitch,label", [
     (12, 0, "left"), (-12, 0, "right"), (0, 10, "down"), (0, -10, "up"), (3, -2, "forward")
 ])
-async def test_small_head_movements_are_visible_without_lowering_incident_thresholds(yaw, pitch, label):
-    registry, stages = workflow()
+async def test_configured_small_movements_do_not_lower_incident_thresholds(yaw, pitch, label):
+    registry, stages = workflow(direction_yaw_threshold=10, direction_pitch_threshold=8)
     registry.rotation = rotation(yaw, pitch)
     output = await run(stages, frame())
     assert output["head_direction"] == output["signals"]["head_direction"] == label
@@ -150,7 +150,7 @@ async def test_small_head_movements_are_visible_without_lowering_incident_thresh
 
 
 async def test_diagonal_head_movement_uses_the_dominant_axis_in_both_signal_and_overlay():
-    registry, stages = workflow()
+    registry, stages = workflow(direction_yaw_threshold=10, direction_pitch_threshold=8)
     registry.rotation = rotation(11, 20)
     output = await run(stages, frame())
     assert output["head_direction"] == "down"
@@ -288,3 +288,11 @@ def test_resolved_pipeline_can_construct_all_custom_stages(mode):
         for declaration in definition.pipelines[name].stages:
             if ":" in declaration.stage:
                 definition.object_loader(declaration.stage)(**declaration.params)
+
+
+async def test_default_direction_does_not_treat_small_camera_offset_as_a_turn():
+    registry, stages = workflow()
+    registry.rotation = rotation(-16, -7.4)
+    output = await run(stages, frame())
+    assert output["head_direction"] == "forward"
+    assert "Looking Right" not in output["overlay_boxes"][0]["label"]

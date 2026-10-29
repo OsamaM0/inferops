@@ -38,12 +38,14 @@ pitch without folding yaw at 90 degrees. Positive yaw means the driver's left;
 positive pitch means down in an upright, unmirrored image.
 
 `neutral_yaw_deg` and `neutral_pitch_deg` calibrate the installed camera. The
-pipeline displays direction from 10 degrees of yaw or 8 degrees of pitch.
-For diagonal motion it selects the axis with the larger angle-to-threshold ratio,
-and the signal and overlay use that same direction. Smaller movement is explicitly
-labelled `Head Forward`. Distraction scoring separately retains the 25-degree yaw
-and 18-degree pitch thresholds and existing temporal incident confirmation.
-The labels are `forward`, `left`, `right`, `up`, `down`, or `unknown` when pose is unavailable.
+pipeline defaults to 25 degrees of yaw or 18 degrees of pitch. Smaller display
+thresholds can be configured separately from distraction scoring, but are not a
+substitute for establishing the vehicle-forward reference. Camera-relative pose
+alone cannot establish whether the driver faces the road. A side-mounted camera
+can see nonzero yaw while the driver looks straight ahead on the road.
+For diagonal motion, the dominant angle-to-threshold ratio selects the direction,
+and signals and overlays agree. The labels are `forward`, `left`, `right`, `up`,
+`down`, or `unknown` when pose is unavailable.
 They describe head orientation, not eye gaze. A visible face retains its box even
 if its head or eyes cannot be resolved.
 
