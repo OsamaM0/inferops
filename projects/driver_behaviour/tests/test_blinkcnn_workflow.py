@@ -135,6 +135,30 @@ async def test_all_driver_head_directions_and_full_yaw_range(yaw, down, label):
         assert [name for name, _ in registry.calls] == ["head_pose_360", "landmarks_106"]
 
 
+@pytest.mark.parametrize("yaw,pitch,label", [
+    (12, 0, "left"), (-12, 0, "right"), (0, 10, "down"), (0, -10, "up"), (3, -2, "forward")
+])
+async def test_small_head_movements_are_visible_without_lowering_incident_thresholds(yaw, pitch, label):
+    registry, stages = workflow()
+    registry.rotation = rotation(yaw, pitch)
+    output = await run(stages, frame())
+    assert output["head_direction"] == output["signals"]["head_direction"] == label
+    assert output["distracted_score"] < 0.5
+    expected = "Head Forward" if label == "forward" else f"Looking {label.title()}"
+    assert expected in output["signals"]["face_status_label"]
+    assert expected in output["overlay_boxes"][0]["label"]
+
+
+async def test_diagonal_head_movement_uses_the_dominant_axis_in_both_signal_and_overlay():
+    registry, stages = workflow()
+    registry.rotation = rotation(11, 20)
+    output = await run(stages, frame())
+    assert output["head_direction"] == "down"
+    assert "Looking Down" in output["overlay_boxes"][0]["label"]
+    assert "Looking Left" not in output["overlay_boxes"][0]["label"]
+    assert output["distracted_score"] >= 0.5
+
+
 @pytest.mark.parametrize("bad", [np.zeros((1, 3, 3)), np.full((1, 3, 3), np.nan), -np.eye(3)])
 async def test_invalid_head_matrix_keeps_face_and_never_claims_closed_eyes(bad):
     registry, stages = workflow()

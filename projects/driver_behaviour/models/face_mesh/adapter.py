@@ -312,7 +312,12 @@ def _face_status_label(drowsy_score: float | None, pose: dict[str, float] | None
         labels.append("Eyes Closed")
     yaw_threshold = pose.get("yaw_threshold_deg", DISTRACT_YAW_DEG) if pose else DISTRACT_YAW_DEG
     pitch_threshold = pose.get("pitch_threshold_deg", DISTRACT_PITCH_DEG) if pose else DISTRACT_PITCH_DEG
-    if yaw is not None and abs(yaw) >= yaw_threshold:
+    direction = pose.get("head_direction") if pose else None
+    direction_labels = {"left": "Looking Left", "right": "Looking Right", "up": "Looking Up",
+                        "down": "Looking Down", "forward": "Head Forward"}
+    if direction in direction_labels:
+        labels.append(direction_labels[direction])
+    elif yaw is not None and abs(yaw) >= yaw_threshold:
         labels.append("Looking Left" if yaw > 0 else "Looking Right")
     elif pitch is not None and abs(pitch) >= pitch_threshold:
         labels.append("Looking Down" if pitch > 0 else "Looking Up")
