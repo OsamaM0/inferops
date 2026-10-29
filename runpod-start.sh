@@ -52,11 +52,11 @@ chmod 0711 "$DATA" "$DATA/logs"
 chmod 0700 "$DATA/secrets"
 
 # OS packages disappear on a rebuilt Pod. Python/model artifacts stay on /workspace.
-if ! command -v pg_config >/dev/null || ! command -v curl >/dev/null || ! command -v ffmpeg >/dev/null || ! "$PYTHON" -c 'import ensurepip' >/dev/null 2>&1; then
+if ! command -v pg_config >/dev/null || ! command -v curl >/dev/null || ! command -v ffmpeg >/dev/null || ! "$PYTHON" -c 'import ensurepip; import ctypes; ctypes.CDLL("libGLESv2.so.2"); ctypes.CDLL("libEGL.so.1")' >/dev/null 2>&1; then
     info 'Installing PostgreSQL, curl, FFmpeg and Python venv support...'
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
-    apt-get install -y --no-install-recommends postgresql postgresql-client ca-certificates curl ffmpeg python3-venv
+    apt-get install -y --no-install-recommends postgresql postgresql-client ca-certificates curl ffmpeg python3-venv libegl1 libgles2
 fi
 "$PYTHON" -c 'import ensurepip' >/dev/null 2>&1 || fail "Install venv/ensurepip support for $PYTHON."
 PGBIN="$(pg_config --bindir)"
@@ -195,7 +195,7 @@ spec_hash="$( { sha256sum pyproject.toml runpod-start.sh; printf '%s\n' "$PYTHON
 if [[ "$(cat "$DATA/python-requirements.sha256" 2>/dev/null || true)" != "$spec_hash" ]]; then
     info 'Installing InferOps CUDA and Triton client dependencies...'
     "$VENV/bin/python" -m pip install --upgrade pip
-    "$VENV/bin/python" -m pip install -e '.[server,cuda,triton,video]' "${client_requirement[@]}"
+    "$VENV/bin/python" -m pip install -e '.[server,cuda,triton,video,driver_face]' "${client_requirement[@]}"
     printf '%s\n' "$spec_hash" > "$DATA/python-requirements.sha256"
 fi
 

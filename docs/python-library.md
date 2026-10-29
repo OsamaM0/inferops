@@ -110,10 +110,12 @@ asyncio.run(main())
 ```
 
 This example assumes your project defines image preprocessors for both models.
-The driver adapter's face-mesh model depends on an SCRFD face crop and is run
-by its custom `FaceMeshStage`; use its existing `driver_behaviour` pipeline for
-the complete crop/landmarks/fusion workflow, rather than calling `predict` on the
-face-mesh model directly.
+The driver adapter uses SCRFD to select a face, 6DRepNet360 to estimate head
+direction, 2D106 to locate the eyes and BlinkCNN to classify closure. Use
+`driver_behaviour` for object and face monitoring, or `driver_face` for face-only
+monitoring. Install `.[driver_face]` for the image preprocessing dependency.
+The face pipeline stages own their tensor preprocessing; they use backend `infer`
+rather than assuming these internal model ports have generic image preprocessors.
 
 Use the logical port names from `models/*/model.yaml`. You may also construct a
 session from a dictionary of `Model` objects, including models from different

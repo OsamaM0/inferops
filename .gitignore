@@ -60,6 +60,7 @@ Thumbs.db
 *.pt
 *.safetensors
 *.onnx
+*.task
 
 *.meta
 *.ckpt
@@ -92,6 +93,8 @@ Thumbs.db
 # Model preparation provenance and locks
 *.onnx.source.json
 *.onnx.lock
+*.task.source.json
+*.task.lock
 .prepare-*/
 # Packaging output from the engine and independently built project adapters
 *.egg-info/

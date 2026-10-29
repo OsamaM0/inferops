@@ -1,131 +1,90 @@
-# Driver face, eye-state and head-pose upgrade
+# Driver face, head direction and eye state
 
-Research and implementation: 28 October 2026. Target runtimes: CPU, CUDA and
-Triton, plus the existing TensorRT library variant.
+The active workflow selects the driver's face with **SCRFD**, estimates head
+orientation with **6DRepNet360 Full Rotation**, locates the eyes with **InsightFace
+2D106**, and scores each eye with **BlinkCNN-ONNX**. The full `driver_behaviour`
+pipeline also runs RF-DETR for behavior objects. `driver_face` contains only
+face/head/eye monitoring. No identity-recognition network is used.
 
-The [recovery and activation report](driver-face-recovery.md) describes the
-subsequent driver-region search, candidate verification and live activation.
+## Runtime and preparation
 
-The recommended stack for this project is **SCRFD-10G face detection →
-6DRepNet head pose + FaceMesh eyelid landmarks → temporal confirmation**.
-RF-DETR continues to detect phones, seatbelts, food and cigarettes. These are
-separate tasks: identity recognition accuracy does not establish eye-closure
-or head-direction accuracy.
+All four logical face models expose ONNX, TensorRT and Triton ports. Runtime
+selection is shared with RF-DETR. In native Triton deployment, five ONNX graphs
+are served: RF-DETR, SCRFD, 6DRepNet360, 2D106 and BlinkCNN. The MediaPipe stage
+is no longer part of either active face pipeline; its model declaration is kept
+as `models/face_landmarker/model.yaml.example` for reference.
 
-## Models considered
+Install the `driver_face` extra for Pillow, e.g. `pip install -e '.[driver_face]'`.
+Model preparation downloads the pinned 2D106 and BlinkCNN graphs and checks SHA-256.
+The full-rotation head graph is prepared once from the official checkpoint using
+`models/head_pose_360/prepare.py`. Export needs `torch==2.8.0`,
+`torchvision==0.23.0` and `onnx`; serving the prepared graph uses ONNX only.
+The optional `head_pose_export` extra declares export dependencies. A separate CPU
+export environment can use the PyTorch CPU wheel index and then install ONNX.
 
-| Model/project | Relevant output | Recommendation for this project |
-| --- | --- | --- |
-| [InsightFace Buffalo](https://github.com/deepinsight/insightface/blob/master/model_zoo/README.md) | `buffalo_l` bundles SCRFD-10GF, identity embeddings, 106-point 2D/68-point 3D alignment and attributes; `buffalo_sc` omits dense alignment. | Use the face detector alone. Recognition and age/gender are unnecessary for the requested monitoring. |
-| [SCRFD](https://github.com/deepinsight/insightface/tree/master/detection/scrfd) | Face boxes and optionally five keypoints; several compute sizes. | The 10G KPS model is integrated. Consider 2.5G for constrained CPUs, after qualifying that export's tensor contract and footage. Five keypoints alone cannot measure eyelid closure. |
-| [RetinaFace](https://arxiv.org/abs/1905.00641) | Face detection and five facial keypoints. | A useful alternative benchmark; it still needs a separate eye/pose stage. Do not replace the current stack solely on a generic face benchmark. |
-| [OpenCV YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | Lightweight face detector with facial keypoints. | CPU-oriented alternative, with MIT-licensed files in the model directory. Compare face recall on the actual camera, especially profiles and small faces. |
-| [MediaPipe Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker) | 478 landmarks, optional 52 blendshape coefficients and facial transformation matrices. | Retain the existing FaceMeshV2 ONNX for eyelid geometry. The standalone ONNX in this repository does **not** produce the full bundle's blink blendshapes or transformation matrices. |
-| [6DRepNet](https://github.com/thohemp/6DRepNet) / [6DRepNet360](https://github.com/thohemp/6DRepNet360) | Learned head orientation; the 360 project addresses full-range rotation. | 6DRepNet is integrated using [Qualcomm's ONNX export](https://huggingface.co/qualcomm/SixDRepNet). Its RGB input is in [0,1], with ImageNet normalization embedded in the graph. 360 is a further candidate for severe turns; it has not been integrated here. |
-| [3DDFA_V2](https://github.com/cleardusk/3DDFA_V2) | Dense 3D alignment and pose, with ONNX support. | Useful alternative for large-pose alignment. Its author notes tracking can fail above 90° or under fast motion. It is not a dedicated eye-closure classifier. |
-| [OpenVINO open-closed-eye-0001](https://github.com/openvinotoolkit/open_model_zoo/blob/master/models/public/open-closed-eye-0001/README.md) | Two-class open/closed result per 32×32 BGR eye crop. | Next candidate if calibrated EAR remains insufficient. The published 95.84% is on its MRL Eye Dataset split, not this driver's camera. Export/runtime qualification and evaluation are still required. |
+The prepared artifacts live in `model_repository/{scrfd,head_pose_360,landmarks_106,blinkcnn}_onnx/1/model.onnx`.
+Pinned hashes and download revisions are in each `models/*/model.yaml`.
 
-These recommendations are engineering judgments based on the task fit and
-project replay, not a claim that one model is universally the most accurate.
+## Head direction
 
-InsightFace's code is MIT, while its published pretrained models are restricted
-to non-commercial research. Commercial deployment needs appropriate model
-rights or replacement weights. See the [upstream license policy](https://github.com/deepinsight/insightface#license).
+6DRepNet360 receives the square-padded face crop (25% padding), RGB pixels,
+Resize 256 / CenterCrop 224 and ImageNet normalization. Its predicted rotation
+matrix is validated before use. The forward axis gives camera-relative yaw and
+pitch without folding yaw at 90 degrees. Positive yaw means the driver's left;
+positive pitch means down in an upright, unmirrored image.
 
-## Implemented changes
+`neutral_yaw_deg` and `neutral_pitch_deg` calibrate the installed camera. The
+pipeline classifies yaw first at 25 degrees, then pitch at 18 degrees. The labels
+are `forward`, `left`, `right`, `up`, `down`, or `unknown` when pose is unavailable.
+They describe head orientation, not eye gaze. A visible face retains its box even
+if its head or eyes cannot be resolved.
 
-The full `driver_behaviour` pipeline now runs an independent SCRFD face detector
-before the pose and mesh stages. Its result is authoritative: a rejected face
-does not silently become a face through the RF-DETR behavior box. The configured
-strong-face and mesh confidence thresholds are 0.8; borderline 0.5 detector
-proposals need independent mesh verification. Haar remains disabled.
+## Eyes
 
-6DRepNet estimates head orientation independently of mesh success. Missing eye
-landmarks can therefore coexist with a valid head-direction estimate. Rotation
-matrices are checked for finite values, orthogonality and proper determinant.
-The artifact installer downloads Qualcomm release v0.65.0 and embeds its external
-ONNX tensors into a single model file for the existing serving workflow.
+2D106 receives a loose 192x192 face crop using the upstream affine transform.
+Its normalization is inside the pinned graph. Landmarks are mapped back to the
+original frame before extracting two rotation-aligned 64x64 eye crops.
+BlinkCNN receives RGB in `[0,1]`, shaped `[2,1,3,64,64]`: two eyes and one frame.
+ImageNet normalization is inside this graph too and must not be applied twice.
 
-Face crops preserve square geometry, including padding at frame edges. The mesh
-parser retains all 478 points when available. The legacy landmark-only path uses
-an OpenCV 3D pose fit instead of distance-ratio pseudo-angles; see
-[OpenCV's PnP model](https://docs.opencv.org/4.x/d5/d1f/calib3d_solvePnP.html).
+The sigmoid outputs are per-eye closure scores, not calibrated probabilities for
+this camera. A score at least **0.53** establishes closure; at most **0.1325**
+establishes opening; the intermediate band preserves a valid previous state.
+Without valid history the intermediate band is `unknown`. These defaults use
+the author's published high/low operating point; the pipeline exposes both
+thresholds for later camera-specific validation.
 
-The old EAR score crossed the fusion threshold only below 0.105 despite a 0.21
-setting. The old pitch score was capped below the alert threshold. Scores now
-cross the 0.5 decision boundary at the configured physical thresholds.
+Both eyes must be closed for `drowsy_ear=1`. A wink is `mixed` and does not imply
+bilateral closure. EAR remains diagnostic metadata and does not override BlinkCNN.
+The existing three-second incident confirmation remains unchanged. Missing faces,
+invalid head rotations, eyes smaller than 6 pixels, off-frame crops, absolute yaw
+above 40 degrees or pitch above 35 degrees produce `unknown`, not `closed`.
+Large face changes, rewinds and gaps over one second reset closure history.
 
-Eye states use separate close/reopen EAR thresholds (0.21/0.24 by default),
-bilateral closure, and per-stream duration. A wink does not establish bilateral
-closure. Tiny, off-screen or extreme-pose eyes produce `unknown`. Missing
-observations, long gaps, rewinds and large face-box changes reset eye history.
-The existing three-second continuous-positive confirmation still gates incidents;
-an instantaneous `closed` eye state is not itself a drowsiness incident.
+## Driver selection and outputs
 
-The dashboard receives `head_direction` (`forward`, `up`, `down`, `left`, `right`,
-`unknown`), yaw/pitch/roll, `head_pose_source`, `eyes_state`, anatomical
-left/right eye states, EAR values and `eyes_closed_ms`. Left/right assume an
-upright, unmirrored camera. Head orientation is distinct from eye gaze.
+A source's `driver_roi` overrides the detector's `driver_region`. Without a
+region, selection uses the largest face and short-term spatial continuity; set
+the driver's region when passengers are visible. SCRFD candidates below 0.8 are
+rejected when no independent presence verifier is configured. A landmark regressor
+alone is not treated as a face-presence classifier.
 
-## Camera configuration and runtime preparation
+The API preserves `face_box`, `face_detected`, SCRFD confidence and search age,
+`head_direction`, `head_yaw_deg`, `head_pitch_deg`, `head_roll_deg`, `eyes_state`,
+per-eye states and `eyes_closed_ms`. Source metadata identifies `6drepnet360` and
+`blinkcnn`. Per-stage ages show cached measurements. Food/cigarette associations
+still use the selected lower face box. Raw 106-point coordinates use the separate
+`face_landmarks_106` field, not the legacy 478-point mesh field.
 
-Set `driver_region` on the `detect_face` stage when other people are visible:
-normalized `[x1, y1, x2, y2]` in the upright input frame. Without it, the largest
-detected face is selected; this can be a passenger. The region filters detected
-face centers, crops the selected area before model resizing, and restricts
-context recovery results to that area.
+## References and validation limits
 
-Set `neutral_yaw_deg` and `neutral_pitch_deg` on the mesh stage from a driver
-facing the road in that camera mounting. Defaults are camera-relative zero.
-Calibrate the EAR thresholds against visible open/closed eyes for that driver;
-they are initial settings, not universal physiological constants. Eye visibility
-checks use the physical camera angle before subtracting the neutral offset.
+- [6DRepNet360 official model and paper](https://github.com/thohemp/6DRepNet360)
+- [InsightFace 106-point model and markup](https://github.com/deepinsight/insightface/tree/master/alignment/coordinate_reg)
+- [BlinkCNN weights and normalization](https://huggingface.co/fodorad/blink_detection)
 
-The logical models are `rfdetr_driver`, `buffalo_detector`, `head_pose` and
-`face_mesh`. Each has ONNX, TensorRT and Triton variants. Existing model
-preparation discovers all four through the pipeline's `model` parameters.
-From the repository root, with the runtime and artifact dependencies installed:
-
-```bash
-INFEROPS_EXECUTION_MODE=cpu inferops project prepare --domain-root projects/driver_behaviour
-INFEROPS_EXECUTION_MODE=cuda inferops project prepare --domain-root projects/driver_behaviour
-INFEROPS_EXECUTION_MODE=triton inferops project prepare --domain-root projects/driver_behaviour
-```
-
-Use the line for the intended runtime. Triton serves batch-one detector and pose
-ONNX models using the supplied `config.pbtxt` files. Prepare and reload the model
-server with the application when deploying the new pipeline. Model files remain
-downloaded artifacts rather than Git content. Fresh preparation needs outbound
-HTTPS. The recovery iteration has been activated on the running camera; see
-the [activation report](driver-face-recovery.md).
-
-## Validation and remaining limits
-
-On 20 existing sample frames, at the configured 0.8 thresholds, the RF-DETR face
-class was available in 0 frames and SCRFD in 12. The new mesh and learned pose
-were available in 12 frames; an eye state was available in 7 (including one
-mixed-eye result). These clips include split screens, tiny faces,
-blur, profile views and passengers. These are **availability counts, not driver
-detection accuracy**; no annotated face boxes, head angles or eyelid labels were
-provided. The contact sheet must be reviewed with a driver region selected
-before evaluating driver-specific behavior.
-
-Real weights were exercised on CPU and subsequently on the live Triton GPU
-server. Runtime resolution was checked for CPU/CUDA/TensorRT/Triton. A dedicated
-pose model adds compute and memory. Current
-100 ms sampling/caching does not guarantee any live FPS.
-
-Regression tests cover detector decoding/NMS and padding, stream/clock cache
-isolation, driver-region validation, synthetic 3D rotations, invalid learned
-rotations, independent pose when mesh fails, export normalization, eye
-hysteresis/winks and blink-versus-sustained-closure confirmation. Real video/API
-checks exercise the complete pipeline. For deployment, collect labeled camera
-clips covering all requested directions, closed/open eyes, glasses, night
-lighting, occlusion and face loss; measure missed closures and false incidents.
-PERCLOS and a learned eye-state classifier remain future enhancements.
-
-The final checks passed 48 driver-adapter tests and 81 affected core tests
-(129 total), plus Ruff checks on the changed Python files. Local review artifacts
-are in `.run/face-upgrade-2026-10-28/` (`results.json` and `contact-sheet.jpg`).
-The local detector was verified against the Buffalo archive, and the pose
-installer reproduced the exact embedded model used for the CPU replay.
+Unit checks cover all five directions, full yaw range, malformed rotations,
+original-frame eye geometry, normalization, bilateral closure, hysteresis, stream
+isolation, time gaps, missing/hidden eyes and runtime selection. Real-video and
+live-API verification establish that the workflow runs; the supplied videos do
+not contain comprehensive labeled head angles or eye states, so availability
+counts are not an accuracy estimate.

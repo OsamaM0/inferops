@@ -32,13 +32,13 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: python -m pip install -e '.[server,cpu,video,dev]'
+      - run: python -m pip install -e '.[server,cpu,video,driver_face,dev]'
       - name: Reject inward infrastructure dependencies
         run: python -m pytest tests/test_hexagonal_boundaries.py
       - run: python -m ruff check inferops tests scripts projects/driver_behaviour
       - run: python -m pytest tests
       - name: Driver alert confirmation and face regressions
-        run: python -m pytest projects/driver_behaviour/tests/test_driver_behaviour.py projects/driver_behaviour/tests/test_frame_annotator.py
+        run: python -m pytest projects/driver_behaviour/tests/test_driver_behaviour.py projects/driver_behaviour/tests/test_frame_annotator.py projects/driver_behaviour/tests/test_blinkcnn_workflow.py projects/driver_behaviour/tests/test_scrfd.py projects/driver_behaviour/tests/test_face_monitoring.py projects/driver_behaviour/tests/test_face_landmarker.py
   postgres-minio:
     runs-on: ubuntu-latest
     services:
@@ -58,7 +58,7 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-python@v7
         with: {python-version: '3.12'}
-      - run: python -m pip install -e '.[server,cpu,video,dev]'
+      - run: python -m pip install -e '.[server,cpu,video,driver_face,dev]'
       - run: docker build -f deploy/docker/minio.Dockerfile -t inferops-ci-minio .
       - run: docker run -d --name inferops-ci-minio -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 -p 19000:9000 inferops-ci-minio
       - name: Wait for real object storage

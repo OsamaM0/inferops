@@ -2,8 +2,8 @@ name: driver_face
 version: 1
 tags:
   label: Driver face and eyes
-  description: Verified driver-face detection, learned head direction and eye state
-    without the RF-DETR object detector.
+  description: SCRFD selects the driver face; 6DRepNet360 estimates head direction
+    and BlinkCNN classifies each eye using 2D106 eye locations.
 source:
   name: src
   stage: source_rest
@@ -13,39 +13,42 @@ stages:
   params:
     every_n: 1
 - name: detect_face
-  stage: .models.buffalo_detector.adapter:FaceDetectionStage
+  stage: .models.scrfd.adapter:FaceDetectionStage
   params:
-    model: buffalo_detector
-    min_infer_interval_ms: 100
+    model: scrfd
     driver_region: null
-    verification_model: face_mesh
-    verification_confidence: 0.8
+    min_infer_interval_ms: 100
     search_tiles: true
     enhance_on_miss: true
     max_search_views: 3
-    negative_cache_ms: 350
     full_search_interval_ms: 1000
-- name: head_pose
-  stage: .models.head_pose.adapter:HeadPoseStage
-  params:
-    model: head_pose
-    crop_padding: 0.2
-    min_infer_interval_ms: 100
-- name: face_mesh
-  stage: .models.face_mesh.adapter:FaceMeshStage
-  params:
-    model: face_mesh
+    negative_cache_ms: 350
+    verification_model: null
+    strong_confidence: 0.8
     crop_padding: 0.25
-    face_confidence_threshold: 0.8
-    allow_haar_fallback: false
-    ear_closed_threshold: 0.21
-    ear_open_threshold: 0.24
-    min_eye_width_px: 6.0
+- name: head_pose
+  stage: .models.head_pose_360.adapter:HeadPose360Stage
+  params:
+    model: head_pose_360
+    crop_padding: 0.25
+    min_infer_interval_ms: 100
     neutral_yaw_deg: 0.0
     neutral_pitch_deg: 0.0
     direction_yaw_threshold: 25.0
     direction_pitch_threshold: 18.0
+- name: eye_landmarks
+  stage: .models.landmarks_106.adapter:Landmarks106Stage
+  params:
+    model: landmarks_106
     min_infer_interval_ms: 100
+- name: eyes
+  stage: .models.blinkcnn.adapter:BlinkCNNStage
+  params:
+    model: blinkcnn
+    min_infer_interval_ms: 100
+    closed_threshold: 0.53
+    open_threshold: 0.1325
+    min_eye_width_px: 6.0
 - name: fuse
   stage: fuse
   params:

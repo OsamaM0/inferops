@@ -1,6 +1,6 @@
 """SCRFD-10G decoding and an independent driver-face detection stage.
 
-Uses only the detector from Buffalo, without running identity recognition.
+This adapter performs face localization; head/eye analysis follows on its crop.
 Output names and anchor conventions match InsightFace's det_10g.onnx export.
 """
 from __future__ import annotations
@@ -11,13 +11,7 @@ import numpy as np
 from inferops.adapters.outbound.stages.base import Stage
 from inferops.domain.types import Detection, Frame, Result
 
-from ..face_mesh.adapter import (
-    _boxes_are_close,
-    _crop_face,
-    _input_spec_for_model,
-    _parse_face_mesh_output,
-    _preprocess_for_face_mesh,
-)
+from ..face_mesh.adapter import _boxes_are_close, _crop_face
 
 _SCORES = ("448", "471", "494")
 _BOXES = ("451", "474", "497")
@@ -102,39 +96,31 @@ class SCRFDPostprocess:
 
 
 class FaceDetectionStage(Stage):
-    """Driver-region search, local reacquisition and independent mesh verification.
+    """Select a driver face independently of landmark or eye-analysis success."""
 
-    Candidate scores remain detector scores. Verification does not inflate them.
-    Recovery views are fresh model observations; cached boxes are never promoted
-    after their measurement expires.
-    """
-
-    def __init__(self, model: str = "buffalo_detector", min_infer_interval_ms: int = 100,
+    def __init__(self, model: str = "scrfd", min_infer_interval_ms: int = 100,
                  driver_region: list[float] | None = None, fallback_model=None,
-                 verification_model: str | None = None, verification_confidence: float = .8,
-                 strong_confidence: float = .8,
+                 verification_model: str | None = None, strong_confidence: float = .8,
+                 crop_padding: float = .25,
                  search_tiles: bool = False, enhance_on_miss: bool = False,
                  full_search_interval_ms: int = 1000, max_search_views: int = 7,
                  negative_cache_ms: int = 350) -> None:
         super().__init__(model=model, min_infer_interval_ms=min_infer_interval_ms,
-                         driver_region=driver_region, verification_model=verification_model,
-                         verification_confidence=verification_confidence, strong_confidence=strong_confidence,
+                         driver_region=driver_region,
                          search_tiles=search_tiles,
                          enhance_on_miss=enhance_on_miss, full_search_interval_ms=full_search_interval_ms,
                          max_search_views=max_search_views, negative_cache_ms=negative_cache_ms)
         self.model = model
         self.interval = max(0, int(min_infer_interval_ms))
         self._validate_region(driver_region)
-        if not 0 < verification_confidence <= 1:
-            raise ValueError("verification_confidence must be in (0, 1]")
-        if not 0 < strong_confidence <= 1:
-            raise ValueError("strong_confidence must be in (0, 1]")
         if not 1 <= max_search_views <= 12 or full_search_interval_ms < 0:
             raise ValueError("search budget must be 1..12 and full search interval nonnegative")
         self.driver_region = driver_region
+        if not 0 < strong_confidence <= 1 or not np.isfinite(crop_padding) or not 0 <= crop_padding <= 1:
+            raise ValueError('Invalid face confidence or crop padding')
         self.verification_model = verification_model
-        self.verification_confidence = verification_confidence
         self.strong_confidence = strong_confidence
+        self.crop_padding = crop_padding
         self.search_tiles = search_tiles
         self.enhance_on_miss = enhance_on_miss
         self.full_interval = full_search_interval_ms
@@ -150,25 +136,6 @@ class FaceDetectionStage(Stage):
                 np.isfinite(v) and 0 <= v <= 1 for v in region)
                 or region[0] >= region[2] or region[1] >= region[3]):
             raise ValueError("driver_region must be normalized [x1, y1, x2, y2]")
-
-    async def _verify(self, image, detection):
-        if not self.verification_model:
-            return True, None
-        h, w = image.shape[:2]
-        crop, crop_box = _crop_face(image, detection.box, padding=.25)
-        input_name, size = _input_spec_for_model(self.ctx.registry, self.verification_model)
-        backend = await self.ctx.registry.get_backend(self.verification_model)
-        raw = await backend.infer(_preprocess_for_face_mesh(crop, input_name, size))
-        landmarks, confidence = _parse_face_mesh_output(raw, crop_box, w, h, size)
-        if confidence < self.verification_confidence or len(landmarks) < 468:
-            return False, None
-        points = np.array([[p['x'] * w, p['y'] * h] for p in landmarks])
-        # Reject degenerate/collapsed geometry even if the scalar head is high.
-        if min(np.ptp(points, axis=0)) < 8 or np.linalg.norm(points[33] - points[263]) < 4:
-            return False, None
-        spec = self.ctx.registry.get_spec(self.verification_model)
-        return True, {"raw": raw, "crop_box": crop_box, "input_size": size,
-                      "model": spec.name, "frame_size": (w, h), "face_box": detection.box}
 
     async def _search(self, item, image, region, track):
         h, w = image.shape[:2]
@@ -207,7 +174,7 @@ class FaceDetectionStage(Stage):
             # live capture with an entire pyramid on every obscured frame.
             phase = self._misses.get(item.stream_id, 0) % len(recovery)
             views.extend(recovery[phase:] + recovery[:phase])
-        count, verified_count, total_ms = 0, 0, 0.
+        count, total_ms = 0, 0.
         for method, (a, b, c, d), enhance in views[:self.max_views]:
             if c <= a or d <= b:
                 continue
@@ -230,21 +197,29 @@ class FaceDetectionStage(Stage):
                 area = (det.box[2] - det.box[0]) * (det.box[3] - det.box[1])
                 return (int(bool(track and _boxes_are_close(det.box, track['box']))), area * det.score)
             for detection in sorted(candidates, key=rank, reverse=True)[:4]:
-                accepted, verification = await self._verify(image, detection)
-                verified_count += int(self.verification_model is not None)
-                # High-confidence SCRFD observations can still establish head
-                # pose when a profile prevents eyelid-mesh verification.
-                if not accepted and detection.score < self.strong_confidence:
+                if self.verification_model is None and detection.score < self.strong_confidence:
                     continue
-                detection.attrs.update({"search_method": method, "mesh_verified": bool(verification)})
+                verification = None
+                if self.verification_model:
+                    face, crop_box = _crop_face(image, detection.box, self.crop_padding)
+                    backend = await self.ctx.registry.get_backend(self.verification_model)
+                    raw = await backend.infer({'image': cv2.cvtColor(face, cv2.COLOR_BGR2RGB)})
+                    landmarks = raw['landmarks']
+                    accepted = (len(landmarks) > 0 and np.isfinite(landmarks[0]).all()
+                                and min(np.ptp(landmarks[0, :, :2], axis=0) * face.shape[0]) >= 8)
+                    if not accepted and detection.score < self.strong_confidence:
+                        continue
+                    verification = {'raw': raw, 'crop_box': crop_box, 'frame_size': (w, h),
+                                    'model': self.verification_model, 'ts_ms': item.ts_ms}
+                detection.attrs.update({"search_method": method})
                 raw = {"face_detector": "scrfd", "selected_face_box": list(detection.box),
-                       "search_method": method, "search_views": count, "verified_candidates": verified_count,
+                       "search_method": method, "search_views": count,
                        "by_class": {"DriverFace": [detection.model_dump(mode="json")]}}
                 output = Result(kind="detections", model=result.model, detections=[detection],
                                 latency_ms=total_ms, raw=raw)
                 return output, verification, method
         return Result(kind="detections", model=self.model, detections=[], raw={
-            "face_detector": "scrfd", "search_views": count, "verified_candidates": verified_count,
+            "face_detector": "scrfd", "search_views": count,
             "by_class": {"DriverFace": []}}), None, "unavailable"
 
     async def process(self, item):
@@ -282,8 +257,8 @@ class FaceDetectionStage(Stage):
         item.payload['face_search_method'] = result.raw.get('search_method', 'unavailable')
         if result.detections:
             item.payload['face_detection_confidence'] = result.detections[0].score
-        if verification:
-            item.payload['_verified_face_mesh'] = verification
+        if verification is not None:
+            item.payload['_verified_face_analysis'] = verification
         item.results.append(result)
         return item
 

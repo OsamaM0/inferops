@@ -1,0 +1,50 @@
+name: head_pose_360
+defaults:
+  version: 1
+  backend: onnxruntime
+  task: landmarks
+  device:
+    preferred: gpu
+    gpu_id: 0
+  inputs:
+  - name: image
+    shape:
+    - 1
+    - 3
+    - 224
+    - 224
+    dtype: float32
+    layout: NCHW
+    color: RGB
+  outputs:
+  - name: rotation
+    shape:
+    - 1
+    - 3
+    - 3
+    dtype: float32
+    layout: ND
+    color: NONE
+  artifact:
+    path: model_repository/head_pose_360_onnx/1/model.onnx
+    sha256: 5f404b4ff38b6974d90c0d95de53bce366e56824d238a31d33902ac883083370
+    source:
+      kind: installer
+      installer: models/head_pose_360/prepare.py
+  batching:
+    enabled: false
+    max_batch_size: 1
+  warmup:
+    iterations: 1
+  tags:
+    role: Full-range head rotation; no eye-state inference
+    checkpoint: 6DRepNet360 Full Rotation 300W-LP + Panoptic
+variants:
+  onnx:
+    backend: onnxruntime
+  tensorrt:
+    backend: tensorrt
+  triton:
+    backend: triton
+    artifact:
+      triton_model_name: head_pose_360_onnx

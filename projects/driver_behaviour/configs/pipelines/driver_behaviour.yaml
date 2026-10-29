@@ -2,82 +2,70 @@ name: driver_behaviour
 version: 1
 tags:
   label: Full driver monitoring
-  description: RF-DETR behaviors, verified multi-scale driver-face detection, learned head pose, eye state and confirmed incidents.
-
+  description: SCRFD selects the driver face; 6DRepNet360 estimates head direction
+    and BlinkCNN classifies each eye using 2D106 eye locations.
 source:
   name: src
   stage: source_rest
-
 stages:
-  - name: decode
-    stage: decode_any
-    params: { every_n: 1 }
-
-  - name: detect
-    stage: infer
-    params:
-      model: rfdetr_driver
-
-  - name: detect_face
-    stage: .models.buffalo_detector.adapter:FaceDetectionStage
-    params:
-      model: buffalo_detector
-      min_infer_interval_ms: 100
-      # Set [x1, y1, x2, y2] in normalized camera coordinates if passengers
-      # can be visible. Otherwise the largest detected face is selected.
-      driver_region: null
-      verification_model: face_mesh
-      verification_confidence: 0.8
-      search_tiles: true
-      enhance_on_miss: true
-      max_search_views: 3
-      negative_cache_ms: 350
-      full_search_interval_ms: 1000
-
-  - name: head_pose
-    stage: .models.head_pose.adapter:HeadPoseStage
-    params:
-      model: head_pose
-      crop_padding: 0.2
-      min_infer_interval_ms: 100
-
-  # Pack-relative plugin reference: resolved against this domain's package.
-  - name: face_mesh
-    stage: .models.face_mesh.adapter:FaceMeshStage
-    params:
-      model: face_mesh
-      crop_padding: 0.25
-      # Only accept FaceMesh output with >=80% model confidence.
-      face_confidence_threshold: 0.80
-      # Haar cascade fallback emits heuristic confidence, not model probabilities.
-      allow_haar_fallback: false
-      ear_closed_threshold: 0.21
-      ear_open_threshold: 0.24
-      min_eye_width_px: 6.0
-      # Calibrate with the driver facing the road in this camera mounting.
-      neutral_yaw_deg: 0.0
-      neutral_pitch_deg: 0.0
-      direction_yaw_threshold: 25.0
-      direction_pitch_threshold: 18.0
-      # Sample at up to 10 Hz; intermediate frames reuse recent landmarks.
-      min_infer_interval_ms: 100
-
-  - name: fuse
-    stage: fuse
-    params: { fusion: driver_fusion }
-
-  - name: alert
-    stage: alert
-    params: { alerts: driver_alerts }
-
+- name: decode
+  stage: decode_any
+  params:
+    every_n: 1
+- name: detect
+  stage: infer
+  params:
+    model: rfdetr_driver
+- name: detect_face
+  stage: .models.scrfd.adapter:FaceDetectionStage
+  params:
+    model: scrfd
+    driver_region: null
+    min_infer_interval_ms: 100
+    search_tiles: true
+    enhance_on_miss: true
+    max_search_views: 3
+    full_search_interval_ms: 1000
+    negative_cache_ms: 350
+    verification_model: null
+    strong_confidence: 0.8
+    crop_padding: 0.25
+- name: head_pose
+  stage: .models.head_pose_360.adapter:HeadPose360Stage
+  params:
+    model: head_pose_360
+    crop_padding: 0.25
+    min_infer_interval_ms: 100
+    neutral_yaw_deg: 0.0
+    neutral_pitch_deg: 0.0
+    direction_yaw_threshold: 25.0
+    direction_pitch_threshold: 18.0
+- name: eye_landmarks
+  stage: .models.landmarks_106.adapter:Landmarks106Stage
+  params:
+    model: landmarks_106
+    min_infer_interval_ms: 100
+- name: eyes
+  stage: .models.blinkcnn.adapter:BlinkCNNStage
+  params:
+    model: blinkcnn
+    min_infer_interval_ms: 100
+    closed_threshold: 0.53
+    open_threshold: 0.1325
+    min_eye_width_px: 6.0
+- name: fuse
+  stage: fuse
+  params:
+    fusion: driver_fusion
+- name: alert
+  stage: alert
+  params:
+    alerts: driver_alerts
 sinks:
-  - name: evidence
-    stage: evidence
-    params:
-      annotator: .plugins.frame_annotator:DriverAnnotator
-      # Application evidence policy captures every accepted incident.
-
-
+- name: evidence
+  stage: evidence
+  params:
+    annotator: .plugins.frame_annotator:DriverAnnotator
 tracking:
   enabled: true
   algorithm: iou_kalman
@@ -86,4 +74,5 @@ tracking:
   min_hits: 3
   iou_threshold: 0.3
   per_class: true
-  model_filter: [rfdetr_driver]
+  model_filter:
+  - rfdetr_driver

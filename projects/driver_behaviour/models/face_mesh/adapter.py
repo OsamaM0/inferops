@@ -3,7 +3,7 @@
 Runs a MediaPipe FaceMesh-compatible ONNX model on the detected face region.
 After the object-detection stage this stage:
 
-1. Finds the driver face crop from SCRFD (legacy: ``DriverBehaviour`` boxes).
+1. Finds the driver face crop from legacy ``DriverBehaviour`` boxes.
 2. Resizes the crop to the configured model input size and runs the face-mesh model.
 3. Maps the 468/478 landmarks back to normalised full-frame coordinates.
 4. Computes:
@@ -68,21 +68,9 @@ def _get_face_box(results, frame_w: int, frame_h: int) -> tuple[float, float, fl
     """
     Return the best (x1, y1, x2, y2) normalised face box from results.
 
-    Prefer the dedicated SCRFD result, including an empty result. Legacy
-    pipelines can supply ``DriverBehaviour`` detections. Other object classes
-    are ignored so they cannot become the driver's face crop.
+    Legacy adapter for explicitly configured face-mesh models. The default
+    pipeline uses the full MediaPipe FaceLandmarkerStage instead.
     """
-    dedicated = [r for r in results if (r.raw or {}).get("face_detector") == "scrfd"]
-    if dedicated:
-        selected = (dedicated[-1].raw or {}).get("selected_face_box")
-        if selected is not None:
-            return tuple(selected)
-        candidates = [d for r in dedicated for d in (r.raw or {}).get("by_class", {}).get("DriverFace", [])]
-        # The largest visible face is a default only. Set driver_region in
-        # FaceDetectionStage when passengers can be visible in this camera.
-        candidates = [d for d in candidates if len(d.get("box", [])) == 4
-                      and np.isfinite(d["box"]).all() and _box_area(tuple(d["box"])) > 0]
-        return tuple(max(candidates, key=lambda d: _box_area(tuple(d["box"])) * d["score"])["box"]) if candidates else None
     best_score = -1.0
     best_box: tuple | None = None
     for result in results:

@@ -116,7 +116,7 @@ to override the executable. It installs venv support and uses an interpreter-spe
 environment such as `/workspace/.venvs/inferops-py3.12`. Previous environments
 are preserved, so changing from a Python 3.11 image does not reuse its environment.
 
-It installs `.[server,cuda,triton,video]`. The optional client version constraint
+It installs `.[server,cuda,triton,video,driver_face]`. The optional client version constraint
 supports 2.68.x through 2.73.x. The dependency cache includes the package spec,
 bootstrap, Python version and client pin.
 
@@ -146,9 +146,13 @@ the configured server. Override the executable with `INFEROPS_TRITON_BINARY`.
 
 The default repository belongs to the selected project. Set
 `INFEROPS_TRITON_REPOSITORY` for a separately prepared repository. The bundled
-project loads `buffalo_detector_onnx`, `head_pose_onnx`, `face_mesh_onnx` and
-`rfdetr_driver_behaviour_onnx` from
+project serves RF-DETR, SCRFD, 6DRepNet360, 2D106 and BlinkCNN through Triton from
 `/workspace/inferops/projects/driver_behaviour/model_repository`.
+Head direction is estimated by 6DRepNet360; 2D106 locates the eyes and BlinkCNN
+classifies their closure. The `driver_face` extra supplies Pillow for preprocessing.
+Project preparation validates the five prepared ONNX graphs and their checksums.
+The head graph is exported once from the pinned official checkpoint in a separate
+PyTorch export environment; PyTorch is not needed by the API or Triton.
 See [Triton serving](triton-serving.md) for qualified batching repositories.
 API model loading still validates model names and tensor contracts; readiness
 alone is not full inference qualification.

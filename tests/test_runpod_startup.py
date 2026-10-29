@@ -175,7 +175,7 @@ class RunPodDependencyTests(unittest.TestCase):
 
     def test_old_cuda_only_cache_installs_triton_then_reuses_cache(self):
         (self.data / "python-requirements.sha256").write_text(hashlib.sha256(self.spec).hexdigest() + "\n")
-        self.assertIn("-m pip install -e .[server,cuda,triton,video]", self.install())
+        self.assertIn("-m pip install -e .[server,cuda,triton,video,driver_face]", self.install())
         self.assertEqual(self.install(), "")
 
     def test_bootstrap_change_invalidates_dependency_cache(self):

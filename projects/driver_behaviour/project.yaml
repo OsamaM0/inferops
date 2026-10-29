@@ -1,12 +1,11 @@
-# Project entry point. Model weights and sources live in models/*/model.yaml.
 name: driver_behaviour
 label: Driver Behaviour
-description: 'In-cab driver monitoring: RF-DETR object detection (phone, cigarette,
-  food, seatbelt, wheel) with SCRFD face detection, 6DRepNet head pose and MediaPipe eye-closure signals
-  into alerts with evidence clips.'
+description: RF-DETR behavior objects, SCRFD face selection, full-range 6DRepNet360
+  head direction and BlinkCNN open/closed eyes located by 2D106.
 version: 1
 python_extras:
 - triton
+- driver_face
 prewarm_pipelines:
 - driver_behaviour
 prewarm_models: []

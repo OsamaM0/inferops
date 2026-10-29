@@ -1,5 +1,5 @@
-# Fixed batch-one SCRFD-10G from buffalo_l. No identity recognition model.
-name: "buffalo_detector_onnx"
+# Fixed batch-one SCRFD-10G face detection. No identity recognition model.
+name: "scrfd_onnx"
 platform: "onnxruntime_onnx"
 max_batch_size: 0
 version_policy { specific { versions: [1] } }

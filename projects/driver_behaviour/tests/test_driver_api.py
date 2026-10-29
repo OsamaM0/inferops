@@ -25,7 +25,7 @@ async def test_driver_pipeline_via_api():
     async with AsyncClient(transport=transport, base_url="http://test") as ac, app.router.lifespan_context(app):
         r = await ac.get("/v1/models")
         names = [m["name"] for m in r.json()]
-        assert {"rfdetr_driver_onnx", "rfdetr_driver_triton", "face_mesh_onnx"} <= set(names)
+        assert {"rfdetr_driver_onnx", "rfdetr_driver_triton", "head_pose_360_triton", "landmarks_106_triton", "blinkcnn_triton", "scrfd_onnx"} <= set(names)
 
         r = await ac.get("/v1/configs")
         data = r.json()

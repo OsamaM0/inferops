@@ -205,7 +205,7 @@ def test_driver_profiles_keep_distinct_behaviors_when_relocated(tmp_path):
     shutil.copytree(PROJECT_ROOT / "projects/driver_behaviour", root,
                     ignore=shutil.ignore_patterns("model_repository", "__pycache__", "tests"))
     definition = ProjectLoader(root, configs_dir=tmp_path / "configs").load()
-    assert set(definition.resolver.ports) == {"rfdetr_driver", "face_mesh", "buffalo_detector", "head_pose"}
+    assert set(definition.resolver.ports) == {"rfdetr_driver", "scrfd", "head_pose_360", "landmarks_106", "blinkcnn"}
     full, reduced = [definition.pipelines[name] for name in ("driver_behaviour", "driver_video")]
     assert full.tags["label"] == "Full driver monitoring"
     assert reduced.tags["label"] == "Detector-only monitoring"

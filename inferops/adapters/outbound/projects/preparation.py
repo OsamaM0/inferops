@@ -122,6 +122,17 @@ def validate_onnx(path: Path, spec: ModelSpec) -> None:
         raise ConfigError(f"model {spec.name!r}: invalid ONNX artifact {path}: {exc}") from exc
 
 
+def validate_artifact(path: Path, spec: ModelSpec) -> None:
+    """Custom backends may own non-ONNX artifacts; keep integrity checks common."""
+    if spec.backend in {"onnxruntime", "tensorrt", "triton"} or path.suffix == '.onnx':
+        validate_onnx(path, spec)
+        return
+    if not path.is_file() or not path.stat().st_size:
+        raise ConfigError(f"model {spec.name!r}: missing or empty weights at {path}")
+    if spec.artifact.sha256 and sha256(path) != spec.artifact.sha256.lower():
+        raise ConfigError(f"model {spec.name!r}: SHA-256 mismatch at {path}")
+
+
 class _DriveForm(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -227,20 +238,20 @@ def prepare_artifact(spec: ModelSpec, target: Path, root: Path, *, force: bool =
                 staged_metadata.replace(metadata)
         changed = bool(previous) and previous.get("source") != fingerprint
         if target.is_file() and not force and not changed:
-            validate_onnx(target, spec)
+            validate_artifact(target, spec)
             record_source()
             print(f"Validated existing weights: {spec.name}", flush=True)
             return
         if source is None:
             if target.is_file():
-                validate_onnx(target, spec)
+                validate_artifact(target, spec)
                 return
             raise ConfigError(f"model {spec.name!r}: weights missing at {target}; configure artifact.source or supply the file")
         print(f"Downloading {spec.name} from {source.kind}", flush=True)
         with tempfile.TemporaryDirectory(prefix=".prepare-", dir=target.parent) as directory:
-            staged = Path(directory) / "model.onnx"
+            staged = Path(directory) / ("model" + target.suffix)
             fetch_source(source, staged, root)
-            validate_onnx(staged, spec)
+            validate_artifact(staged, spec)
             staged.replace(target)
         record_source()
 

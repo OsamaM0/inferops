@@ -196,13 +196,15 @@ def preflight(
     require_artifacts: bool = typer.Option(True, help="Require local model artifacts to exist"),
 ):
     """Check the selected config surface before serving or running inference."""
-    from inferops.adapters.outbound.inference import BACKEND_DEPENDENCIES, resolve_backend_class
-    from inferops.adapters.outbound.projects.plugins import load_object
+    from inferops.adapters.outbound.inference import BACKEND_DEPENDENCIES
+    from inferops.adapters.outbound.projects.loader import ProjectPluginResolver
     from inferops.adapters.outbound.projects.yaml import load_dir
     from inferops.adapters.outbound.stages.registry import APPLICATION_STAGES, resolve_stage
     from inferops.domain.incident_spec import AlertSpec
 
     stack = _stack_for(configs_dir, domain, domain_root)
+    plugins = ProjectPluginResolver(stack.domain_root.resolve() if stack.domain_root else None, 'preflight')
+    load_object = plugins.load_object
     errors = _validate_specs(stack)
     if errors:
         raise typer.Exit(1)
@@ -214,7 +216,7 @@ def preflight(
     from inferops.adapters.outbound.projects.preparation import (
         artifact_target,
         selected_surface,
-        validate_onnx,
+        validate_artifact,
     )
 
     pipelines, models = selected_surface(stack, settings.execution_mode)
@@ -226,7 +228,11 @@ def preflight(
             rprint(f"[red]FAIL[/red] {path}: backend dependency {module!r} is not installed")
         elif module is None:
             try:
-                resolve_backend_class(spec.backend)
+                from inferops.ports.inference import InferenceBackend
+
+                cls = load_object(spec.backend)
+                if not isinstance(cls, type) or not issubclass(cls, InferenceBackend):
+                    raise ValueError('custom backend must extend InferenceBackend')
             except Exception as exc:
                 errors += 1
                 rprint(f"[red]FAIL[/red] {path}: {exc}")
@@ -244,7 +250,7 @@ def preflight(
             continue
         if spec.backend in {"onnxruntime", "triton"} or spec.artifact.path:
             try:
-                validate_onnx(artifact_target(spec, path, stack), spec)
+                validate_artifact(artifact_target(spec, path, stack), spec)
             except Exception as exc:
                 errors += 1
                 rprint(f"[red]FAIL[/red] {exc}")
@@ -253,7 +259,10 @@ def preflight(
         for stage in ([spec.source] if spec.source else []) + spec.stages + spec.sinks:
             try:
                 if stage.stage not in APPLICATION_STAGES:
-                    resolve_stage(stage.stage)
+                    if ':' in stage.stage or stage.stage.startswith('.'):
+                        load_object(stage.stage)
+                    else:
+                        resolve_stage(stage.stage)
             except Exception as exc:
                 errors += 1
                 rprint(f"[red]FAIL[/red] {path}: cannot resolve stage {stage.stage}: {exc}")

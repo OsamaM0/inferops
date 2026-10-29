@@ -10,7 +10,7 @@ import yaml
 from inferops.adapters.outbound.projects.loader import ProjectLoader
 from inferops.adapters.outbound.projects.model_scaffold import scaffold_model_port
 from inferops.adapters.outbound.projects.models import load_model_variants, load_models_dir
-from inferops.adapters.outbound.projects.settings import ConfigStack, settings
+from inferops.adapters.outbound.projects.settings import ConfigStack, get_settings
 from inferops.application.models import ModelPool
 from inferops.domain.errors import ConfigError
 from inferops.testing import PROJECT_ROOT, TINY_MODEL_PATH
@@ -19,16 +19,18 @@ from inferops.testing import PROJECT_ROOT, TINY_MODEL_PATH
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["cpu", "auto", "cuda", "tensorrt", "triton"])
 async def test_logical_models_group_variants_and_select_runtime(mode, monkeypatch):
-    monkeypatch.setattr(settings, "execution_mode", mode)
+    monkeypatch.setattr(get_settings(), "execution_mode", mode)
     definition = ProjectLoader(PROJECT_ROOT / "projects/driver_behaviour", mode=mode).load()
     registry = ModelPool(definition)
     try:
-        assert len(definition.models) == 12
+        assert len(definition.models) == 15
         models = registry.logical_models()
-        assert [model["name"] for model in models] == ["buffalo_detector", "face_mesh", "head_pose", "rfdetr_driver"]
-        suffix = "triton" if mode in {"triton"} else "tensorrt" if mode == "tensorrt" else "onnx"
-        assert all(model["selected_variant"] == f"{model['name']}_{suffix}" for model in models)
-        assert all(len(model["variants"]) == 3 and not model["loaded_variants"] for model in models)
+        names = ["blinkcnn", "head_pose_360", "landmarks_106", "rfdetr_driver", "scrfd"]
+        assert [model["name"] for model in models] == names
+        suffix = "triton" if mode == "triton" else "tensorrt" if mode == "tensorrt" else "onnx"
+        assert [model["selected_variant"] for model in models] == [f"{name}_{suffix}" for name in names]
+        assert [len(model["variants"]) for model in models] == [3] * 5
+        assert all(not model["loaded_variants"] for model in models)
     finally:
         await registry.close()
 

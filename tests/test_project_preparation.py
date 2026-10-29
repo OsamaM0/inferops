@@ -57,13 +57,14 @@ def test_logical_models_and_tracking_share_selection(mode, expected):
     pipelines, models = selected_surface(stack, mode)
     primary = next(item for item in pipelines if item.name == "driver_behaviour")
     assert primary.stages[1].params["model"] == f"rfdetr_driver_{expected}"
-    assert primary.stages[2].params["model"] == f"buffalo_detector_{expected}"
-    assert primary.stages[3].params["model"] == f"head_pose_{expected}"
-    assert primary.stages[4].params["model"] == f"face_mesh_{expected}"
+    assert primary.stages[2].params["model"] == f"scrfd_{expected}"
+    assert primary.stages[3].params["model"] == f"head_pose_360_{expected}"
+    assert primary.stages[4].params["model"] == f"landmarks_106_{expected}"
+    assert primary.stages[5].params["model"] == f"blinkcnn_{expected}"
     assert primary.tracking.model_filter == [f"rfdetr_driver_{expected}"]
-    assert {model.name for _, model in models} == {
-        f"rfdetr_driver_{expected}", f"face_mesh_{expected}", f"buffalo_detector_{expected}",
-        f"head_pose_{expected}"}
+    assert {model.name for _, model in models} == {f"{name}_{expected}" for name in ("rfdetr_driver", "scrfd", "head_pose_360", "landmarks_106", "blinkcnn")}
+    detector = next(model for _, model in models if model.name == f"scrfd_{expected}")
+    assert detector.postprocess.params['candidate_threshold'] == .5
     resolver = ModelResolver(stack.spec_dir("models"))
     assert resolver.resolve("rfdetr_driver_triton", "cpu") == "rfdetr_driver_triton"
 
@@ -104,6 +105,30 @@ def test_selected_custom_backend_requires_weight_configuration(tmp_path):
         "name: custom\nstages: [{name: detect, stage: infer, params: {model: custom}}]\n")
     with pytest.raises(ConfigError, match="real weights are required"):
         prepare_project(ConfigStack(domain_root=root), "cpu")
+
+
+def test_custom_task_artifact_is_downloaded_atomically_and_checksum_verified(tmp_path, monkeypatch):
+    import hashlib
+
+    from inferops.domain.models import ModelSpec
+
+    contents = b'custom backend task bundle'
+    spec = ModelSpec(name='custom_task', backend='custom:Backend', inputs=[], artifact={
+        'path': 'face.task', 'sha256': hashlib.sha256(contents).hexdigest(),
+        'source': {'kind': 'url', 'url': 'https://example.test/face.task'}})
+    target = tmp_path / 'face.task'
+
+    def fetch(source, staged, root):
+        assert staged.suffix == '.task'
+        staged.write_bytes(contents)
+
+    monkeypatch.setattr('inferops.adapters.outbound.projects.preparation.fetch_source', fetch)
+    prepare_artifact(spec, target, tmp_path)
+    assert target.read_bytes() == contents
+    prepare_artifact(spec, target, tmp_path)
+    target.write_bytes(b'corrupt task')
+    with pytest.raises(ConfigError, match='SHA-256 mismatch'):
+        prepare_artifact(spec, target, tmp_path)
 
 
 def test_cache_reuses_offline_and_refreshes_changed_source(tmp_path, weights, spec, monkeypatch):

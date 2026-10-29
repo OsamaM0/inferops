@@ -8,15 +8,15 @@ version = "0.1.0"
 description = "Driver monitoring adapter for InferOps"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["inferops>=0.1.0,<0.2"]
+dependencies = ["inferops[driver_face]>=0.1.0,<0.2"]
 
 [project.entry-points."inferops.projects"]
 driver_behaviour = "driver_behaviour"
 
 [tool.setuptools]
-packages = ["driver_behaviour", "driver_behaviour.models", "driver_behaviour.models.face_mesh", "driver_behaviour.models.buffalo_detector", "driver_behaviour.models.head_pose", "driver_behaviour.models.rfdetr_driver", "driver_behaviour.plugins"]
+packages = ["driver_behaviour", "driver_behaviour.models", "driver_behaviour.models.face_mesh", "driver_behaviour.models.scrfd", "driver_behaviour.models.face_monitoring", "driver_behaviour.models.head_pose_360", "driver_behaviour.models.landmarks_106", "driver_behaviour.models.blinkcnn", "driver_behaviour.models.rfdetr_driver", "driver_behaviour.plugins"]
 package-dir = {driver_behaviour = "."}
 include-package-data = false
 
 [tool.setuptools.package-data]
-driver_behaviour = ["project.yaml", "configs/**/*.yaml", "models/*/model.yaml"]
+driver_behaviour = ["project.yaml", "configs/**/*.yaml", "models/*/model.yaml", "models/*/LICENSE"]
