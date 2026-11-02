@@ -20,7 +20,7 @@ Standalone conversion:
 
 ```bash
 .run/export-env/bin/python -m inferops.adapters.outbound.inference.checkpoint_export \
-  --checkpoint projects/driver_behaviour/model_repository/rfdetr_driver_behaviour_pth/checkpoint_best_regular_driver_behivour_85.pth \
+  --checkpoint models/model_repository/rfdetr_driver_behaviour_pth/checkpoint_best_regular_driver_behivour_85.pth \
   --output .run/checkpoint-driver --variant auto --resolution 576 --max-batch 4
 ```
 

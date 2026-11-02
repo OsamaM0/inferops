@@ -1,20 +1,39 @@
-# Project entry point. Model weights and sources live in models/*/model.yaml.
+# Project entry point. The pipeline is generated from the selected models:
+# decode -> each model's stage -> fuse -> alert -> sinks. Rules live in rules.yaml.
 name: driver_behaviour
 label: Driver Behaviour
 description: 'In-cab driver monitoring: RF-DETR object detection (phone, cigarette,
   food, seatbelt, wheel) fused with YuNet + FaceMesh head direction (left, right,
   up, down, away) and blendshape eye state (closed eyes, PERCLOS) into alerts
   with evidence clips.'
-version: 1
-python_extras:
-- triton
-prewarm_pipelines:
-- driver_behaviour
-prewarm_models: []
+python_extras: [triton]
+prewarm_pipelines: [driver_behaviour]
+# Any combination from the shared models/ library; rules whose signals need an
+# unselected model switch off. Detector only: [rfdetr_driver].
+models: [rfdetr_driver, face_detector, face_mesh, face_blendshapes]
+tracking: {enabled: true}
+sinks:
+  # Application evidence policy captures every accepted incident.
+  - {name: evidence, stage: evidence, params: {annotator: .plugins.frame_annotator:DriverAnnotator}}
 scenario:
   pipeline: driver_behaviour
   sample_video: ../../research/driver_training/test.mp4
   expect_alert: true
-pipelines:
-- driver_behaviour
-- driver_video
+# Project tunables; models add their own (detection_confidence, face_confidence).
+# Change them in configs/inferops.yaml or under Project settings.
+settings:
+  confirm_ms:
+    default: 3000
+    label: Confirmation time (ms)
+    description: How long a behaviour must persist before it raises an alert or changes state.
+    minimum: 0
+  min_samples:
+    default: 3
+    label: Minimum samples
+    description: Frames that must match during the confirmation time.
+    minimum: 1
+  max_gap_ms:
+    default: 1500
+    label: Maximum gap (ms)
+    description: A longer gap between matching frames restarts confirmation.
+    minimum: 1

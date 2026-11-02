@@ -19,7 +19,8 @@ from scripts.configure import render
 
 
 @pytest.fixture
-def central_config(tmp_path):
+def central_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("INFEROPS_MODELS_DIR", str(PROJECT_ROOT / "models"))
     directory = tmp_path / "configs"
     directory.mkdir()
     data = yaml.safe_load((PROJECT_ROOT / "configs/inferops.yaml").read_text())
@@ -30,9 +31,9 @@ def central_config(tmp_path):
     return path, data
 
 
-def test_loader_and_preparation_use_central_parameters_in_every_mode(central_config):
+def test_loader_and_preparation_use_central_settings_in_every_mode(central_config):
     path, data = central_config
-    data["projects"]["driver_behaviour"]["parameters"].update(conf_threshold=0.85, confirm_ms=4000)
+    data["projects"]["driver_behaviour"]["settings"] = {"detection_confidence": 0.85, "confirm_ms": 4000}
     path.write_text(yaml.safe_dump(data))
     root = central.project_root(path, data)
     for mode in ("cpu", "cuda", "triton", "tensorrt"):
@@ -92,7 +93,8 @@ def test_renderer_keeps_secrets_private_and_does_not_modify_inputs(central_confi
     {"runtime": {"mode": "bad"}}, {"runtime": {"api_port": 0}},
     {"runtime": {"services": ["mystery"]}}, {"sources": {"inference_fps": 0}},
     {"sources": {"not_a_setting": 1}}, {"evidence": {"sample_fps": -1}},
-    {"projects": {"escape": {"root": ".", "configuration": {"pipelines": {"../escape": {}}}}}},
+    {"projects": {"escape": {"root": ".", "overrides": {"pipelines": {"../escape": {}}}}}},
+    {"projects": {"old": {"root": ".", "parameters": {}}}},
 ])
 def test_central_document_rejects_invalid_values(document):
     with pytest.raises((ValueError, ConfigError)):
@@ -118,3 +120,47 @@ def test_native_yaml_defaults_do_not_turn_into_docker_host_overrides(central_con
     assert container["INFEROPS_TRITON_URL"] == "triton:8001"
     assert container["INFEROPS_MEDIAMTX_API_URL"] == "http://mediamtx:9997"
     assert container["INFEROPS_DATABASE_URL"].split("@")[1] == "postgres:5432/inferops"
+
+
+def test_editor_saves_store_only_changes_and_round_trip(central_config):
+    path, data = central_config
+    root = central.project_root(path, data)
+    fusion = root / "rules.yaml"
+    effective = central.documents(path, data, root, path.parent)[fusion]
+    assert central.store_document(path, data, root, path.parent, fusion, effective) == data
+    edited = yaml.safe_load(yaml.safe_dump(effective))
+    edited["rules"][0]["when"] = "phone >= 0.6"
+    edited["rules"] = [rule for rule in edited["rules"] if rule["name"] != "eating"]
+    edited["rules"].append({"name": "yawning", "when": "eating > 2", "severity": "low"})
+    saved = central.store_document(path, data, root, path.parent, fusion, edited)
+    patch = saved["projects"]["driver_behaviour"]["overrides"]["rules"]
+    assert patch == {"rules": [{"name": "phone_use", "when": "phone >= 0.6"},
+                               {"name": "yawning", "when": "eating > 2", "severity": "low"},
+                               {"name": "eating", "$remove": True}]}
+    assert central.documents(path, saved, root, path.parent)[fusion] == edited
+    edited["rules"].reverse()
+    reordered = central.store_document(path, data, root, path.parent, fusion, edited)
+    assert central.documents(path, reordered, root, path.parent)[fusion] == edited
+
+
+@pytest.mark.parametrize("settings", [{"unknown": 1}, {"detection_confidence": 1.5}, {"confirm_ms": "slow"}])
+def test_project_settings_are_declared_typed_and_bounded(central_config, settings):
+    path, data = central_config
+    data["projects"]["driver_behaviour"]["settings"] = settings
+    with pytest.raises(ConfigError, match="setting"):
+        central.documents(path, data, central.project_root(path, data), path.parent)
+
+
+def test_fusion_defaults_expand_rules_windows_and_transitions():
+    from inferops.domain.fusion.spec import FusionSpec
+    spec = FusionSpec(name="f", defaults={"rule": {"confirm_ms": 100, "cooldown_ms": 5},
+                                          "transition": {"min_samples": 2},
+                                          "window": {"duration_ms": 900}, "extract": "signal('{name}')"},
+                      extract={"a": "detected('a')"}, signals=["a", "b"],
+                      rules=[{"name": "r", "when": "a", "cooldown_ms": 7}],
+                      state_machine={"initial": "X", "states": ["X", "Y", "Z"],
+                                     "transitions": [{"from_state": ["X", "Y"], "to_state": "Z", "when": "a"}]})
+    assert (spec.rules[0].confirm_ms, spec.rules[0].cooldown_ms) == (100, 7)
+    assert {name: window.duration_ms for name, window in spec.windows.items()} == {"a": 900, "b": 900}
+    assert spec.extract == {"a": "detected('a')", "b": "signal('b')"}
+    assert [(t.from_state, t.min_samples) for t in spec.state_machine.transitions] == [("X", 2), ("Y", 2)]

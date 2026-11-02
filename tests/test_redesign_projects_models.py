@@ -333,7 +333,7 @@ def test_candidate_overrides_validate_references_without_writing_or_mutating(tmp
 def test_candidate_new_model_port_and_manifest_use_same_resolver(tmp_path):
     root = project(tmp_path / "sample")
     path = root / "models" / "new" / "model.yaml"
-    config = {"name": "new", "defaults": {"inputs": [{"name": "x"}]}, "variants": {"onnx": {}}}
+    config = {"name": "new", "inputs": [{"name": "x"}], "variants": ["onnx"]}
     definition = ProjectLoader(root).load({path: config,
                                           root / "project.yaml": {"name": "sample", "prewarm_models": ["new"]}})
     assert definition.resolve_model("new") == "new_onnx"

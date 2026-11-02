@@ -8,6 +8,7 @@ x-camera-worker: &camera-worker
     INFEROPS_WORKER_TOKEN: ${INFEROPS_WORKER_TOKEN:?set an internal worker token}
   volumes:
     - ${INFEROPS_PROJECT_ROOT}:/project:ro
+    - ${INFEROPS_MODELS_ROOT}:/app/models:ro
     - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs:ro
     - ${INFEROPS_MEDIA_ROOT}:${INFEROPS_MEDIA_ROOT}:ro
     - source-data:/var/lib/inferops/sources
@@ -37,6 +38,7 @@ services:
     environment: {<<: *worker-environment, INFEROPS_WORKER_ID: b}
     volumes:
       - ${INFEROPS_PROJECT_ROOT}:/project:ro
+      - ${INFEROPS_MODELS_ROOT}:/app/models:ro
       - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs:ro
       - ${INFEROPS_MEDIA_ROOT}:${INFEROPS_MEDIA_ROOT}:ro
       - source-data:/var/lib/inferops/sources

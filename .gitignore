@@ -24,7 +24,6 @@ output_onnx/
 # `examples/*/configs/models/` — i.e. every ModelSpec YAML in the project.
 # Git never descends into an excluded directory, so a later `!configs/models/**`
 # negation cannot bring them back; the pattern itself has to be anchored.
-/models/
 /logs/
 /data/
 .demo.db*

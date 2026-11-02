@@ -20,6 +20,8 @@ _SAFE_FUNCS = {
     "round": round, "any": any, "all": all,
     "int": int, "float": float, "bool": bool,
 }
+# Bound per item by the fusion engine while extracting signals.
+_CONTEXT_FUNCS = {"detected", "signal"}
 _FORBIDDEN_NAMES = {"__import__", "__builtins__", "eval", "exec", "open"}
 _ALLOWED_NODES = (
     ast.Expression,
@@ -86,7 +88,7 @@ def _validate(node: ast.AST) -> None:
 
 def _validate_call(node: ast.Call) -> None:
     if isinstance(node.func, ast.Name):
-        if node.func.id not in _SAFE_FUNCS:
+        if node.func.id not in _SAFE_FUNCS and node.func.id not in _CONTEXT_FUNCS:
             raise ValueError(f"forbidden function call: {node.func.id}")
     elif isinstance(node.func, ast.Attribute):
         if node.func.attr not in _ALLOWED_METHODS:

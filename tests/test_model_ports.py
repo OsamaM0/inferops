@@ -45,7 +45,7 @@ async def test_port_local_assets_run_and_invalid_reload_preserves_backend(tmp_pa
     data["labels"] = {"from_file": "labels.txt"}
     data["artifact"] = {"path": "model.onnx"}
     path = folder / "model.yaml"
-    path.write_text(yaml.safe_dump({"name": "local", "defaults": data, "variants": {"cpu": {}}}))
+    path.write_text(yaml.safe_dump({"name": "local", **data, "variants": {"cpu": {}}}))
     definition = ProjectLoader(tmp_path).load()
     registry = ModelPool(definition)
     try:
@@ -88,6 +88,6 @@ def test_add_port_to_legacy_project_keeps_existing_models(tmp_path):
 
 def test_variant_error_identifies_the_model_and_runtime(tmp_path):
     path = tmp_path / "model.yaml"
-    path.write_text("name: detector\ndefaults: {inputs: []}\nvariants: {cuda: {device: {preferred: wrong}}}\n")
+    path.write_text("name: detector\ninputs: []\nvariants: {cuda: {device: {preferred: wrong}}}\n")
     with pytest.raises(ConfigError, match=r"detector.*cuda"):
         load_model_variants(path)

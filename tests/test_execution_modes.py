@@ -27,9 +27,9 @@ async def test_production_modes_do_not_fall_back_to_synthetic(monkeypatch, mode,
     stack = ConfigStack(ROOT / "configs", active_domain="driver_behaviour")
     definition = ProjectLoader(stack.domain_root, mode=mode).load()
     stages = {s.name: s for s in definition.pipelines["driver_behaviour"].stages}
-    assert stages["detect"].params["model"] == model
+    assert stages["rfdetr_driver"].params["model"] == model
     assert stages["face_mesh"].params["model"] == face
-    assert stages["detect"].params["fallback_model"] is None
+    assert stages["rfdetr_driver"].params["fallback_model"] is None
     assert stages["face_mesh"].params["fallback_model"] is None
     registry = ModelPool(definition)
     if mode in {"cpu", "cuda"}:

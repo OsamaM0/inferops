@@ -942,7 +942,7 @@
 
         if (!state.selectedConfig) {
           const domain = selectedDomain();
-          if (domain && domain.config_names && domain.config_names.pipeline) await loadConfig("pipelines", domain.config_names.pipeline, { quiet: true });
+          if (domain && domain.config_entry) await loadConfig(domain.config_entry.section, domain.config_entry.name, { quiet: true });
           else if (state.configsIndex.files.length) await loadConfig(state.configsIndex.files[0].section, state.configsIndex.files[0].name, {quiet:true});
         }
         return true;
@@ -1752,8 +1752,8 @@
         renderDomainSummary();
         renderAlertsAndEvents();
         const domain = selectedDomain();
-        if (domain && domain.config_names && domain.config_names.pipeline) {
-          await loadConfig("pipelines", domain.config_names.pipeline, { quiet: true });
+        if (domain && domain.config_entry) {
+          await loadConfig(domain.config_entry.section, domain.config_entry.name, { quiet: true });
         }
       });
 

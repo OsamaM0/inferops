@@ -12,7 +12,7 @@ from inferops.adapters.outbound.inference.triton_repository import prepare_repos
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", default="projects/driver_behaviour/model_repository")
+    parser.add_argument("--source", default="models/model_repository")
     parser.add_argument("--output", default=".run/triton/models")
     parser.add_argument("--max-batch-size", type=int, default=4)
     parser.add_argument("--queue-delay-us", type=int, default=2000)

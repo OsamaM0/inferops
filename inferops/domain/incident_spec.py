@@ -13,8 +13,13 @@ class SeverityLevel(BaseModel):
     notify_channels: list[str] = Field(default_factory=list)
 
 
+def _default_levels() -> list[SeverityLevel]:
+    return [SeverityLevel(name="low", rank=1, color="#9cf"), SeverityLevel(name="medium", rank=2, color="#fc6"),
+            SeverityLevel(name="high", rank=3, color="#f63"), SeverityLevel(name="critical", rank=4, color="#f00")]
+
+
 class SeverityMapSpec(BaseModel):
-    levels: list[SeverityLevel]
+    levels: list[SeverityLevel] = Field(default_factory=_default_levels)
     mapping: dict[str, str] = Field(default_factory=dict)   # type -> level name
     default: str = "low"
 
@@ -40,12 +45,15 @@ class SinkSpec(BaseModel):
 
 class AlertSpec(BaseModel):
     name: str
-    severity: SeverityMapSpec
+    severity: SeverityMapSpec = Field(default_factory=SeverityMapSpec)
     dedupe: DedupeSpec = Field(default_factory=DedupeSpec)
     cooldown: CooldownSpec = Field(default_factory=CooldownSpec)
     sinks: list[SinkSpec] = Field(default_factory=list)
     persistence_enabled: bool = True
     event_types: list[str] | None = None
+    # Only events with a severity (from their fusion rule or severity.mapping)
+    # become incidents, so new rules need no separate alert registration.
+    rated_only: bool = False
 
 
 class AlertCandidate(BaseModel):

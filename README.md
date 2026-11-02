@@ -102,7 +102,7 @@ docker compose run --rm --no-deps prepare inferops project prepare --force
 docker compose up -d --build --force-recreate api               # Triton modes: recreate "triton api"
 ```
 
-Named volumes keep databases, objects, broker state and caches across `docker compose down`. `down -v` deletes them. Project weights stay in `projects/<name>/model_repository/`. More: [startup troubleshooting](deploy/README.md#startup-troubleshooting).
+Named volumes keep databases, objects, broker state and caches across `docker compose down`. `down -v` deletes them. Model weights stay in `models/model_repository/`. More: [startup troubleshooting](deploy/README.md#startup-troubleshooting).
 
 </details>
 

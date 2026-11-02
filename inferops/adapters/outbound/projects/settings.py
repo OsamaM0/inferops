@@ -128,18 +128,26 @@ class ConfigStack:
 
     def spec_dir(self, section: str) -> Path:
         if self.domain_configs_dir is not None:
-            ports = self.domain_root / "models"
-            if section == "models" and ports.is_dir():
-                return ports
+            if section == "models":
+                from inferops.adapters.outbound.projects.central import models_dir
+                return models_dir(self.domain_root, self.configs_dir)
             # A project owns its entire surface. An absent section means empty,
-            # rather than inheriting another project's models or alert actions.
+            # rather than inheriting another project's alert actions.
             return self.domain_configs_dir / section
         return self.configs_dir / section
+
+    def composed(self) -> bool:
+        """The project generates its one pipeline from selected models and rules.yaml."""
+        from inferops.adapters.outbound.projects.composition import RULES_FILE
+        return self.domain_root is not None and (self.domain_root / RULES_FILE).is_file()
 
     def model_repository(self, default_repository: str | Path = "model_repository") -> Path:
         repository = Path(default_repository)
         if self.domain_root is not None and not repository.is_absolute():
-            return self.domain_root / repository
+            # Weights live beside the model definitions: the project's own or the shared library.
+            models = self.spec_dir("models").resolve()
+            owner = self.domain_root if models.is_relative_to(self.domain_root.resolve()) else models
+            return owner / repository
         return repository
 
     def tenant(self, tenant_id: str | None) -> dict[str, Any]:

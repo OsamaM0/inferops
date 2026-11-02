@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,21 @@ from inferops.domain.models import ModelSpec
 from inferops.ports.inference import InferenceBackend
 
 log = get_logger(__name__)
+
+# ONNX Runtime gives every thread that runs a CUDA session its own cuDNN/cuBLAS
+# handles and workspace (~25 MB per session per thread). asyncio.to_thread
+# spreads calls over up to 32 shared pool threads, which grew four small models
+# to ~7 GB of VRAM. GPU sessions therefore run on one small pool per device:
+# kernels serialize on the GPU anyway, and warm per-thread state is also faster.
+_GPU_EXECUTORS: dict[int, ThreadPoolExecutor] = {}
+
+
+def _gpu_executor(gpu_id: int) -> ThreadPoolExecutor:
+    executor = _GPU_EXECUTORS.get(gpu_id)
+    if executor is None:
+        workers = max(1, int(os.getenv("INFEROPS_ORT_GPU_THREADS", "1")))
+        executor = _GPU_EXECUTORS[gpu_id] = ThreadPoolExecutor(workers, thread_name_prefix=f"ort-gpu{gpu_id}")
+    return executor
 
 
 class OnnxRuntimeBackend(InferenceBackend):
@@ -103,7 +120,6 @@ class OnnxRuntimeBackend(InferenceBackend):
             # raised AttributeError on every load.)
             opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
             # Avoid oversubscribing laptop CPUs with ORT's default thread pool.
-            import os
             opts.intra_op_num_threads = (self.threads if self.threads is not None
                                         else int(os.getenv("INFEROPS_ORT_THREADS", "4")))
             return ort.InferenceSession(target, providers=provider_list, sess_options=opts)
@@ -182,7 +198,11 @@ class OnnxRuntimeBackend(InferenceBackend):
         first = next(iter(feeds.values()))
         INFER_BATCH.labels(model=self.spec.name).observe(first.shape[0] if first.ndim > 0 else 1)
         t0 = time.perf_counter()
-        outs = await asyncio.to_thread(self._sess.run, self._output_names, feeds)
+        if self.device == "gpu":
+            outs = await asyncio.get_running_loop().run_in_executor(
+                _gpu_executor(self.device_info.get("gpu_id", 0)), self._sess.run, self._output_names, feeds)
+        else:
+            outs = await asyncio.to_thread(self._sess.run, self._output_names, feeds)
         INFER_LATENCY.labels(model=self.spec.name).observe(time.perf_counter() - t0)
         return dict(zip(self._output_names, outs, strict=True))
 

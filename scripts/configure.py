@@ -78,7 +78,11 @@ def render(*, config_file=None, output=None, mode=None, port=None, profiles=None
         root = path.parent.parent / root
     values["INFEROPS_PROJECT_ROOT"] = str(root.resolve())
     values["INFEROPS_CONFIG_PROJECT"] = central.project_key(path, data, root.resolve()) or ""
-    values.setdefault("INFEROPS_TRITON_REPOSITORY", str(root.resolve() / "model_repository"))
+    # Models come from the project's own models/ folder or the shared library.
+    models = central.models_dir(root.resolve(), path.parent)
+    values["INFEROPS_MODELS_ROOT"] = str(models)
+    owner = root.resolve() if models.is_relative_to(root.resolve()) else models
+    values.setdefault("INFEROPS_TRITON_REPOSITORY", str(owner / "model_repository"))
     values["INFEROPS_CONFIG_DIRECTORY"] = str(path.parent)
     # Preserve host absolute video paths inside API and camera workers.
     media_root = Path(values.get("INFEROPS_MEDIA_ROOT", str(APP / "research"))).expanduser()
@@ -112,7 +116,7 @@ def render(*, config_file=None, output=None, mode=None, port=None, profiles=None
         container["INFEROPS_DATABASE_URL"] = values["INFEROPS_PG_URL"]
     container.update(INFEROPS_CONFIG_CONTEXT="docker", INFEROPS_CONFIG_FILE="/app/configs/inferops.yaml",
                      INFEROPS_CONFIGS_DIR="/app/configs", INFEROPS_DOMAIN_ROOT="/project",
-                     INFEROPS_PROJECT_ROOT="/project", INFEROPS_API_PORT="8080",
+                     INFEROPS_PROJECT_ROOT="/project", INFEROPS_API_PORT="8080", INFEROPS_MODELS_DIR="/app/models",
                      INFEROPS_DATA_PATH="/var/lib/inferops/data", INFEROPS_SOURCES_PATH="/var/lib/inferops/sources",
                      INFEROPS_SPOOL_PATH="/var/lib/inferops/spool", INFEROPS_CAPACITY_REPORTS="/var/lib/inferops/capacity")
     owned = central.environment(path, data, context="docker")

@@ -31,14 +31,30 @@ def adapter_root(name: str) -> Path:
     return root
 
 
-def create_project(name: str, destination: str | Path) -> Path:
-    """Copy an installed adapter to a writable workspace, without weights or tests."""
+def create_project(name: str, destination: str | Path, *, configs_dir: str | Path = "configs") -> Path:
+    """Copy an installed adapter to a writable workspace, without weights or tests.
+
+    Models the adapter selects from the shared library are copied into the new
+    project's own models/ folder, so the workspace is self-contained.
+    """
+    import yaml
+
+    from inferops.adapters.outbound.projects.central import models_dir
+
     root = adapter_root(name)
     destination = Path(destination).resolve()
     if not destination.name.isidentifier():
         raise ValueError("project directory name must be a Python identifier (use underscores, not hyphens)")
     if destination.exists():
         raise FileExistsError(f"destination already exists: {destination}")
-    shutil.copytree(root, destination, ignore=shutil.ignore_patterns(
-        "__pycache__", "*.pyc", "tests", "*.egg-info", "model_repository", "build", "dist"))
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "tests", "*.egg-info", "model_repository", "build", "dist")
+    shutil.copytree(root, destination, ignore=ignore)
+    library = models_dir(root, configs_dir)
+    if library.is_dir() and not library.is_relative_to(root):
+        selected = (yaml.safe_load((root / "project.yaml").read_text()) or {}).get("models")
+        for model in sorted(library.glob("*/model.yaml")):
+            if selected is None or (yaml.safe_load(model.read_text()) or {}).get("name") in selected:
+                shutil.copytree(model.parent, destination / "models" / model.parent.name, ignore=ignore)
+        if (library / "__init__.py").is_file() and (destination / "models").is_dir():
+            shutil.copy2(library / "__init__.py", destination / "models" / "__init__.py")
     return destination

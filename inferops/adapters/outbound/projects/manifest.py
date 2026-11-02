@@ -50,6 +50,28 @@ class DomainScenario(BaseModel):
     expect_alert: bool = False
 
 
+class ProjectSetting(BaseModel):
+    """A project tunable: packaged YAML refers to it as ``${settings.<name>}``."""
+
+    model_config = ConfigDict(extra="forbid")
+    default: Any
+    label: str | None = None
+    description: str = ""
+    minimum: float | None = None
+    maximum: float | None = None
+    choices: list[Any] | None = None
+
+    def check(self, name: str, value: Any) -> Any:
+        if type(value) is not type(self.default) and not (
+                isinstance(self.default, float) and isinstance(value, int) and not isinstance(value, bool)):
+            raise ValueError(f"setting {name!r} must be a {type(self.default).__name__}")
+        if (self.minimum is not None and value < self.minimum) or (self.maximum is not None and value > self.maximum):
+            raise ValueError(f"setting {name!r} must be between {self.minimum} and {self.maximum}")
+        if self.choices is not None and value not in self.choices:
+            raise ValueError(f"setting {name!r} must be one of {self.choices}")
+        return value
+
+
 class DomainManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str
@@ -66,6 +88,21 @@ class DomainManifest(BaseModel):
     assets: list[DomainAsset] = Field(default_factory=list)
     scenario: DomainScenario = Field(default_factory=DomainScenario)
     tags: dict[str, str] = Field(default_factory=dict)
+    settings: dict[str, ProjectSetting] = Field(default_factory=dict)
+    # Composed projects (with rules.yaml): models to run from the library (None:
+    # all), plus the generated pipeline's tracking and sinks.
+    models: list[str] | None = None
+    tracking: dict[str, Any] | None = None
+    sinks: list[dict[str, Any]] = Field(default_factory=list)
+
+    def setting_values(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Declared defaults with validated workspace values; unknown names are errors."""
+        overrides = overrides or {}
+        unknown = set(overrides) - set(self.settings)
+        if unknown:
+            raise ValueError(f"unknown project settings: {sorted(unknown)}")
+        return {name: setting.check(name, overrides.get(name, setting.default))
+                for name, setting in self.settings.items()}
 
     @field_validator("name")
     @classmethod

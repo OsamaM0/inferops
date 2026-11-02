@@ -56,11 +56,12 @@ def test_logical_models_and_tracking_share_selection(mode, expected):
     stack = ConfigStack(PROJECT_ROOT / "configs", active_domain="driver_behaviour")
     pipelines, models = selected_surface(stack, mode)
     primary = next(item for item in pipelines if item.name == "driver_behaviour")
-    assert primary.stages[1].params["model"] == f"rfdetr_driver_{expected}"
-    assert primary.stages[2].params["model"] == f"face_mesh_{expected}"
+    stages = {stage.name: stage for stage in primary.stages}
+    assert stages["rfdetr_driver"].params["model"] == f"rfdetr_driver_{expected}"
+    assert stages["face_mesh"].params["model"] == f"face_mesh_{expected}"
     assert primary.tracking.model_filter == [f"rfdetr_driver_{expected}"]
     # The face stage's detector_model / blendshape_model are prepared like its model.
-    assert primary.stages[2].params["detector_model"] == f"face_detector_{expected}"
+    assert stages["face_mesh"].params["detector_model"] == f"face_detector_{expected}"
     assert {model.name for _, model in models} == {f"rfdetr_driver_{expected}", f"face_mesh_{expected}",
                                                    f"face_detector_{expected}", f"face_blendshapes_{expected}"}
     resolver = ModelResolver(stack.spec_dir("models"))

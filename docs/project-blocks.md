@@ -7,38 +7,60 @@ Shipped projects live in `projects/`. The Python engine source lives in
 live in `deploy/`. There are no shipped `domains/` or `examples/` folders.
 
 ```text
-project/
-  project.yaml                   Identity, enabled pipelines, prewarm, platform overrides
-  models/<name>/
-    model.yaml                   Shared contract, artifacts, sources, runtime variants
+models/                          Shared model library, usable by any project
+  <name>/
+    model.yaml                   Contract, artifacts, variants; its stage, signals and settings
     adapter.py                   Model-specific preprocessing/postprocessing or stage
-  configs/pipelines/*.yaml       Stage composition, tracking and evidence
-  configs/fusion/*.yaml          Temporal signals and rules
-  configs/alerts/*.yaml          Severity, cooldown, dedupe and actions
-  plugins/                      Project-specific stages, actions and evidence overlays
-  model_repository/             Persistent weights and optional Triton configuration
-  tests/                        Project tests
+  model_repository/              Persistent weights and optional Triton configuration
+projects/<project>/
+  project.yaml                   Identity, selected models, tracking, sinks, settings
+  rules.yaml                     Signals, rules, states and alert actions
+  plugins/                       Project-specific stages, actions and evidence overlays
+  tests/                         Project tests
 ```
 
-## Project entry point
+## One pipeline from any model combination
+
+A project selects models from the library; InferOps generates its one pipeline:
+decode → each model's stage → fuse → alert → sinks. Change `models` to run any
+combination, for example only the detector:
 
 ```yaml
 name: driver_behaviour
 label: Driver Behaviour
-pipelines: [driver_behaviour, driver_video]
+models: [rfdetr_driver, face_detector, face_mesh, face_blendshapes]
+tracking: {enabled: true}
+sinks:
+  - {name: evidence, stage: evidence, params: {annotator: .plugins.frame_annotator:DriverAnnotator}}
 prewarm_pipelines: [driver_behaviour]
-# Optional: explicit additional models to prepare/prewarm.
-prewarm_models: []
-# Optional overrides merged over engine and project configs/platform.yaml.
-platform:
-  obs: {log_level: INFO}
 ```
 
-`pipelines: []` explicitly enables no inference pipelines and opens an empty
-dashboard. Omitting `pipelines` discovers all pipeline files; this is the default
-for new projects, so adding a pipeline does not require a second manifest edit.
-Enabled pipelines determine which models must be prepared; unused model files
-need no downloads. Explicit prewarm models are also prepared.
+A model's `model.yaml` says how it takes part:
+
+```yaml
+signals:                        # fusion signals it produces (a list reads payload keys)
+  phone_score: "detected('phone')"
+stage:                          # optional; without it the model runs as a plain `infer` stage
+  plugin: .models.face_mesh.adapter:FaceMeshStage
+  uses: {detector_model: face_detector}   # passed only when also selected
+  after: [rfdetr_driver]                  # runs after these, when selected
+  params: {face_confidence_threshold: "${settings.face_confidence}"}
+settings:                       # tunables it adds to the project's Project settings
+  face_confidence: {default: 0.8, minimum: 0, maximum: 1}
+```
+
+A model listed in another selected model's `uses` runs inside that stage, not on
+its own. In `rules.yaml`, a rule that needs a signal from an unselected model is
+switched off and listed under **Project settings → Models**; states see that
+signal as absent. `rules.yaml` holds fusion fields, extra `signals` no model
+produces, and an `alerts:` section. The workspace can override the choice with
+`projects.<key>.models` in `configs/inferops.yaml`.
+
+The library is `models/` beside `configs/` (Docker mounts it at `/app/models`),
+or `INFEROPS_MODELS_DIR`. A project's own `models/` folder takes precedence, and
+`inferops adapters init` copies the selected models into it. Projects without
+`rules.yaml` keep explicit `configs/pipelines`, `configs/fusion` and
+`configs/alerts` files.
 
 ## One configuration workspace
 
@@ -72,8 +94,8 @@ Form saves normalize YAML formatting and remove comments; use Advanced YAML to
 retain comments and formatting. The UI does not create a separate settings database.
 
 Workspace configuration is centralized in [`configs/inferops.yaml`](../configs/inferops.yaml).
-Packaged project YAMLs provide baseline contracts; `projects.<key>.parameters`
-and `projects.<key>.configuration` customize them. Dashboard edits write only
+Packaged project YAMLs provide baseline contracts; `projects.<key>.settings`
+and `projects.<key>.overrides` customize them. Dashboard edits write only
 to the central file. `.env` holds secrets and essential host overrides. See
 [central configuration](configuration.md) for precedence, examples and migration.
 Standalone adapters without a central workspace keep legacy platform/project
@@ -84,31 +106,81 @@ the UI. A pipeline refers to logical model names such as `detector`; a model's
 runtime variants are implementations of that model, not separate workflows.
 New projects and custom plugins use this same editor without changes to InferOps.
 
+## Project settings
+
+Declare the values operators should tune in `project.yaml`, then refer to them
+from any packaged YAML as `${settings.<name>}`. A value that is only a reference
+keeps the setting's type.
+
+```yaml
+settings:
+  confidence:
+    default: 0.5
+    label: Detection confidence
+    description: Minimum detector score.
+    minimum: 0.0
+    maximum: 1.0           # also: choices: [a, b]
+```
+
+## Signals, rules and alerts
+
+Fusion `defaults` remove repetition: `rule` and `transition` values apply to every
+rule/transition, `window` gives every signal a window, and `extract` is the
+expression for signals without one (`{name}` is the signal name). `signals` may
+be omitted when `extract` lists them all. A transition's `from_state` may be a
+list. `derived` expressions run in order, so later ones can reuse named
+conditions. Extract expressions can call `detected('<label>', default=0.0)`, the
+best detector score for a class, and `signal('<payload key>', default=0.0)`.
+
+```yaml
+defaults:
+  window: {kind: rolling_time, duration_ms: 5000}
+  rule: {confirm_ms: "${settings.confirm_ms}", min_samples: 3, cooldown_ms: 30000}
+extract:
+  phone_score: "detected('phone')"
+derived:
+  phone: "phone_score.latest() or 0.0"
+  unsafe: "phone >= 0.4"
+rules:
+  - {name: phone_use, when: "phone >= 0.5", severity: medium}
+state_machine:
+  initial: NORMAL
+  states: [NORMAL, UNSAFE]
+  transitions:
+    - {from_state: [NORMAL], to_state: UNSAFE, when: unsafe}
+```
+
+A rule emits an event typed by its name. In alerts, severity levels default to
+low/medium/high/critical, a rule's severity is used directly, and
+`rated_only: true` makes only events with a severity (from the rule or
+`severity.mapping`) become incidents, so new rules need no alert edits.
+
 ## Model configuration and sources
 
-Keep one model.yaml beside each model's adapter. Its `defaults` contain the
-shared tensor, label and decoder contract; named `variants` override it.
-Dictionaries merge recursively and lists replace whole lists.
+Keep one model.yaml beside each model's adapter. Top-level fields are the shared
+tensor, label and decoder contract. `variants` lists the runtimes the model
+supports: `onnx`, `tensorrt` and `triton` get their backend automatically, and
+Triton's model name comes from `model_repository/<name>/...` in the artifact
+path. Use a mapping instead of a list to override fields for one variant;
+dictionaries merge recursively and lists replace whole lists. Outputs default
+to plain tensors (`layout: ND`, `color: NONE`).
 
 ```yaml
 name: detector
-defaults:
-  task: detection
-  inputs: [{name: images, shape: [1, 3, 640, 640], dtype: float32}]
-  outputs: [{name: output0, shape: [1, 6, 8400], layout: ND, color: NONE}]
-  labels: [person, helmet]
-  artifact:
-    path: model_repository/detector/1/model.onnx
-    source:
-      kind: huggingface
-      repo_id: owner/model
-      filename: onnx/model.onnx
-      revision: main             # A commit hash can pin an exact revision.
-  preprocess: {plugin: .models.detector.adapter:Preprocess}
-  postprocess: {plugin: .models.detector.adapter:Postprocess, params: {conf_threshold: 0.25}}
-variants:
-  onnx: {backend: onnxruntime}
-  triton: {backend: triton, artifact: {triton_model_name: detector}}
+task: detection
+inputs: [{name: images, shape: [1, 3, 640, 640]}]
+outputs: [{name: output0, shape: [1, 6, 8400]}]
+labels: [person, helmet]
+artifact:
+  path: model_repository/detector/1/model.onnx
+  source:
+    kind: huggingface
+    repo_id: owner/model
+    filename: onnx/model.onnx
+    revision: main             # A commit hash can pin an exact revision.
+preprocess: {plugin: .models.detector.adapter:Preprocess}
+postprocess: {plugin: .models.detector.adapter:Postprocess, params: {conf_threshold: "${settings.confidence}"}}
+variants: [onnx, triton]       # or {onnx: null, triton: {batching: {enabled: true}}}
 ```
 
 The example source is a placeholder: choose an exported ONNX file and adjust

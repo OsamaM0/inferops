@@ -56,7 +56,7 @@ async def test_project_model_selection_and_plugin_scope(tmp_path):
     (root / "project.yaml").write_text("name: sample_adapter\n")
     spec = model_spec().model_dump(mode="json")
     spec.pop("name")
-    (folder / "model.yaml").write_text(yaml.safe_dump({"name": "detector", "defaults": spec,
+    (folder / "model.yaml").write_text(yaml.safe_dump({"name": "detector", **spec,
                                                          "variants": {"local": {}}}))
     async with InferenceSession.from_project(root, models=["detector_local"]) as session:
         result = await session.predict(np.zeros((4, 4, 3), dtype=np.uint8))
@@ -162,7 +162,7 @@ async def test_project_handles_share_one_backend_for_logical_and_variant_names(t
     defaults = model_spec().model_dump(mode="json")
     defaults.pop("name")
     (root / "models/identity.yaml").write_text(yaml.safe_dump({
-        "name": "identity", "defaults": defaults, "variants": {"onnx": {}}}))
+        "name": "identity", **defaults, "variants": ["onnx"]}))
     IdentityBackend.loads = IdentityBackend.closes = 0
     async with InferenceSession.from_project(root, models=["identity", "identity_onnx"]) as session:
         results = await session.predict(np.ones((4, 4, 3), dtype=np.uint8), parallel=True)

@@ -178,6 +178,13 @@ services:
       target: /project
       bind:
         create_host_path: false
+    # Shared model library (definitions, adapters and weights) beside /app/configs.
+    - &models
+      type: bind
+      source: ${INFEROPS_MODELS_ROOT}
+      target: /app/models
+      bind:
+        create_host_path: false
     - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs
     - evidence-spool:/var/lib/inferops/spool
     - type: bind
@@ -237,6 +244,7 @@ services:
       INFEROPS_PREWARM_PIPELINES: null
     volumes:
     - *id001
+    - *models
     - ${INFEROPS_CONFIG_DIRECTORY}:/app/configs:ro
     - hf-cache:/cache/huggingface
     restart: 'no'

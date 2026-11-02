@@ -28,9 +28,9 @@ evidence by default.
 
 ## 1. Install, select and prepare a project
 
-A project pack contains `project.yaml`, model definitions, project plugins,
-pipelines, fusion rules and incident policies. Weights live separately under
-that project's `model_repository/`; they are not embedded in the engine wheel.
+A project pack contains `project.yaml`, `rules.yaml` and project plugins, and
+selects models from the shared `models/` library. Weights live under
+`models/model_repository/`; they are not embedded in the engine wheel.
 See [project configuration](project-blocks.md).
 
 For local CPU execution from this repository:
@@ -190,9 +190,8 @@ policy and project-stage state belongs to this session. A bounded recent reply
 cache supports repeated frame sequences within that live session. This is not a
 persistent HTTP idempotency key for arbitrary uploads or new sessions.
 
-Source: [driver pipeline](../projects/driver_behaviour/configs/pipelines/driver_behaviour.yaml),
-[driver fusion](../projects/driver_behaviour/configs/fusion/driver.yaml)
-and [incident policy](../projects/driver_behaviour/configs/alerts/driver.yaml).
+Source: [driver project](../projects/driver_behaviour/project.yaml) (generated pipeline)
+and [rules and incident policy](../projects/driver_behaviour/rules.yaml).
 
 ## 8. Commit accepted decisions
 

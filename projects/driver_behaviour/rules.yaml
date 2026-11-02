@@ -1,0 +1,74 @@
+# Signals come from the selected models (see models/*/model.yaml). A rule that
+# needs a signal of an unselected model is inactive; states treat it as absent.
+defaults:
+  window: {kind: rolling_time, duration_ms: 5000}
+  rule: {confirm_ms: "${settings.confirm_ms}", min_samples: "${settings.min_samples}",
+         max_gap_ms: "${settings.max_gap_ms}", cooldown_ms: 30000}
+  transition: {confirm_ms: "${settings.confirm_ms}", min_samples: "${settings.min_samples}",
+               max_gap_ms: "${settings.max_gap_ms}"}
+# Project inputs no model produces. hand_on_wheel needs an external producer.
+signals:
+  hand_on_wheel: "payload.get('hand_on_wheel', 1.0)"
+derived:
+  phone: "phone_score.latest() or 0.0"
+  seatbelt: "seatbelt_score.latest()"
+  smoking: "smoking_score.latest() or 0.0"
+  eating: "eating_score.latest() or 0.0"
+  drowsy_score: "max(drowsy_ear.latest() or 0.0, drowsy_eye.latest() or 0.0)"
+  # 1.0 for any non-front head direction, including "away" (face out of view).
+  distracted: "distracted_score.latest() or 0.0"
+  # Head direction now (1.0) or, for repeated short glances (phone use: ~1.5 s
+  # down, 0.2 s road glance, repeat), the share of the last 5 s spent there.
+  looking_left: "max(look_left_score.latest() or 0.0, (look_left_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_right: "max(look_right_score.latest() or 0.0, (look_right_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_up: "max(look_up_score.latest() or 0.0, (look_up_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_down: "max(look_down_score.latest() or 0.0, (look_down_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_any: "max(look_left_score.latest() or 0.0, look_right_score.latest() or 0.0, look_up_score.latest() or 0.0, look_down_score.latest() or 0.0)"
+  # Both eyes closed (blendshape + calibrated EAR; lowered gaze is excluded).
+  eyes_closed: "eyes_closed_score.latest() or 0.0"
+  hand_off_wheel: "1.0 - hand_on_wheel.latest()"
+  # Conditions shared by the state machine below.
+  unsafe: "phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6"
+  drowsy: "drowsy_score >= 0.5 or eyes_closed >= 0.5"
+  recovered: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and eyes_closed < 0.5 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4"
+rules:
+  - {name: phone_use, when: "phone >= 0.5", severity: medium}
+  - {name: no_seatbelt, when: "seatbelt < 0.4", severity: medium, cooldown_ms: 60000}
+  - {name: smoking, when: "smoking >= 0.2", severity: medium, cooldown_ms: 60000}
+  - {name: eating, when: "eating >= 0.5", severity: low}
+  # Generic distraction: head turned out of view ("away"). Directions have their own rules.
+  - {name: distraction, when: "distracted >= 0.5 and looking_any < 0.5", severity: low}
+  - {name: looking_left, when: "looking_left >= 0.5", severity: low}
+  - {name: looking_right, when: "looking_right >= 0.5", severity: low}
+  - {name: looking_up, when: "looking_up >= 0.5", severity: low}
+  # Down is the phone-in-lap / dashboard case, hence a higher severity.
+  - {name: looking_down, when: "looking_down >= 0.5", severity: medium}
+  # Eyes shut (microsleep). Drowsiness adds PERCLOS / very long closures.
+  - {name: eyes_closed, when: "eyes_closed >= 0.5", severity: high}
+  - {name: drowsiness, when: "drowsy_score >= 0.5", severity: high}
+  - {name: hands_off_wheel, when: "hand_off_wheel >= 0.6", severity: medium}
+state_machine:
+  initial: NORMAL
+  states: [NORMAL, DISTRACTED, DROWSY, UNSAFE, CRITICAL, RECOVERED]
+  transitions:
+    - {from_state: UNSAFE, to_state: CRITICAL, when: unsafe, min_dwell_ms: 8000}
+    - {from_state: [NORMAL, DISTRACTED], to_state: DROWSY, when: drowsy}
+    - {from_state: NORMAL, to_state: UNSAFE, when: unsafe}
+    - {from_state: NORMAL, to_state: DISTRACTED, when: "distracted >= 0.5 or eating >= 0.5"}
+    - {from_state: DISTRACTED, to_state: UNSAFE, when: unsafe}
+    - {from_state: DROWSY, to_state: UNSAFE, when: "drowsy_score < 0.25 and (unsafe)"}
+    - {from_state: UNSAFE, to_state: DROWSY, when: "drowsy_score >= 0.5 and phone < 0.2 and smoking < 0.2 and seatbelt >= 0.4 and hand_off_wheel < 0.3", min_dwell_ms: 1500}
+    # Recovery needs a calm dwell time, not frame confirmation.
+    - {from_state: [DISTRACTED, DROWSY, UNSAFE, CRITICAL], to_state: RECOVERED, when: recovered, min_dwell_ms: 1500, confirm_ms: 0, min_samples: 1}
+    - {from_state: RECOVERED, to_state: NORMAL, when: recovered, min_dwell_ms: 4000, confirm_ms: 0, min_samples: 1}
+outputs:
+  events_topic: inferops.events.driver
+# Rule events carry their own severity. State changes have none, so only
+# STATE_CRITICAL becomes an incident; recovery/normal states stay events.
+alerts:
+  rated_only: true
+  severity:
+    mapping: {STATE_CRITICAL: critical}
+  sinks:
+    - {name: ws, kind: ws, params: {channel: "alerts.{entity_id}"}}
+    - {name: stdout, kind: stdout}

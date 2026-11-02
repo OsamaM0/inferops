@@ -181,7 +181,7 @@ from inferops.bootstrap import build_server_engine
 async def durable_run():
     engine, _notifications = build_server_engine()
     async with engine:
-        return await engine.run('driver_video', 'clip.mp4')
+        return await engine.run('driver_behaviour', 'clip.mp4')
 ```
 
 This requires the `server` extra, PostgreSQL, persistent disk and the configured delivery

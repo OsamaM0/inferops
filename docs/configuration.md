@@ -13,7 +13,7 @@ external database URL or a project directory outside the checkout.
 | `media` | Routing, recording, retention and public player URLs |
 | `storage` | Filesystem or S3 evidence storage |
 | `docker` | Engine image, Triton image, published ports and media bind/advertised host |
-| `projects` | Optional plugin roots, common parameters and model/pipeline/rule/alert documents |
+| `projects` | Project roots, the `models` each runs, their declared `settings`, and dashboard `overrides` |
 | `workers` | Optional static worker manifest, in the same YAML file |
 
 For example, select accelerated inference and monitoring with:
@@ -52,25 +52,36 @@ needed. Project directories and weights remain separately mounted at `/project`.
 Relative project roots resolve from the workspace, containing `configs/`.
 
 Project packages provide model/tensor contracts, stage implementations and
-baseline definitions. Treat their YAML files as packaged defaults. Configure the
-workspace through the central file; the dashboard stores edits under
-`projects.<key>.configuration`, including newly created documents. Packaged files
-remain unchanged. Existing standalone projects without central configuration
-retain their legacy loading and editing behavior.
+baseline definitions. Treat their YAML files as packaged defaults; the workspace
+customizes them in two ways:
 
-`parameters` replaces matching parameter keys throughout a project's packaged
-definitions. This avoids repeating shared thresholds across model variants and
-pipelines. For the bundled driver plugin, confidence is `0.80` and unsafe
-behavior confirmation is `3000` milliseconds. A document saved under
-`configuration.models`, `configuration.pipelines`, `configuration.fusion` or
-`configuration.alerts` is a complete override and takes precedence over those
-common parameters. Each mapping key is the editor/document ID, not a runtime
-variant name. `configuration.project` overrides the project manifest.
+```yaml
+projects:
+  driver_behaviour:
+    root: projects/driver_behaviour
+    settings: {detection_confidence: 0.85, confirm_ms: 4000}
+    overrides:
+      fusion:
+        driver:            # document ID: the file name or model folder
+          rules:
+            - {name: phone_use, when: "phone >= 0.6"}
+```
+
+- `models` replaces the project's model selection ([details](project-blocks.md#one-pipeline-from-any-model-combination)).
+- `settings` sets tunables the project and its selected models declare. Unknown
+  names, wrong types and out-of-range values are rejected. The dashboard shows
+  them under **Project settings**.
+- `overrides` holds only what an editor changed, never a copy of the whole
+  document. Mappings merge, `null` deletes a key, and rules/stages/sinks merge by
+  `name` (`{name: x, $remove: true}` drops one). A list that names every item
+  also sets their order. Other lists replace. Packaged files stay unchanged, and
+  later package updates still apply to everything you did not change.
 
 ## Saving and applying
 
 The dashboard's **Workspace settings** entry edits the whole central file.
-Model, pipeline, rule, alert and platform editors write to the same file.
+Project settings, model, pipeline, rule, alert and platform editors write to the
+same file. Saving a document unchanged removes its override.
 Validation happens before an atomic save; stale edits return a conflict. Form
 saves normalize formatting. Use the whole-file Advanced YAML editor when you
 want to preserve your comments and formatting.
@@ -85,14 +96,21 @@ registrations, histories and model weights are application data, rather than
 another global settings store.
 
 A target FPS limits sampling. Actual analysis FPS depends on decoding, inference
-latency and contention; free VRAM does not establish throughput. Change local
-admission under `platform.runtime.admission.local_device_capacity` after measuring
+latency and contention, and never exceeds the source frame rate: a 12.5 FPS file
+yields at most 12.5 analysed frames per second. Free VRAM does not establish
+throughput. Change local admission under
+`platform.runtime.admission.local_device_capacity` after measuring
 representative streams. With `auto_scale: true`, GPU admission allows one concurrent
 call per open processing session, capped by `local_device_capacity`. This workspace
 uses a cap of 8. Slots are shared fairly across models on each GPU, and shrink safely
 as sessions close. With `auto_scale: false` (the engine default), capacity is fixed.
 Remote RPC admission has its own limit. Concurrency increases GPU work overlap;
 it does not guarantee 100% utilization or sufficient VRAM for every workload.
+
+In `cuda` and `tensorrt` modes, admitted GPU calls run on `runtime.ort_gpu_threads`
+dedicated threads per GPU (default 1). Every such thread holds its own cuDNN/cuBLAS
+state for each loaded model (~100 MB for driver behaviour), so raise it only when
+a measured multi-stream run gets faster; one thread already keeps one GPU busy.
 
 For server-local video, use **Sources → Add a source → Video file**, enter the
 absolute path (spaces are supported), and enable **Loop** for continuous replay.

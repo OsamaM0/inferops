@@ -106,6 +106,15 @@ class ModelSpec(BaseModel):
     warmup: WarmupSpec = Field(default_factory=WarmupSpec)
     tags: dict[str, str] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _tensor_outputs(cls, data: Any) -> Any:
+        # Outputs are almost always plain tensors, not images.
+        if isinstance(data, dict) and isinstance(data.get("outputs"), list):
+            data = {**data, "outputs": [{"layout": "ND", "color": "NONE", **item} if isinstance(item, dict) else item
+                                        for item in data["outputs"]]}
+        return data
+
     @model_validator(mode="after")
     def _coerce_labels(self) -> ModelSpec:
         if isinstance(self.labels, list):

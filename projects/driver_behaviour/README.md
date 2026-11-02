@@ -1,7 +1,8 @@
 # Driver Behaviour project
 
-This block adds driver monitoring to InferOps. Its adapters, model variants,
-pipelines, rules, alerts and evidence annotation travel together.
+This block adds driver monitoring to InferOps. It selects models from the shared
+[model library](../../models/) and generates one `driver_behaviour` pipeline from
+them; its rules, alerts and evidence annotation live here.
 
 From the repository root:
 
@@ -16,53 +17,43 @@ configured models before inference starts.
 
 | Folder/file | Edit here to change |
 | --- | --- |
-| [models/rfdetr_driver/model.yaml](models/rfdetr_driver/model.yaml) | RF-DETR tensors, labels, thresholds and artifact source and ONNX/Triton variants |
-| [models/rfdetr_driver/adapter.py](models/rfdetr_driver/adapter.py) | RF-DETR output decoding |
-| [models/face_detector/](models/face_detector/) | YuNet face detector tensors, variants and decoding |
-| [models/face_mesh/model.yaml](models/face_mesh/model.yaml) | FaceMesh tensors and runtime variants |
-| [models/face_mesh/adapter.py](models/face_mesh/adapter.py) | Face tracking, crops, landmark decoding and published signals |
-| [models/face_mesh/pose.py](models/face_mesh/pose.py) | Head pose, neutral-pose calibration, direction classification |
-| [models/face_mesh/eyes.py](models/face_mesh/eyes.py) | Eye open/closed, gaze-down, PERCLOS |
-| [models/face_blendshapes/](models/face_blendshapes/) | MediaPipe blendshapes tensors, variants and artifact installer |
-| configs/pipelines | Stage order, mode choices, tracking and evidence triggers |
-| configs/fusion/driver.yaml | Temporal signals and driver safety rules |
-| configs/alerts/driver.yaml | Severity, dedupe, cooldown and actions |
-| plugins/frame_annotator.py | Project-specific evidence overlay |
-| project.yaml | Enabled pipelines, prewarm settings and platform overrides |
-| model_repository | Exported weights and Triton tensor configurations |
+| [project.yaml](project.yaml) | Selected models, tracking, evidence sink and confirmation settings |
+| [rules.yaml](rules.yaml) | Derived values, safety rules, driver states and alert actions |
+| [plugins/frame_annotator.py](plugins/frame_annotator.py) | Project-specific evidence overlay |
+| [../../models/rfdetr_driver/](../../models/rfdetr_driver/) | RF-DETR tensors, labels, decoding and its phone/seatbelt/smoking/eating signals |
+| [../../models/face_detector/](../../models/face_detector/) | YuNet face detector, used by face_mesh to find the face |
+| [../../models/face_mesh/](../../models/face_mesh/) | Face stage: tracking, head pose, eyes, mouth activity and its signals |
+| [../../models/face_blendshapes/](../../models/face_blendshapes/) | MediaPipe blendshapes, used by face_mesh for eye state |
+| [../../models/model_repository/](../../models/model_repository/) | Exported weights and Triton tensor configurations |
 
-Use project-relative references such as
-`.models.rfdetr_driver.adapter:RFDetrPostprocess` and
-`.models.face_mesh.adapter:FaceMeshStage`. They keep working when the folder is
-renamed or mounted at /project. Project-level extensions use `.plugins`.
+References such as `.models.face_mesh.adapter:FaceMeshStage` resolve into the
+library, mounted as the project's `models` package; project extensions use
+`.plugins`. Both keep working when the folder is renamed or mounted at /project.
 
 Sample videos and training are kept in
 [research/driver_training](../../research/driver_training/).
 See the [extension guide](../../docs/project-blocks.md) for adding models and
 actions, and the [dashboard guide](../../docs/interfaces.md) for video use.
 
-In **Configuration**, edit settings through forms and follow a pipeline's links
-to its models, rules and alert policy. The models are `rfdetr_driver`,
-`face_detector`, `face_mesh` and `face_blendshapes`; ONNX, TensorRT and Triton
-are runtime variants of those models.
+Pick the models under **Configuration → Project settings → Models**, or set
+`projects.driver_behaviour.models` in `configs/inferops.yaml`. ONNX, TensorRT
+and Triton are runtime variants of each model.
 
-| UI name | Stable pipeline ID | Purpose |
-| --- | --- | --- |
-| Full driver monitoring | `driver_behaviour` | Detection, face landmarks, temporal eye/head features, tracking, alerts and evidence |
-| Detector-only monitoring | `driver_video` | Detection and phone, seatbelt, smoking and eating rules, alerts and WebSocket output; no FaceMesh, tracking or evidence sink |
+| Models | Rules that run |
+| --- | --- |
+| all four (default) | everything: objects, head direction, eyes, drowsiness, distraction |
+| `[rfdetr_driver]` | phone, seatbelt, smoking, eating; states and evidence still apply |
+| `[face_detector, face_mesh, face_blendshapes]` | head direction, eyes closed, drowsiness, distraction |
 
-Both pipelines accept images, videos and live frames. The older `driver_video`
-name describes a reduced workflow, not a restriction to video inputs. IDs stay
-unchanged so existing sources and clients keep working.
-
-Hands-off-wheel requires an external `hand_on_wheel` signal producer and is not
-a verified detector-only feature. See [pipeline declarations](configs/pipelines/).
+With both RF-DETR and FaceMesh, smoking and eating are confirmed by overlap with
+the mouth. Hands-off-wheel requires an external `hand_on_wheel` signal producer.
 
 ## Confirming behavior before alerts and evidence
 
 Both driver profiles require **3 seconds** of continuing positive observations
-before a behavior becomes an incident. Each rule exposes `confirm_ms: 3000`,
-`min_samples: 3` and `max_gap_ms: 1500` in Configuration. A negative observation,
+before a behavior becomes an incident. The `confirm_ms` (3000), `min_samples` (3)
+and `max_gap_ms` (1500) project settings apply to every rule and unsafe state
+transition; change them under **Project settings**. A negative observation,
 a missing-observation gap longer than 1.5 seconds, or a media-clock rewind resets
 confirmation. Repeated timestamps do not count as additional observations.
 Camera sessions have independent confirmation/tracking state. Unsafe state
@@ -70,9 +61,9 @@ transitions also require confirmation, so a transient state change cannot bypass
 the behavior gate and create evidence. A single still image cannot establish a
 three-second behavior. Cooldown/deduplication apply after confirmation.
 Incident payloads record the required and observed duration and sample count.
-The alert policy's `event_types` list selects behavior incidents and confirmed
-critical escalation; normal, recovered and intermediate state notifications
-remain events and do not create duplicate evidence clips.
+The alert policy (`rated_only`) turns rule events and the confirmed critical
+escalation into incidents; normal, recovered and intermediate state
+notifications remain events and do not create duplicate evidence clips.
 
 ## Face direction and eye state
 

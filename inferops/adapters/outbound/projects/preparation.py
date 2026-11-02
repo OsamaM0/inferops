@@ -33,11 +33,18 @@ from inferops.domain.models import ArtifactSource, ModelSpec
 
 def selected_surface(stack: ConfigStack, mode: str):
     """Return resolved enabled pipelines and selected model specs with owners."""
-    surface = validate_config_stack(stack)
     overrides = stack.configuration_overrides()
-    resolver = ModelResolver(stack.spec_dir("models").resolve(), overrides=overrides)
-    pipelines = [spec.for_mode(mode, resolver) for spec in surface["pipelines"].values()
-                 if stack.enabled_pipeline(spec.name)]
+    if stack.composed():
+        from inferops.adapters.outbound.projects.loader import ProjectLoader
+        definition = ProjectLoader(stack.domain_root, configs_dir=stack.configs_dir, mode=mode).load()
+        surface = {"models": dict(definition.models)}
+        resolver = definition.resolver
+        pipelines = list(definition.pipelines.values())
+    else:
+        surface = validate_config_stack(stack)
+        resolver = ModelResolver(stack.spec_dir("models").resolve(), overrides=overrides)
+        pipelines = [spec.for_mode(mode, resolver) for spec in surface["pipelines"].values()
+                     if stack.enabled_pipeline(spec.name)]
     enabled = {pipeline.name for pipeline in pipelines}
     for name in os.environ.get("INFEROPS_PREWARM_PIPELINES", "").split(","):
         if name.strip() and name.strip() not in enabled:
@@ -53,7 +60,8 @@ def selected_surface(stack: ConfigStack, mode: str):
     paths = set(model_config_files(directory)) | {path for path in overrides if path.parent == directory
             or (path.name == "model.yaml" and path.parent.parent == directory)}
     sources = {spec.name: (path, surface["models"][spec.name]) for path in paths
-               for spec in expand_model_config(overrides[path] if path in overrides else load_yaml(path))}
+               for spec in expand_model_config(overrides[path] if path in overrides else load_yaml(path))
+               if spec.name in surface["models"]}
     selected = [sources[name] for name in sorted(names)]
     for _path, spec in selected:
         if spec.backend == "synthetic" or "Synthetic" in spec.backend or "synthetic" in spec.backend:
@@ -296,7 +304,10 @@ def prepare_project(stack: ConfigStack, mode: str, *, force: bool = False) -> in
         if spec.backend not in {"onnxruntime", "triton"} and not spec.artifact.path and not spec.artifact.source:
             continue
         target = artifact_target(spec, owner, stack)
-        prepare_artifact(spec, target, root, force=force and target not in prepared)
+        # Installers resolve beside their model first (shared library), then from the project.
+        installer = spec.artifact.source.installer if spec.artifact.source else None
+        installer_root = owner.parent if installer and (owner.parent / installer).is_file() else root
+        prepare_artifact(spec, target, installer_root, force=force and target not in prepared)
         prepared.add(target)
         if canonical_mode(mode) in {"triton"} and spec.backend == "triton":
             repository = stack.model_repository(settings.model_repository).resolve()

@@ -11,9 +11,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from inferops.adapters.outbound.projects.loader import ProjectPluginResolver
-from inferops.adapters.outbound.projects.settings import get_spec_dir
-from inferops.adapters.outbound.projects.yaml import load_yaml
+from inferops.adapters.outbound.projects.loader import ProjectLoader, ProjectPluginResolver
 from inferops.domain.fusion import FusionEngine
 from inferops.domain.fusion.spec import FusionSpec
 from inferops.domain.incident_spec import AlertSpec
@@ -23,7 +21,16 @@ from inferops.domain.types import Frame, Result, StageItem
 
 DOMAIN_ROOT = Path(__file__).resolve().parents[1]
 load_object = ProjectPluginResolver(DOMAIN_ROOT, "driver-tests").load_object
-DB = get_spec_dir("fusion").parent
+# The composed project exactly as the server runs it (all models selected).
+PROJECT = ProjectLoader(Path(__file__).resolve().parents[1]).load()
+
+
+def fusion_spec() -> FusionSpec:
+    return PROJECT.fusion["driver_behaviour"].model_copy(deep=True)
+
+
+def alert_spec() -> dict:
+    return PROJECT.alerts["driver_behaviour"].model_dump()
 RFDetrPostprocess = load_object(".models.rfdetr_driver.adapter:RFDetrPostprocess")
 
 
@@ -36,7 +43,7 @@ def _item(stream_id: str, ts_ms: int, by_class: dict[str, list[dict]]) -> StageI
 
 @pytest.mark.asyncio
 async def test_driver_fusion_phone_use_fires():
-    spec = FusionSpec(**load_yaml(DB / "fusion" / "driver.yaml"))
+    spec = fusion_spec()
     eng = FusionEngine(spec)
     # turn off Kafka publish for the test
     eng.spec.outputs.events_topic = None
@@ -54,8 +61,8 @@ async def test_driver_fusion_phone_use_fires():
 
 @pytest.mark.asyncio
 async def test_driver_alerts_dedupe_and_severity():
-    fspec = FusionSpec(**load_yaml(DB / "fusion" / "driver.yaml"))
-    aspec_dict = load_yaml(DB / "alerts" / "driver.yaml")
+    fspec = fusion_spec()
+    aspec_dict = alert_spec()
     # silence non-test sinks
     aspec_dict["sinks"] = [{"name": "stdout", "kind": "stdout", "params": {}}]
     aspec_dict["persistence_enabled"] = False
@@ -73,8 +80,10 @@ async def test_driver_alerts_dedupe_and_severity():
         evs = await fusion.ingest_item(_item("cam9", ts + i * 250, item_payload))
         for ev in evs:
             from inferops.domain.incident_spec import AlertCandidate
+            # Mirrors IncidentPolicy.ingest_item: the rule's severity travels with the event.
             a = await alerts.submit(AlertCandidate(
-                type=ev.type, entity_id=ev.entity_id, ts_ms=ev.ts_ms, payload=ev.payload))
+                type=ev.type, entity_id=ev.entity_id, ts_ms=ev.ts_ms, payload=ev.payload,
+                severity_hint=ev.severity))
             if a:
                 first_alerts.append(a)
 
@@ -84,13 +93,13 @@ async def test_driver_alerts_dedupe_and_severity():
     # Immediately re-submitting the same candidate is deduped (same key, within window).
     from inferops.domain.incident_spec import AlertCandidate
     dup = await alerts.submit(AlertCandidate(type="phone_use", entity_id="cam9",
-                                             ts_ms=ts + 14 * 250, payload={}))
+                                             ts_ms=ts + 14 * 250, payload={}, severity_hint="medium"))
     assert dup is None
 
 
 @pytest.mark.asyncio
 async def test_driver_fusion_face_and_hand_signals():
-    spec = FusionSpec(**load_yaml(DB / "fusion" / "driver.yaml"))
+    spec = fusion_spec()
     eng = FusionEngine(spec)
     eng.spec.outputs.events_topic = None
     ts = 3_000_000
@@ -104,7 +113,7 @@ async def test_driver_fusion_face_and_hand_signals():
 
 
 async def _fuse(frames, period_ms=66):
-    eng = FusionEngine(FusionSpec(**load_yaml(DB / "fusion" / "driver.yaml")))
+    eng = FusionEngine(fusion_spec())
     eng.spec.outputs.events_topic = None
     events = []
     for i, payload in enumerate(frames):
@@ -138,7 +147,7 @@ async def test_closed_eyes_alert_and_face_out_of_view_is_distraction():
 async def test_recovery_and_intermediate_states_do_not_create_alerts_or_clips():
     from inferops.domain.incident_spec import AlertCandidate
 
-    alerts = AlertEngine(AlertSpec(**load_yaml(DB / "alerts" / "driver.yaml")))
+    alerts = AlertEngine(AlertSpec(**alert_spec()))
     for kind in ("STATE_NORMAL", "STATE_RECOVERED", "STATE_UNSAFE", "STATE_DROWSY", "STATE_DISTRACTED"):
         assert await alerts.submit(AlertCandidate(type=kind, entity_id="driver", ts_ms=0)) is None
 

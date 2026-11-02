@@ -9,7 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from inferops.adapters.outbound.projects.manifest import DomainManifest, manifest_path
-from inferops.adapters.outbound.projects.models import ModelPortSpec, model_config_files
+from inferops.adapters.outbound.projects.models import STANDARD_VARIANTS, model_config_files
 from inferops.adapters.outbound.projects.yaml import deep_merge, load_yaml
 from inferops.domain.errors import ConfigError
 from inferops.domain.fusion.spec import FusionSpec
@@ -18,6 +18,7 @@ from inferops.domain.models import ModelSpec
 from inferops.domain.pipeline import PipelineSpec
 
 SECTIONS = {
+    "tuning": "Project settings",
     "settings": "Workspace settings",
     "project": "Project",
     "models": "Models",
@@ -68,6 +69,8 @@ def configuration_paths(definition) -> dict[tuple[str, str], Path]:
         path = manifest_path(definition.root)
         if path.is_file():
             found["project", "project"] = path
+    if "rules" in definition.source_dirs:
+        found["fusion", "rules"] = definition.source_dirs["rules"]
     configs_dir = definition.source_dirs.get("platform_configs", definition.source_dirs["pipelines"].parent)
     for index, path in enumerate(platform_paths(configs_dir, definition.root)):
         if path.is_file() or (index == 0 and "workspace_config" in definition.source_dirs):
@@ -77,6 +80,8 @@ def configuration_paths(definition) -> dict[tuple[str, str], Path]:
         from inferops.adapters.outbound.projects import central
         data = central.read_config(central_path)
         found["settings", "inferops"] = central_path
+        if definition.manifest and definition.manifest.settings:
+            found["tuning", "project"] = central.settings_path(central_path)
         for path in central.documents(central_path, data, definition.root, configs_dir):
             for section in ("models", "pipelines", "fusion", "alerts"):
                 directory = definition.source_dirs[section]
@@ -85,8 +90,35 @@ def configuration_paths(definition) -> dict[tuple[str, str], Path]:
     return found
 
 
+def settings_schema(manifest, available_models=(), inactive_rules=None) -> dict:
+    """A form for the project's model choice and declared tunables, with labels and bounds."""
+    properties = {}
+    if manifest is not None and manifest.models is not None:
+        inactive = ", ".join(f"{rule} (needs {' + '.join(models)})" for rule, models in (inactive_rules or {}).items())
+        properties["models"] = {
+            "type": "array", "title": "Models", "items": {"type": "string", "enum": sorted(available_models)},
+            "description": "Models to run from the shared library. Rules switched off by this choice: "
+                           + (inactive or "none") + ".",
+        }
+    for name, setting in (manifest.settings if manifest else {}).items():
+        kind = {bool: "boolean", int: "integer", float: "number"}.get(type(setting.default), "string")
+        item = {"type": kind, "title": setting.label or name.replace("_", " ").capitalize(),
+                "description": f"{setting.description} Default: {setting.default}.".strip(), "default": setting.default}
+        if setting.minimum is not None:
+            item["minimum"] = setting.minimum
+        if setting.maximum is not None:
+            item["maximum"] = setting.maximum
+        if setting.choices is not None:
+            item["enum"] = setting.choices
+        properties[name] = item
+    return {"type": "object", "title": "Project settings", "properties": properties,
+            "required": list(properties), "additionalProperties": False}
+
+
 def configuration_schema(section: str, data: dict) -> dict:
     """Use runtime schemas for forms, including partial model variant overrides."""
+    if section == "tuning":
+        return {"type": "object", "title": "Project settings", "additionalProperties": True}
     if section == "settings":
         return {"type": "object", "title": "Workspace configuration", "additionalProperties": True,
                 "properties": {key: {"type": "object"} for key in
@@ -102,15 +134,15 @@ def configuration_schema(section: str, data: dict) -> dict:
         }
         return schema
     if section == "models" and "variants" in data:
-        schema = ModelPortSpec.model_json_schema()
-        model = ModelSpec.model_json_schema()
-        schema["$defs"] = model.pop("$defs", {})
-        model.pop("required", None)
-        schema["properties"]["defaults"] = deepcopy(model)
-        schema["properties"]["defaults"]["title"] = "Shared model settings"
-        model.pop("title", None)
-        schema["properties"]["variants"]["additionalProperties"] = model
-        schema["properties"]["variants"]["title"] = "Runtime overrides"
+        schema = ModelSpec.model_json_schema()
+        schema["required"] = ["name", "inputs", "variants"]
+        variant = {key: deepcopy(value) for key, value in schema.items() if key not in {"$defs", "required", "title"}}
+        schema["properties"]["variants"] = {
+            "title": "Runtime variants",
+            "description": "List standard variants, or map a variant to the fields it overrides.",
+            "anyOf": [{"type": "array", "items": {"type": "string", "enum": list(STANDARD_VARIANTS)}},
+                      {"type": "object", "additionalProperties": {"anyOf": [variant, {"type": "null"}]}}],
+        }
         return schema
     schema = SCHEMAS[section].model_json_schema()
     if section == "pipelines":
@@ -128,6 +160,8 @@ def configuration_schema(section: str, data: dict) -> dict:
 
 def validate_document(section: str, data: dict) -> None:
     """Validate supplied platform fields without consulting environment overrides."""
+    if section == "tuning":
+        return  # Checked against the project's declarations when the candidate loads.
     if section == "settings":
         from pydantic import TypeAdapter
 

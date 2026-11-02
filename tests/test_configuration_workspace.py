@@ -26,7 +26,7 @@ async def workspace(tmp_path):
     (core / "platform.yaml").write_text("api:\n  port: 8080\nobs:\n  log_level: INFO\n")
     (root / "models/detector").mkdir()
     (root / "models/detector/model.yaml").write_text(yaml.safe_dump({
-        "name": "objects", "defaults": {"inputs": [{"name": "image"}]},
+        "name": "objects", "inputs": [{"name": "image"}],
         "variants": {"onnx": {"backend": "onnxruntime"}, "triton": {"backend": "triton"}},
     }))
     (root / "configs/fusion/policy.yaml").write_text("name: inspection_rules\nsignals: []\n")
@@ -176,7 +176,7 @@ async def test_pending_artifact_change_cannot_be_applied_by_reload_or_another_sa
     _, _, engine, client = workspace
     original_revision = engine.application.definition.revision
     entry = (await client.get("/v1/configs/models/detector")).json()
-    entry["data"]["defaults"]["artifact"] = {"path": "model_repository/replacement.onnx"}
+    entry["data"]["artifact"] = {"path": "model_repository/replacement.onnx"}
     response = await client.put("/v1/configs/models/detector", json={"data": entry["data"]})
     assert response.json()["preparation_required"]
     reload = await client.post("/v1/configs/reload")
@@ -200,22 +200,32 @@ async def test_legacy_yaml_contract_and_invalid_documents(workspace):
     assert (await client.get(url)).json()["content"] == updated
 
 
-def test_driver_profiles_keep_distinct_behaviors_when_relocated(tmp_path):
+def test_relocated_driver_project_composes_any_model_combination(tmp_path, monkeypatch):
     root = tmp_path / "monitoring"
     shutil.copytree(PROJECT_ROOT / "projects/driver_behaviour", root,
-                    ignore=shutil.ignore_patterns("model_repository", "__pycache__", "tests"))
+                    ignore=shutil.ignore_patterns("__pycache__", "tests"))
+    monkeypatch.setenv("INFEROPS_MODELS_DIR", str(PROJECT_ROOT / "models"))
     definition = ProjectLoader(root, configs_dir=tmp_path / "configs").load()
     assert set(definition.resolver.ports) == {"rfdetr_driver", "face_mesh", "face_detector", "face_blendshapes"}
-    full, reduced = [definition.pipelines[name] for name in ("driver_behaviour", "driver_video")]
+    assert list(definition.pipelines) == ["driver_behaviour"]
+    full = definition.pipelines["driver_behaviour"]
     face = next(stage for stage in full.stages if stage.name == "face_mesh")
     # Secondary ``*_model`` references resolve to the mode's variant like ``model``.
     assert (face.params["model"], face.params["detector_model"], face.params["blendshape_model"]) == (
         "face_mesh_onnx", "face_detector_onnx", "face_blendshapes_onnx")
-    assert full.tags["label"] == "Full driver monitoring"
-    assert reduced.tags["label"] == "Detector-only monitoring"
     assert any(stage.stage == "track" for stage in full.stages)
-    assert all(stage.stage != "track" for stage in reduced.stages)
-    assert all("face_mesh" not in stage.stage for stage in reduced.stages)
+    assert definition.fusion["driver_behaviour"].inactive_rules == {}
+
+    manifest = yaml.safe_load((root / "project.yaml").read_text())
+    reduced = ProjectLoader(root, configs_dir=tmp_path / "configs").load(
+        {root / "project.yaml": {**manifest, "models": ["rfdetr_driver"]}})
+    assert set(reduced.resolver.ports) == {"rfdetr_driver"}
+    stages = [stage.name for stage in reduced.pipelines["driver_behaviour"].stages]
+    assert stages == ["decode", "rfdetr_driver", "auto_track", "fuse", "alert"]
+    fusion = reduced.fusion["driver_behaviour"]
+    assert {rule.name for rule in fusion.rules} == {"phone_use", "no_seatbelt", "smoking", "eating", "hands_off_wheel"}
+    assert fusion.inactive_rules["looking_left"] == ["face_mesh"]
+    assert "face_confidence" not in reduced.manifest.setting_values()
 
 
 async def test_model_save_restarts_running_camera_with_new_revision_but_leaves_explicit_sessions(workspace):
@@ -238,7 +248,7 @@ async def test_model_save_restarts_running_camera_with_new_revision_but_leaves_e
     initial = await sources.run("driver")
     try:
         entry = (await client.get("/v1/configs/models/detector")).json()
-        entry["data"]["defaults"]["labels"] = ["saved-label"]
+        entry["data"]["labels"] = ["saved-label"]
         response = await client.put("/v1/configs/models/detector", json={"data": entry["data"]})
         assert response.status_code == 200, response.text
         assert response.json()["restarted_sources"] == ["driver"]
@@ -285,7 +295,7 @@ async def central_workspace(workspace, monkeypatch):
     document = {"runtime": {"project": "inspection", "mode": "cpu", "api_port": 8080},
                 "platform": {"obs": {"log_level": "INFO"}},
                 "sources": {"inference_fps": 30, "max_width": 1280, "max_height": 720},
-                "projects": {"inspection": {"root": str(root), "parameters": {}, "configuration": {}}}}
+                "projects": {"inspection": {"root": str(root)}}}
     path = core / "inferops.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False))
     # Live environment defaults are owned by this test, never the operator.
@@ -307,14 +317,15 @@ async def test_central_editor_saves_only_the_authoritative_file(central_workspac
     metadata = path.stat()
     entry = (await client.get("/v1/configs/models/detector")).json()
     assert entry["path"] == str(path)
-    entry["data"]["defaults"]["labels"] = ["central-label"]
+    entry["data"]["labels"] = ["central-label"]
     saved = await client.put("/v1/configs/models/detector", json={"data": entry["data"], "version": entry["version"]})
     assert saved.status_code == 200, saved.text
     assert not saved.json()["restart_required"]
     assert template.read_bytes() == original
     assert path.stat().st_mode == metadata.st_mode and path.stat().st_uid == metadata.st_uid
     central = yaml.safe_load(path.read_text())
-    assert central["projects"]["inspection"]["configuration"]["models"]["detector"] == entry["data"]
+    # Only the change is stored; the packaged model stays the baseline.
+    assert central["projects"]["inspection"]["overrides"]["models"]["detector"] == {"labels": ["central-label"]}
     assert engine.application.definition.models["objects_onnx"].label_list() == ["central-label"]
     conflict = await client.put("/v1/configs/models/detector", json={"data": entry["data"], "version": entry["version"]})
     assert conflict.status_code == 409
@@ -336,7 +347,7 @@ async def test_central_new_document_and_removed_stages_are_persisted(central_wor
     loaded = ProjectLoader(root, configs_dir=core).load()
     assert [stage.name for stage in loaded.pipelines["inspection"].stages] == ["detect"]
     assert "new" in loaded.pipelines
-    assert yaml.safe_load(path.read_text())["projects"]["inspection"]["configuration"]["pipelines"]["new"]
+    assert yaml.safe_load(path.read_text())["projects"]["inspection"]["overrides"]["pipelines"]["new"]
 
 
 async def test_central_runtime_edits_require_restart_and_source_defaults_apply_live(central_workspace):
@@ -368,3 +379,30 @@ async def test_central_runtime_edits_require_restart_and_source_defaults_apply_l
         assert yaml.safe_load(path.read_text())["runtime"]["api_port"] == 8089
     finally:
         await sources.close()
+
+
+async def test_project_settings_form_saves_only_changed_values(central_workspace):
+    from inferops.adapters.inbound.http.configs import _activate
+    root, core, engine, client, path = central_workspace
+    manifest = yaml.safe_load((root / "project.yaml").read_text()) if (root / "project.yaml").exists() else {"name": "inspection"}
+    manifest["settings"] = {"threshold": {"default": 0.5, "label": "Threshold", "minimum": 0, "maximum": 1}}
+    (root / "project.yaml").write_text(yaml.safe_dump(manifest))
+    process = root / "configs/pipelines/process.yaml"
+    pipeline = yaml.safe_load(process.read_text())
+    pipeline["stages"][0]["params"]["threshold"] = "${settings.threshold}"
+    process.write_text(yaml.safe_dump(pipeline))
+    await _activate(engine, ProjectLoader(root, configs_dir=core).load())
+    catalog = (await client.get("/v1/configs")).json()
+    assert catalog["sections"][0] == "tuning"
+    entry = (await client.get("/v1/configs/tuning/project")).json()
+    assert entry["data"] == {"threshold": 0.5}
+    assert entry["schema"]["properties"]["threshold"]["maximum"] == 1
+    rejected = await client.put("/v1/configs/tuning/project", json={"data": {"threshold": 2}})
+    assert rejected.status_code == 400
+    saved = await client.put("/v1/configs/tuning/project", json={"data": {"threshold": 0.7}})
+    assert saved.status_code == 200, saved.text
+    assert yaml.safe_load(path.read_text())["projects"]["inspection"]["settings"] == {"threshold": 0.7}
+    stage = engine.application.definition.pipelines["inspection"].stages[0]
+    assert stage.params["threshold"] == 0.7
+    await client.put("/v1/configs/tuning/project", json={"data": {"threshold": 0.5}})
+    assert "settings" not in yaml.safe_load(path.read_text())["projects"]["inspection"]

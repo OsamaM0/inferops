@@ -79,6 +79,7 @@ def service_profile(application, *, media_router="direct", media_recording=False
                                    if backend.device == "remote"},
         "opencv_threads": cv2.getNumThreads(),
         "ort_threads": int(os.getenv("INFEROPS_ORT_THREADS", "4")),
+        "ort_gpu_threads": int(os.getenv("INFEROPS_ORT_GPU_THREADS", "1")),
         "cudnn_max_workspace": int(os.getenv("INFEROPS_CUDNN_MAX_WORKSPACE", "0")),
         "preview_fps": 2,
         "preview_width": 640,

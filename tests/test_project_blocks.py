@@ -69,19 +69,21 @@ def test_invalid_project_graph_fails_before_startup(tmp_path, reference):
         validate_config_stack(ConfigStack(tmp_path / "configs", domain_root=root))
 
 
-def test_driver_plugins_survive_a_relocated_and_renamed_pack(tmp_path):
+def test_driver_plugins_survive_a_relocated_and_renamed_pack(tmp_path, monkeypatch):
     source = PROJECT_ROOT / "projects/driver_behaviour"
     relocated = tmp_path / "mounted_driver"
-    shutil.copytree(source, relocated, ignore=shutil.ignore_patterns("model_repository", "__pycache__", "tests"))
+    shutil.copytree(source, relocated, ignore=shutil.ignore_patterns("__pycache__", "tests"))
+    monkeypatch.setenv("INFEROPS_MODELS_DIR", str(PROJECT_ROOT / "models"))
     stack = ConfigStack(tmp_path / "configs", domain_root=relocated)
     specs = validate_config_stack(stack)
-    plugin = specs["models"]["rfdetr_driver_onnx"].postprocess.plugin
-    assert plugin.startswith(".models.")
+    assert set(specs["pipelines"]) == {"driver_behaviour"}
     from inferops.adapters.outbound.projects.loader import ProjectPluginResolver
-    resolver = ProjectPluginResolver(relocated, "test")
-    assert resolver.load_object(plugin).__name__ == "RFDetrPostprocess"
-    stage = specs["pipelines"]["driver_behaviour"].stages[2].stage
-    assert resolver.load_object(stage).__name__ == "FaceMeshStage"
+    # The shared library mounts as the project's `models` package for pack-relative plugins.
+    resolver = ProjectPluginResolver(relocated, "test", library=PROJECT_ROOT / "models")
+    assert resolver.load_object(".models.rfdetr_driver.adapter:RFDetrPostprocess").__name__ == "RFDetrPostprocess"
+    stage = next(stage for stage in specs["pipelines"]["driver_behaviour"].stages if stage.name == "face_mesh")
+    assert stage.stage.endswith(".models.face_mesh.adapter:FaceMeshStage")
+    assert resolver.load_object(".models.face_mesh.adapter:FaceMeshStage").__name__ == "FaceMeshStage"
     assert stack.active_domain == "driver_behaviour"
     ConfigStack(PROJECT_ROOT / "configs")
 
@@ -161,7 +163,7 @@ async def run():
         assert rejected.status_code == 400, rejected.text
         assert (await client.get(url)).json()['content'] == updated
         unsupported = yaml.safe_load(original)
-        unsupported['variants'].pop('onnx')
+        unsupported['variants'].remove('onnx')
         assert (await client.put(url, json={'content': yaml.safe_dump(unsupported)})).status_code == 400
         assert (await client.get(url)).json()['content'] == updated
         restored = await client.put(url, json={'content': original})
@@ -175,7 +177,7 @@ async def run():
         assert project_saved.json()['reload']['restart_required'] is True
         assert project_saved.json()['preparation_required'] is True
         new_source = yaml.safe_load(original)
-        new_source['defaults']['artifact'] = {'source': {'kind': 'url', 'url': 'https://example.test/model.onnx'}}
+        new_source['artifact'] = {'source': {'kind': 'url', 'url': 'https://example.test/model.onnx'}}
         source_saved = await client.put(url, json={'content': yaml.safe_dump(new_source)})
         assert source_saved.json()['preparation_required'] is True
         assert source_saved.json()['reload']['reloaded'] == 0
@@ -263,7 +265,7 @@ def _configured_project(root, name, labels):
     scaffold_model_port(root, port, labels, format="detr")
     path = root / "models" / port / "model.yaml"
     data = yaml.safe_load(path.read_text())
-    data["defaults"]["outputs"] = [
+    data["outputs"] = [
         {"name": "logits", "shape": [1, 1, len(labels)], "layout": "ND", "color": "NONE"},
         {"name": "boxes", "shape": [1, 1, 4], "layout": "ND", "color": "NONE"},
     ]
@@ -279,7 +281,7 @@ def _configured_project(root, name, labels):
         helper.make_tensor_value_info("boxes", TensorProto.FLOAT, [1, 1, 4])])
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     model.ir_version = 9
-    artifact = root / data["variants"]["onnx"]["artifact"]["path"]
+    artifact = root / data["artifact"]["path"]
     artifact.parent.mkdir(parents=True)
     onnx.save(model, artifact)
     pipeline = {"name": name, "source": {"name": "src", "stage": "source_rest"}, "stages": [

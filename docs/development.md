@@ -67,8 +67,8 @@ The repository root holds `.git/`, `.gitignore`, the README, `pyproject.toml` an
 `inferops/` directory is the importable Python package. `.venv/` stores installed
 dependencies; `.run/` stores runtime reports and verification output. Pytest and
 Ruff caches live under `.run/cache/`. Test-only models use process-owned system
-temporary directories and do not create a root `model_repository/`. Real project
-weights remain under `projects/<project>/model_repository/`.
+temporary directories and do not create a root `model_repository/`. Real model
+weights remain under `models/model_repository/`.
 
 `inferops.egg-info/` is generated installation metadata from the editable Python
 install; it contains package information and entry points, not another source

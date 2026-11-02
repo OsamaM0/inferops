@@ -71,7 +71,9 @@ class FusionEngine:
         entity = getattr(item, self.spec.entity_key, None) or item.stream_id
         timestamp = item.ts_ms
         environment = {"item": item, "results": item.results, "payload": item.payload,
-                       "stream_id": item.stream_id}
+                       "stream_id": item.stream_id,
+                       "detected": lambda label, default=0.0: _detected(item.results, label, default),
+                       "signal": lambda name, default=0.0: _payload_value(item.payload, name, default)}
         for signal, expression in self.spec.extract.items():
             try:
                 value = safe_eval(expression, environment)
@@ -117,6 +119,17 @@ class FusionEngine:
                                           type=f"STATE_{state}", payload={"state": state,
                                           "confirmation": self._fsm.confirmed[entity]}))
         return events
+
+
+def _detected(results, label: str, default: float) -> float:
+    """Highest detector score for one class label across this item's results."""
+    return max((detection["score"] for result in results if result.raw
+                for detection in result.raw.get("by_class", {}).get(label, [])), default=default)
+
+
+def _payload_value(payload: dict, name: str, default: float) -> Any:
+    value = payload.get(name)
+    return default if value is None else value
 
 
 class _NullWindow:

@@ -5,9 +5,9 @@ project settings, models, pipelines, rules and alerts through forms. The editor
 discovers each project's schema and logical model variants automatically.
 Use **Add configuration**, **Validate**, then **Save changes** to extend it.
 
-For file-based workflows, start with `project.yaml`, then edit model
-configuration in `models/<name>/model.yaml` and pipeline/rule/action configuration
-in `configs/`. Real weights are prepared into that project's `model_repository/`.
+For file-based workflows, start with `project.yaml` (which models to run) and
+`rules.yaml` (rules and alerts). Models live in the shared [model library](../models/),
+with weights in `models/model_repository/`.
 
 Select a project with `INFEROPS_PROJECT_ROOT=./projects/<name>` in the project `.env`.
 Run `docker compose up -d --build` from the project root.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from inferops.adapters.outbound.projects.central import apply_settings
 from inferops.adapters.outbound.projects.settings import ConfigStack
 from inferops.adapters.outbound.projects.yaml import load_yaml
 from inferops.domain.errors import ConfigError
@@ -13,7 +14,6 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
     from inferops.adapters.outbound.projects.manifest import DomainManifest, manifest_path
     from inferops.adapters.outbound.projects.models import (
         expand_model_config,
-        load_model_variants,
         model_config_files,
     )
     from inferops.adapters.outbound.projects.resolver import ModelResolver
@@ -22,8 +22,20 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
     from inferops.domain.models import ModelSpec
     from inferops.domain.pipeline import PipelineSpec
 
+    if stack.composed():
+        # The loader generates composed projects; validate exactly what it serves.
+        from inferops.adapters.outbound.projects.loader import ProjectLoader
+        definition = ProjectLoader(stack.domain_root, configs_dir=stack.configs_dir).load(overrides)
+        return {section: dict(getattr(definition, section)) for section in ("models", "pipelines", "fusion", "alerts")}
     schemas = {"models": ModelSpec, "pipelines": PipelineSpec, "fusion": FusionSpec, "alerts": AlertSpec}
     overrides = {**stack.configuration_overrides(), **(overrides or {})}
+    manifest = stack.manifest()
+    if stack.domain_root and overrides and manifest_path(stack.domain_root) in overrides:
+        manifest = DomainManifest(**overrides[manifest_path(stack.domain_root)])
+    try:
+        settings = manifest.setting_values() if manifest else {}
+    except ValueError as exc:
+        raise ConfigError(f"project settings: {exc}") from exc
     specs: dict[str, dict] = {section: {} for section in schemas}
     errors: list[str] = []
     for section, schema in schemas.items():
@@ -34,11 +46,8 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
                         or (section == "models" and path.name == "model.yaml" and path.parent.parent == directory)})
         for path in paths:
             try:
-                if overrides and path in overrides:
-                    data = overrides[path]
-                    loaded = expand_model_config(data) if section == "models" else [schema(**data)]
-                else:
-                    loaded = load_model_variants(path) if section == "models" else [schema(**load_yaml(path))]
+                data = apply_settings(overrides[path] if path in overrides else load_yaml(path), settings)
+                loaded = expand_model_config(data) if section == "models" else [schema(**data)]
             except Exception as exc:
                 errors.append(f"{path}: {exc}")
                 continue
@@ -80,9 +89,6 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
             for name in pipeline.tracking.model_filter:
                 check("models", name, f"pipeline {pipeline.name!r} tracking")
 
-    manifest = stack.manifest()
-    if stack.domain_root and overrides and manifest_path(stack.domain_root) in overrides:
-        manifest = DomainManifest(**overrides[manifest_path(stack.domain_root)])
     if manifest is not None:
         for name in manifest.pipelines or []:
             check("pipelines", name, "project pipelines")

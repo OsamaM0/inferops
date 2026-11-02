@@ -10,14 +10,19 @@ from inferops.domain.models import canonical_mode
 
 
 class ModelResolver:
-    def __init__(self, directory: str | Path, *, overrides: dict[Path, dict] | None = None):
+    def __init__(self, directory: str | Path, *, overrides: dict[Path, dict] | None = None,
+                 files: list[Path] | None = None):
+        """`files` limits the resolver to a project's selected models."""
         self.names: set[str] = set()
         self.ports: dict[str, dict[str, str]] = {}
         self.variants: dict[str, list[str]] = {}
         root = Path(directory)
-        files = set(model_config_files(root))
-        files.update(path for path in (overrides or {}) if path.suffix == ".yaml"
-                     and (path.parent == root or (path.name == "model.yaml" and path.parent.parent == root)))
+        if files is not None:
+            files = set(files)
+        else:
+            files = set(model_config_files(root))
+            files.update(path for path in (overrides or {}) if path.suffix == ".yaml"
+                         and (path.parent == root or (path.name == "model.yaml" and path.parent.parent == root)))
         for path in sorted(files):
             data = overrides[path] if overrides and path in overrides else load_yaml(path)
             specs = expand_model_config(data)

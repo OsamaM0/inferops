@@ -7,6 +7,7 @@ import importlib
 import importlib.abc
 import importlib.util
 import inspect
+import os
 import sys
 from collections.abc import Mapping
 from itertools import pairwise
@@ -17,8 +18,14 @@ from typing import Any
 import yaml
 
 from inferops.adapters.outbound.projects import central
+from inferops.adapters.outbound.projects.composition import RULES_FILE, compose
 from inferops.adapters.outbound.projects.configuration import load_platform, platform_paths
-from inferops.adapters.outbound.projects.manifest import DomainManifest, load_domain_manifest, manifest_path
+from inferops.adapters.outbound.projects.manifest import (
+    DomainManifest,
+    ProjectSetting,
+    load_domain_manifest,
+    manifest_path,
+)
 from inferops.adapters.outbound.projects.models import expand_model_config, model_config_files
 from inferops.adapters.outbound.projects.resolver import ModelResolver, canonical_mode
 from inferops.adapters.outbound.projects.yaml import _interp, load_yaml
@@ -34,7 +41,7 @@ _GENERATED_DIRECTORIES = {"__pycache__", "build", "dist", "node_modules", "venv"
 
 
 def _python_sources(root: Path | None) -> dict[Path, bytes]:
-    if root is None:
+    if root is None or not root.is_dir():
         return {}
     return {path: path.read_bytes() for path in sorted(root.rglob("*.py"))
             if not any(part.startswith(".") or part in _GENERATED_DIRECTORIES
@@ -48,12 +55,16 @@ class _SnapshotImports(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     ordinary imports. Old sessions can lazily import their original plugins
     after an on-disk configuration or plugin revision has been activated.
     """
-    def __init__(self, root: Path, package: str, sources: dict[Path, bytes]) -> None:
+    def __init__(self, root: Path, package: str, sources: dict[Path, bytes], library: Path | None = None) -> None:
         self.root, self.package = root, package
         self.sources: dict[str, tuple[Path, bytes, bool]] = {}
         self.packages = {package}
         for path, source in sources.items():
-            parts = list(path.relative_to(root).with_suffix("").parts)
+            # The shared model library is mounted as the project's `models` package.
+            if library is not None and path.is_relative_to(library):
+                parts = ["models", *path.relative_to(library).with_suffix("").parts]
+            else:
+                parts = list(path.relative_to(root).with_suffix("").parts)
             is_package = parts[-1] == "__init__"
             if is_package:
                 parts.pop()
@@ -97,13 +108,17 @@ class ProjectPluginResolver:
     Neither sys.path nor the compatibility active-project state is modified.
     """
     def __init__(self, root: Path | None, revision: str,
-                 sources: dict[Path, bytes] | None = None) -> None:
+                 sources: dict[Path, bytes] | None = None, library: Path | None = None) -> None:
         self.root = root
         digest = hashlib.sha256(f"{root}:{revision}".encode()).hexdigest()[:24]
         self.package = f"_inferops_project_{digest}"
-        self._imports = (_SnapshotImports(root, self.package,
-                                         sources if sources is not None else _python_sources(root))
-                         if root is not None else None)
+        if library is None and root is not None and sources is None:
+            # Find the shared library the way the loader does.
+            models = central.models_dir(root, os.getenv("INFEROPS_CONFIGS_DIR", "configs"))
+            library = models if models.is_dir() and not models.is_relative_to(Path(root).resolve()) else None
+        if sources is None:
+            sources = {**_python_sources(root), **_python_sources(library)}
+        self._imports = _SnapshotImports(root, self.package, sources, library) if root is not None else None
 
     def resolve(self, reference: str) -> str:
         if reference.startswith("."):
@@ -176,9 +191,14 @@ class ProjectLoader:
     def _directories(self) -> dict[str, Path]:
         config_root = self.root / "configs" if self.root else self.configs_dir
         directories = {section: config_root / section for section in ("models", "pipelines", "fusion", "alerts")}
-        if self.root and (self.root / "models").is_dir():
-            directories["models"] = self.root / "models"
+        if self.root:
+            directories["models"] = central.models_dir(self.root, self.configs_dir)
         return directories
+
+    def _library(self, directories: dict[str, Path]) -> Path | None:
+        """The shared model library, when this project draws its models from it."""
+        models = directories["models"]
+        return models if self.root and not models.is_relative_to(self.root) else None
 
     def _revision(self, directories: dict[str, Path], sources: dict[Path, bytes],
                   overrides: Mapping[Path, dict]) -> str:
@@ -228,7 +248,7 @@ class ProjectLoader:
         platform_file = (self.root / "configs" if self.root else self.configs_dir) / "platform.yaml"
         special_paths = {platform_file, *platform_paths(self.configs_dir, self.root)}
         if self.root:
-            special_paths.update({self.root / "project.yaml", self.root / "domain.yaml"})
+            special_paths.update({self.root / "project.yaml", self.root / "domain.yaml", self.root / RULES_FILE})
         for path, value in overrides.items():
             section_path = any(path.parent == directory or (
                 section == "models" and path.name == "model.yaml" and path.parent.parent == directory)
@@ -248,14 +268,34 @@ class ProjectLoader:
                          or (section == "models" and path.name == "model.yaml" and path.parent.parent == directory))
             return sorted(found)
 
-        sources = _python_sources(self.root)
+        library = self._library(directories)
+        sources = {**_python_sources(self.root), **_python_sources(library)}
         revision = self._revision(directories, sources, overrides)
         if central_path:
             revision = hashlib.sha256((revision + yaml.safe_dump(workspace, sort_keys=True)).encode()).hexdigest()
-        plugins = ProjectPluginResolver(self.root, revision, sources)
+        plugins = ProjectPluginResolver(self.root, revision, sources, library)
         manifest = (DomainManifest(**read(manifest_path(self.root)))
                     if self.root and manifest_path(self.root) in overrides else load_domain_manifest(self.root))
-        resolver = ModelResolver(directories["models"], overrides=overrides)
+        selected = set(manifest.models) if manifest and manifest.models is not None else None
+        library_models = {path: read(path) for path in files("models")}
+        if manifest is not None:
+            # Selected models contribute their own tunables; the project's win.
+            declared = central.with_model_settings({"models": manifest.models}, directories["models"])
+            manifest.settings = {**{name: ProjectSetting(**item) for name, item in declared.get("settings", {}).items()},
+                                 **manifest.settings}
+        # Central documents are already resolved; standalone projects use declared defaults.
+        try:
+            settings = manifest.setting_values() if manifest else {}
+        except ValueError as exc:
+            raise ConfigError(f"project settings: {exc}") from exc
+        rules_path = self.root / RULES_FILE if self.root else None
+        composed = rules_path is not None and (rules_path in overrides or rules_path.is_file())
+        overrides = {**overrides, **{path: central.apply_model_settings(read(path), settings) if section == "models"
+                                     else central.apply_settings(read(path), settings)
+                                     for section in directories for path in files(section)},
+                     **({rules_path: central.apply_settings(read(rules_path), settings)} if composed else {})}
+        model_files = [path for path in files("models") if selected is None or library_models[path].get("name") in selected]
+        resolver = ModelResolver(directories["models"], overrides=overrides, files=model_files)
         models: dict[str, ModelSpec] = {}
         source_dirs: dict[str, Path] = dict(directories)
         source_dirs["platform_configs"] = self.configs_dir
@@ -263,7 +303,7 @@ class ProjectLoader:
             source_dirs["workspace_config"] = central_path
         if self.artifact_root is not None:
             source_dirs["artifact_root"] = self.artifact_root
-        for path, raw in ((source, spec) for source in files("models") for spec in expand_model_config(read(source))):
+        for path, raw in ((source, spec) for source in model_files for spec in expand_model_config(read(source))):
             spec = ModelSpec(**plugins.normalize(raw.model_dump()))
             if spec.backend == "onnxruntime" and self.mode in {"cpu", "cuda"}:
                 spec.device.preferred = "gpu" if self.mode == "cuda" else "cpu"
@@ -298,6 +338,15 @@ class ProjectLoader:
         declared_pipelines = load_section("pipelines", PipelineSpec)
         fusion = load_section("fusion", FusionSpec)
         alerts = load_section("alerts", AlertSpec)
+        if composed:
+            # One generated pipeline per project, from its models and rules.yaml.
+            documents = compose(manifest.name, manifest.model_dump(),
+                                {data["name"]: read(path) for path, data in library_models.items() if data.get("name")},
+                                read(rules_path))
+            declared_pipelines[manifest.name] = PipelineSpec(**plugins.normalize(documents["pipeline"]))
+            fusion[manifest.name] = FusionSpec(**plugins.normalize(documents["fusion"]))
+            alerts[manifest.name] = AlertSpec(**plugins.normalize(documents["alerts"]))
+            source_dirs["rules"] = rules_path
         self._validate(declared_pipelines, fusion, alerts, resolver, manifest)
         pipelines = {}
         for name, pipeline in declared_pipelines.items():

@@ -18,6 +18,7 @@ from inferops.adapters.outbound.projects.configuration import (
     SECTIONS,
     configuration_paths,
     configuration_schema,
+    settings_schema,
     validate_document,
 )
 from inferops.adapters.outbound.projects.loader import ProjectLoader
@@ -68,8 +69,8 @@ def _path(engine, section, name, *, create=False):
     else:
         raise HTTPException(404, 'configuration not found')
     # Never let a project symlink redirect an editor write outside its config root.
-    base = definition.root if section == 'project' else (
-        path.parent if section in {'platform', 'settings'} else definition.source_dirs[section])
+    base = definition.root if section == 'project' or path == definition.source_dirs.get('rules') else (
+        path.parent if section in {'platform', 'settings', 'tuning'} else definition.source_dirs[section])
     if not path.resolve().is_relative_to(base.resolve()):
         raise HTTPException(400, 'configuration is outside its section')
     return path
@@ -81,6 +82,9 @@ def _document(definition, path):
         workspace = central.read_config(central_path)
         if path == central_path:
             return central_path.read_text(encoding="utf-8"), central_path
+        if path == central.settings_path(central_path):
+            values = central.settings_document(central_path, workspace, definition.root)
+            return yaml.safe_dump(values, sort_keys=False, allow_unicode=True), central_path
         documents = central.documents(central_path, workspace, definition.root, definition.source_dirs["platform_configs"])
         if path in documents:
             return yaml.safe_dump(documents[path], sort_keys=False, allow_unicode=True), central_path
@@ -97,7 +101,7 @@ def _entry(path, section, *, editor=False, definition=None):
     if not isinstance(data, dict):
         raise HTTPException(400, 'configuration must be a mapping')
     name = path.parent.name if path.name == 'model.yaml' else path.stem
-    behavior = 'live' if section in {'pipelines', 'fusion', 'alerts'} else 'conditional' if section == 'models' else 'restart'
+    behavior = 'live' if section in {'pipelines', 'fusion', 'alerts'} else 'conditional' if section in {'models', 'tuning'} else 'restart'
     result = {'section':section,'name':name,'path':str(saved_path),
               'title':data.get('label') or data.get('tags', {}).get('label') or data.get('name', name),
               'description':data.get('description') or data.get('tags', {}).get('description', ''),
@@ -105,9 +109,21 @@ def _entry(path, section, *, editor=False, definition=None):
               'variants':list(data.get('variants', {})),
               'content':content, 'reload_behavior': behavior,
               'version':hashlib.sha256(content.encode()).hexdigest()}
+    if section == 'tuning':
+        result.update(title='Project settings', description='Models to run, thresholds and timings')
+    elif definition is not None and path == definition.source_dirs.get('rules'):
+        result.update(title='Rules & alerts', description='Signals, rules, states and alert actions for the one pipeline',
+                      logical_name=definition.name)
     if editor:
-        result.update(data=data, schema=configuration_schema(section, data))
+        result.update(data=data, schema=_settings_schema(definition) if section == 'tuning'
+                      else configuration_schema(section, data))
     return result
+
+
+def _settings_schema(definition):
+    available = [name for (section, name), _path in configuration_paths(definition).items() if section == 'models']
+    inactive = {rule: models for spec in definition.fusion.values() for rule, models in spec.inactive_rules.items()}
+    return settings_schema(definition.manifest, available, inactive)
 
 
 def _entries(definition):
@@ -147,17 +163,24 @@ async def list_configs(request: Request):
                     if item and item not in links:
                         links.append(item)
         pipeline_link = linked("pipelines", pipeline.name)
+        # A generated pipeline has no document; its models are chosen in Project settings.
+        settings_link = linked("tuning", "project") if "rules" in definition.source_dirs else None
+        if settings_link:
+            links.insert(0, settings_link)
+        entry = pipeline_link or settings_link
         domains.append({'id':pipeline.name,'label':pipeline.tags.get('label',pipeline.name.replace('_',' ').title()),
                         'description':pipeline.tags.get('description', ''),
                         'pipeline':pipeline.name,'source_stage':pipeline.source.stage if pipeline.source else None,
-                        'config_names':{'pipeline':pipeline_link["name"] if pipeline_link else pipeline.name,**references},
+                        'config_names':{**({'pipeline':pipeline_link["name"]} if pipeline_link else {}),**references},
+                        'config_entry':{key: entry[key] for key in ("section", "name")} if entry else None,
                         'config_links':[link for link in links if link],
                         'capabilities':['camera','image','video','rtsp'],
                         'stages':[s.model_dump(mode='json') for s in pipeline.stages]})
     return {'configs_dir':str(definition.source_dirs['pipelines'].parent),'domain_root':str(definition.root) if definition.root else None,
             'domain_pack':definition.manifest.model_dump(mode='json') if definition.manifest else None,
             'active_domain':definition.name if definition.root else None,'files':files,'domains':domains,
-            'sections':(['settings'] if 'workspace_config' in definition.source_dirs else []) + ['platform','models','pipelines','fusion','alerts'] + (['project'] if definition.root else []),
+            'sections':(['tuning'] if any(entry['section'] == 'tuning' for entry in files) else [])
+                       + (['settings'] if 'workspace_config' in definition.source_dirs else []) + ['platform','models','pipelines','fusion','alerts'] + (['project'] if definition.root else []),
             'groups':SECTIONS,
             'precedence':['Packaged project definitions', 'configs/inferops.yaml', '.env / explicit host overrides'],
             'environment_overrides':sorted(key for key in os.environ if key == 'APP_ENV' or (
@@ -281,7 +304,9 @@ async def update_config(request: Request, section: str, name: str, payload: Upda
             pointer = central.document_pointer(central_path, workspace, previous.root,
                                                previous.source_dirs["platform_configs"], path)
             if pointer is not None:
-                workspace = central.replace_document(workspace, pointer, parse_yaml(content, interpolate=False))
+                workspace = central.store_document(central_path, workspace, previous.root,
+                                                   previous.source_dirs["platform_configs"], path,
+                                                   parse_yaml(content, interpolate=False))
                 validate_document("settings", workspace)
                 write_path = central_path
                 saved_content = content if pointer == () else yaml.safe_dump(workspace, sort_keys=False, allow_unicode=True)

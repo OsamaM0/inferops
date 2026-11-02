@@ -1,45 +1,37 @@
-"""Every shipped project's configuration parses to its spec."""
+"""Every shipped model parses, and every project composes with any one of its models."""
 from pathlib import Path
 
 import pytest
+import yaml
 
-from inferops.adapters.outbound.projects.models import load_model_variants, model_config_files
+from inferops.adapters.outbound.projects.central import apply_model_settings
+from inferops.adapters.outbound.projects.loader import ProjectLoader
+from inferops.adapters.outbound.projects.models import expand_model_config, model_config_files
 from inferops.adapters.outbound.projects.yaml import load_yaml
-from inferops.domain.fusion.spec import FusionSpec
-from inferops.domain.incident_spec import AlertSpec
-from inferops.domain.pipeline import PipelineSpec
 
 ROOT = Path(__file__).resolve().parents[1]
+PROJECTS = sorted(path.parent for path in (ROOT / "projects").glob("*/project.yaml"))
 
 
-def _all(subdir: str):
-    out = []
-    for base in [ROOT / "configs", *sorted((ROOT / "projects").glob("*/configs"))]:
-        out.extend(sorted((base / subdir).glob("*.yaml")))
-    if subdir == "models":
-        for project in sorted((ROOT / "projects").iterdir()):
-            out.extend(model_config_files(project / "models"))
-    return out
+def _selections():
+    for project in PROJECTS:
+        models = yaml.safe_load((project / "project.yaml").read_text()).get("models")
+        for selection in [None, *([model] for model in models or [])]:
+            yield pytest.param(project, selection, id=f"{project.name}-{'+'.join(selection or ['all'])}")
 
 
-@pytest.mark.parametrize("path", _all("models"))
+@pytest.mark.parametrize("path", [*model_config_files(ROOT / "models"),
+                                  *(path for project in PROJECTS for path in model_config_files(project / "models"))])
 def test_model_specs_load(path):
-    assert all(spec.name for spec in load_model_variants(path))
+    model = apply_model_settings(load_yaml(path), {})
+    assert all(spec.name for spec in expand_model_config(model))
 
 
-@pytest.mark.parametrize("path", _all("pipelines"))
-def test_pipeline_specs_load(path):
-    spec = PipelineSpec(**load_yaml(path))
-    assert spec.name
-
-
-@pytest.mark.parametrize("path", _all("fusion"))
-def test_fusion_specs_load(path):
-    spec = FusionSpec(**load_yaml(path))
-    assert spec.name
-
-
-@pytest.mark.parametrize("path", _all("alerts"))
-def test_alert_specs_load(path):
-    spec = AlertSpec(**load_yaml(path))
-    assert spec.name
+@pytest.mark.parametrize(("project", "selection"), list(_selections()))
+def test_project_composes_with_each_model_alone_and_all_together(project, selection, monkeypatch):
+    monkeypatch.setenv("INFEROPS_MODELS_DIR", str(ROOT / "models"))
+    manifest = yaml.safe_load((project / "project.yaml").read_text())
+    overrides = {project / "project.yaml": {**manifest, "models": selection}} if selection else {}
+    definition = ProjectLoader(project, configs_dir=ROOT / "tests").load(overrides)
+    assert list(definition.pipelines) == [definition.name]
+    assert set(definition.fusion) == set(definition.alerts) == {definition.name}
