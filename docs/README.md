@@ -15,7 +15,9 @@ the engine owns execution, isolated sessions, incident acceptance and evidence.
 | Find a module or decide where new code belongs | [Package structure](structure.md) |
 | Explore the drawings | [Offline architecture gallery](architecture/index.html) |
 | Install and call the Python library | [Python guide](python-library.md) |
-| Start and operate the server | [Deployment guide](../deploy/README.md) and [server requirements](../README.md#hosting-server-requirements) |
+| Start and operate the server, size it and secure access | [Deployment guide](../deploy/README.md) and [hosting reference](hosting.md) |
+| Deploy on a single RunPod Pod | [RunPod guide](runpod.md) |
+| Set up a development environment, run tests, find files | [Development](development.md) |
 | Call HTTP or WebSocket endpoints | [API reference](api.md) and the running server's `/docs` |
 | Create a project or an adapter | [Project configuration](project-blocks.md) and [adapter authoring](adapters.md) |
 | Upgrade, recover or roll back a release | [Release lifecycle](lifecycle.md#upgrade-and-rollback) |

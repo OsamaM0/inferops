@@ -10,7 +10,7 @@ CPU/CUDA execute models locally; Triton mode adds a shared model server.
 Read the [documentation index](../docs/README.md), [architecture](../docs/architecture.md),
 [full lifecycle](../docs/lifecycle.md) and [broker guide](../docs/messaging.md).
 Hardware/runtime prerequisites and remote-access configuration are in the
-[root README](../README.md#hosting-server-requirements).
+[hosting reference](../docs/hosting.md).
 
 ## Configuration and startup
 
@@ -357,5 +357,5 @@ restart. Follow [upgrade/rollback contracts](../docs/lifecycle.md#upgrade-and-ro
 for a supported release rollback; preserve schemas, records and volumes.
 
 The supplied ports and credentials target local development. Before remote
-access, apply the [documented server access configuration](../README.md#server-access-and-deployment-checks),
+access, apply the [documented server access configuration](../docs/hosting.md#server-access-and-deployment-checks),
 including authenticated HTTPS access and private infrastructure endpoints.

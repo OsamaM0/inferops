@@ -1,0 +1,1 @@
+bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates && curl -fsSL https://raw.githubusercontent.com/OsamaM0/inferops/main/deploy/runpod/start-command.sh -o /opt/inferops-boot.sh && export INFEROPS_EXECUTION_MODE=${INFEROPS_EXECUTION_MODE:-cuda} && exec bash /opt/inferops-boot.sh'

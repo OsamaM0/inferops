@@ -1,57 +1,142 @@
+<div align="center">
+
 # InferOps
 
-Run the complete application with Docker (no host Python setup required):
+**Multi-model video inference pipelines with incidents, evidence and a built-in dashboard.**
+Ships with a driver-behaviour project. Runs on CPU, CUDA or NVIDIA Triton.
+
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+![Runtimes](https://img.shields.io/badge/runtime-CPU%20%7C%20CUDA%20%7C%20Triton-76B900?logo=nvidia&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)
+
+<!-- Maintainers: replace TRITON_TEMPLATE_ID, CUDA_TEMPLATE_ID and CPU_TEMPLATE_ID with the IDs printed by deploy/runpod/create-template.sh -->
+[![Deploy on RunPod](https://img.shields.io/badge/Deploy%20on-RunPod-673AB7?style=for-the-badge)](https://console.runpod.io/deploy?template=TRITON_TEMPLATE_ID)
+
+[Quick start](#quick-start) ·
+[RunPod](#deploy-on-runpod) ·
+[Docker](#run-with-docker) ·
+[Configure](#configure) ·
+[Python](#use-as-a-python-library) ·
+[Docs](#documentation)
+
+</div>
+
+---
+
+## What you get
+
+- **Model pipelines.** Detection, face mesh, blendshapes and custom stages run as one ordered pipeline per source.
+- **Cameras, videos and images.** Register RTSP cameras, server videos or uploads, with annotated live previews and history.
+- **Incidents with evidence.** Unsafe behaviour is confirmed over time, then saved with video from before and after.
+- **One dashboard** at `/ui/` for sources, pipelines, models, settings and GPU capacity. No frontend build.
+- **Three runtimes**, chosen by one setting: ONNX Runtime on CPU or CUDA, or a separate Triton server.
+
+PostgreSQL stores records, disk stores evidence, and [MediaMTX](docs/media-router.md) routes and records camera streams. MinIO/S3, Redpanda and Prometheus/Grafana are optional.
+
+## Quick start
+
+| Where | Best for | Run |
+| --- | --- | --- |
+| **RunPod** | A cloud GPU, nothing to install | [Deploy button](#deploy-on-runpod) |
+| **Docker** | Your own Linux server or laptop | `./run.sh` |
+| **Python** | Calling models from your own code | `pip install -e '.[cpu]'` |
+
+---
+
+## Deploy on RunPod
+
+The Pod runs InferOps as plain processes (RunPod has no Docker): SSH, PostgreSQL, MediaMTX, Triton if chosen, and the API. Add your SSH key under **RunPod → Settings → SSH Public Keys** first.
+
+| Image | Mode | Pod | Deploy | Command |
+| --- | --- | --- | --- | --- |
+| `nvcr.io/nvidia/tritonserver:26.04-py3` | `triton` | GPU, CUDA 13.0+ | [![Deploy](https://img.shields.io/badge/Deploy-673AB7)](https://console.runpod.io/deploy?template=TRITON_TEMPLATE_ID) | [Start command](docs/runpod.md#triton) |
+| `nvidia/cuda:12.8.1-runtime-ubuntu24.04` | `cuda` | GPU, CUDA 12.8+ | [![Deploy](https://img.shields.io/badge/Deploy-673AB7)](https://console.runpod.io/deploy?template=CUDA_TEMPLATE_ID) | [Start command](docs/runpod.md#cuda) |
+| `ubuntu:24.04` | `cpu` | CPU | [![Deploy](https://img.shields.io/badge/Deploy-673AB7)](https://console.runpod.io/deploy?template=CPU_TEMPLATE_ID) | [Start command](docs/runpod.md#cpu) |
+
+1. Click **Deploy** for your image and pick a GPU.
+2. Click **Deploy On-Demand**. The first boot takes several minutes.
+3. Open `https://<pod-id>-8082.proxy.runpod.net/ui/`.
+
+Setting the Pod up by hand needs only an image, a start command, a 50 GB volume at `/workspace`, HTTP port `8082` and TCP port `22`. The [RunPod guide](docs/runpod.md) has each start command, all settings, template creation, operations and troubleshooting.
+
+---
+
+## Run with Docker
+
+Needs Docker Engine with **Compose 2.20.3+**. GPU modes also need the NVIDIA driver and Container Toolkit (`make setup-container-runtime`). No host Python needed.
 
 ```bash
-./run.sh                         # creates .env if missing, builds, waits for readiness
-# Or: make start
+./run.sh            # creates .env if missing, builds, starts, waits until ready
 ```
 
-Open the workspace at **http://localhost:8080/ui/**, or the port printed by the
-launcher. Edit [`configs/inferops.yaml`](configs/inferops.yaml) for all workspace settings;
-keep secrets and essential host overrides in `.env`. See [central configuration](docs/configuration.md). To override the runtime/port
-for one launch, use `./run.sh --mode cpu --port 8082`. Use `./run.sh stop` to
-stop services, `./run.sh logs` for logs and `./run.sh check` for startup checks.
-If an existing API container has lost its Docker network, startup automatically
-recreates it; `./run.sh repair` also forces API recreation. Data volumes are kept.
-See [startup troubleshooting](deploy/README.md#startup-troubleshooting).
+Open **http://localhost:8080/ui/** (or the port it prints). The first start downloads images and model weights.
 
-GitHub Actions checks the code, builds the CPU/CUDA/Triton client images and
-publishes passing builds to Docker Hub. See [CI/CD setup and prebuilt images](deploy/README.md#cicd-and-docker-hub).
+| Command | What it does |
+| --- | --- |
+| `./run.sh --mode cuda --port 8082` | Override runtime or port for this run |
+| `./run.sh --no-build` | Start faster with existing images |
+| `./run.sh status` · `logs` · `stop` | Show status, follow logs, stop and keep data |
+| `./run.sh check` · `repair` | Check Docker and ports; recreate the API container |
 
-A reusable Python library for model inference and multi-model pipelines, with
-separately installable application adapters.
+| Interface | Address | Login |
+| --- | --- | --- |
+| Workspace | [localhost:8080/ui/](http://localhost:8080/ui/) | None |
+| API docs | [localhost:8080/docs](http://localhost:8080/docs) | None |
+| Pages, ports and routes | [localhost:8080/ui/guide](http://localhost:8080/ui/guide) | None |
+| MinIO console (`storage`) | [localhost:9001](http://localhost:9001/) | `minio` / `minio12345` |
+| Grafana (`monitoring`) | [localhost:3000](http://localhost:3000/d/inferops-overview/inferops-overview) | Viewer; `admin` / `admin` to edit |
+| Prometheus (`monitoring`) | [localhost:9090](http://localhost:9090/graph) | None |
+
+> These are development credentials with no login on the workspace. Before exposing a server, read [server access](docs/hosting.md#server-access-and-deployment-checks).
+
+<details>
+<summary><b>Manual Compose commands and rebuilds</b></summary>
 
 ```bash
-pip install 'inferops[cpu]'        # after publication; use -e '.[cpu]' in this checkout
-# Alternatives: inferops[cuda], inferops[triton], inferops[tensorrt]
+./run.sh configure                                              # generate Docker inputs from the YAML and .env
+docker compose up -d --build --wait --wait-timeout 600          # start without the launcher's checks
+docker compose logs prepare api
+
+# After changing a model source or tensor shapes:
+docker compose run --rm --no-deps prepare inferops project prepare --force
+docker compose up -d --build --force-recreate api               # Triton modes: recreate "triton api"
 ```
 
-Start with the [Python library guide](docs/python-library.md) for local inference,
-runtime installation and multi-model examples, and [adapter authoring](docs/adapters.md)
-for independent project packages. Driver behaviour is an optional adapter:
-`pip install -e projects/driver_behaviour` from this directory.
+Named volumes keep databases, objects, broker state and caches across `docker compose down`. `down -v` deletes them. Project weights stay in `projects/<name>/model_repository/`. More: [startup troubleshooting](deploy/README.md#startup-troubleshooting).
 
-Start the [documentation tour](docs/README.md) for the complete system:
-[Hexagonal architecture and ports/adapters](docs/architecture.md),
-[startup-to-shutdown lifecycle](docs/lifecycle.md),
-[Redpanda, outbox and consumer workflows](docs/messaging.md), and the
-[offline diagram gallery](docs/architecture/index.html). The
-[package structure guide](docs/structure.md) maps the source modules.
+</details>
 
-Python, HTTP, CLI and workers use the shared hexagonal engine, with isolated
-sessions and recoverable evidence. The default server uses PostgreSQL for records, persistent disk for evidence and
-[MediaMTX](docs/media-router.md) for camera routing, WebRTC/HLS, recording and playback.
-MinIO/S3, Redpanda and monitoring are optional profiles. Redis is removed.
-The [unified dashboard guide](docs/unified-dashboard.md) covers the current layout,
-components and startup commands. A persistent capture spool is separate from
-completed evidence storage.
+---
 
-Completed evidence uses `.run/server/evidence` for the native server, or
-`/var/lib/inferops/data/evidence` on Docker's persistent `engine-data` volume.
-To enable optional MinIO/S3, use `make run-container MODE=cpu RUN_ARGS='--profiles storage'`,
-or set `storage.kind: s3` and `runtime.services: [storage]` in the central YAML.
-See [storage configuration](deploy/README.md#what-starts-and-where) for native and external S3 options.
+## Configure
+
+Workspace settings live in [`configs/inferops.yaml`](configs/inferops.yaml), and the dashboard editors save to it. Secrets and host overrides go in `.env`.
+
+```yaml
+runtime:
+  project: driver_behaviour   # folder under projects/
+  mode: cuda                  # cpu | cuda | triton | auto
+  api_port: 8080
+  services: []                # optional: storage, broker, monitoring
+```
+
+| Mode | Runs models with | Needs |
+| --- | --- | --- |
+| `cpu` | ONNX Runtime CPU | Nothing extra |
+| `cuda` | ONNX Runtime GPU | NVIDIA GPU and driver |
+| `triton` | A separate Triton server | NVIDIA GPU, recent driver ([Triton serving](docs/triton-serving.md)) |
+| `auto` | CPU (on RunPod: CUDA if the Pod has a GPU) | |
+
+Environment variables such as `INFEROPS_EXECUTION_MODE` override the YAML. Startup validates the project and downloads its weights; missing or invalid weights stop it. For MinIO/S3 set `storage.kind: s3` and `runtime.services: [storage]` ([storage options](deploy/README.md#what-starts-and-where)). Every key and its precedence: [central configuration](docs/configuration.md).
+
+---
+
+## Use as a Python library
+
+```bash
+pip install -e '.[cpu]'                     # or .[cuda], .[triton], .[tensorrt]: one ONNX Runtime per environment
+pip install -e projects/driver_behaviour    # optional driver-behaviour adapter
+```
 
 ```python
 from inferops import Engine
@@ -62,356 +147,26 @@ async def run_project():
         print(summary)
 ```
 
-This embedded example uses in-memory persistence and evidence disabled. The
-[Python guide](docs/python-library.md#shared-pipeline-engine) shows explicit
-durable adapters and processing sessions. Server startup enables incident
-capture with PostgreSQL and persistent-disk defaults. There is one execution engine.
-Rollback uses a designated previous release artifact; preserve database, object
-and spool volumes when changing releases.
-The [lifecycle guide](docs/lifecycle.md#upgrade-and-rollback) covers upgrades and
-rollback. Measure capacity on the deployment host with evidence capture enabled.
-
-The [unified dashboard](docs/unified-dashboard.md) at `/ui/` registers RTSP,
-video and image inputs, provides annotated previews, start/stop/edit controls,
-per-camera session/result history and hardware/capacity inspection. Camera count,
-processing resolution and inference/preview FPS are configurable. Start PostgreSQL and MediaMTX with `docker compose up -d postgres mediamtx`.
-For a native API, run `.venv/bin/python scripts/serve_local.py --runtime cuda`
-and open `http://127.0.0.1:8081/ui/`. See the guide for dependencies and
-benchmark commands; the concurrent-source default is an admission setting.
-
-**Pipeline & models** also accepts RF-DETR `.pth` checkpoints for optional CPU
-export and batch validation. See [checkpoint prerequisites](docs/checkpoint-conversion.md)
-and [Triton serving](docs/triton-serving.md).
-
-Optional [static camera workers](docs/static-workers.md) use shared
-Triton, PostgreSQL leases, routed controls and separate persistent spools. The
-full production workload and compatible-release rollback still require qualification.
-
-
-InferOps runs a project's models, pipelines, rules, alerts and evidence storage.
-This directory is the project root: setup, development and Docker commands run
-here. The `inferops/` child is the Python package, including the web interface.
-
-## Hosting server requirements
-
-The following are **planning estimates**, not benchmarked minimums or guarantees
-of real-time performance. They assume one Linux server hosts the API, inference,
-PostgreSQL, MediaMTX and optional MinIO, Redpanda, Prometheus and Grafana services. The default driver
-project runs RF-DETR at 576 × 576 and FaceMesh at 256 × 256. Size other projects
-for their own models, input resolution, sampled FPS and concurrent jobs.
-
-### Hardware sizing
-
-| Deployment | CPU | System RAM | GPU | Free SSD space at setup |
-| --- | --- | --- | --- | --- |
-| CPU evaluation, short clips or occasional images | 4 vCPU | 8 GB | None | 50 GB |
-| CPU hosting starting point | 8 vCPU | 16–32 GB | None | 100 GB |
-| CUDA hosting starting point | 8 vCPU | 32 GB | Compatible NVIDIA GPU; 8 GB VRAM starting point, 16 GB preferred | 100 GB |
-| Triton hosting starting point | 8–16 vCPU | 32–64 GB | Compatible NVIDIA GPU; 16 GB VRAM or more | 150 GB |
-
-CPU mode is useful for evaluation and workloads that tolerate slower inference.
-For sustained video processing, start by evaluating CUDA; choose Triton for
-separate model serving. The shared engine uses
-incremental PyAV decoding in every runtime mode. The Triton reference configuration uses one instance per model, shared GPU rate limiting and FP32 CUDA execution. A separate generated repository enables dynamic batching only after batch qualification. The original RF-DETR ONNX remains batch-one; the supplied checkpoint was genuinely re-exported and verified with dynamic batches on the local RTX 4060. See [Triton serving](docs/triton-serving.md). GPU memory and end-to-end camera capacity must be measured.
-
-**The shared engine decodes video incrementally.** Its memory depends on bounded
-processing/evidence buffers rather than the full clip duration. Benchmark the
-actual models, concurrency and evidence workload when sizing the server.
-
-The SSD estimates cover an initial allowance for images, build cache, weights
-and service data. Add capacity for uploaded media, evidence retention, database
-growth and backups. Keep Docker's data directory and the writable project/model
-repository on persistent storage. Named volumes survive `docker compose down`;
-`docker compose down -v` removes them. Back up volumes and project configuration
-and weights separately, and verify restoration.
-
-### Operating system and software
-
-- **Host:** use a Linux x86_64 server as the deployment baseline. Ubuntu 22.04
-  LTS is a practical common starting point for the pinned GPU images; Ubuntu
-  24.04 LTS is another option to evaluate for CPU/CUDA. ARM/Jetson deployments
-  require separate image, wheel and runtime compatibility validation.
-- **Containers:** install Docker Engine and **Docker Compose 2.20.3 or newer**.
-  The root Compose file uses
-  [Compose `include`](https://docs.docker.com/compose/how-tos/multiple-compose-files/include/).
-  The deployment account needs permission to run Docker and write the selected
-  project directory so model preparation can save weights.
-- **Python:** the package requires Python **3.10+**; use **3.11** for a native
-  server environment to match the CPU/CUDA API image. Docker supplies Python
-  and OS dependencies, including FFmpeg; host Python is only needed for native
-  setup or the Python launcher. Native setup also needs `venv`, `pip`, `make`
-  for Make targets, and system libraries required by the selected video runtime.
-- **Dependencies:** [pyproject.toml](pyproject.toml) is the source of truth.
-  For a native CPU API/video server, install `pip install -e '.[server,cpu,video]'`;
-  use `.[server,cuda,video]` for CUDA. Choose one ONNX Runtime wheel per
-  environment. Docker installs the server, runtime and video dependencies.
-  The UI needs no Node.js or frontend build.
-- **Network:** allow outbound HTTPS during builds and model preparation to
-  package indexes, image registries and configured artifact sources. The driver
-  project's weights are downloaded from Google Drive and Wasabi; model files
-  are ignored by Git. Provide `HF_TOKEN` when a selected project uses gated
-  Hugging Face artifacts. Allow access to configured camera/source endpoints.
-
-### GPU runtime compatibility
-
-GPU modes need a working host NVIDIA driver, GPU access for the container, and
-the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-The helper `make setup-container-runtime` configures the toolkit on Ubuntu/Debian
-and restarts Docker; it does **not** install a GPU driver.
-
-| Mode | Runtime supplied by this checkout | Compatibility to check on the server |
-| --- | --- | --- |
-| `cpu` / `auto` | ONNX Runtime CPU | No NVIDIA software required; `auto` selects CPU |
-| `cuda` | `onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27` | CUDA 12 and cuDNN 9 library compatibility, supported GPU and matching driver; check the resolved wheel against the [ONNX Runtime requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements) |
-| `triton` | `nvcr.io/nvidia/tritonserver:26.09-py3` | Triton 2.73.0, CUDA 13.4.1, ONNX Runtime 1.28.0; see [version qualification and driver notes](docs/triton-serving.md) |
-
-The CUDA extra supplies user-space CUDA/cuDNN libraries through pip; GPU images
-supply their runtime libraries. A host CUDA compiler toolkit is not required
-for these container workflows. Driver versions above describe the pinned
-releases, not a universal driver recommendation: choose a maintained driver
-compatible with the GPU and every selected runtime. Newer GPU generations may
-need newer images. Validate compatibility before provisioning the server.
-`tensorrt` is a Python library runtime option; it is not a shipped Compose mode.
-
-### Server access and deployment checks
-
-The supplied Compose stack publishes ports on all host interfaces and uses
-development credentials. Before exposing it to remote users, change MinIO and
-Grafana and PostgreSQL credentials in `.env`, and
-restrict access to internal services. The workspace/API has no built-in login;
-put it behind an authenticated HTTPS reverse proxy or private access gateway
-with WebSocket support. Grafana enables anonymous viewer access by default.
-
-Expose the application through the gateway (normally HTTPS 443). Keep PostgreSQL
-5432, Kafka 19092 and Triton 8000–8002 private. Restrict MinIO
-9000/9001, Grafana 3000 and Prometheus 9090 to trusted users/networks. Configure
-the browser-facing `INFEROPS_*_PUBLIC_URL` values for remote service links and
-evidence access; see [interfaces and ports](docs/interfaces.md) for all settings.
-Docker-published ports require Docker-aware firewall or upstream network rules;
-see [Docker's firewall guidance](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
-
-From this directory, after selecting the project/runtime in `configs/inferops.yaml`:
-
-```bash
-docker version
-docker compose version
-./run.sh configure
-docker compose config --quiet
-# GPU modes only: check the host driver, then verify container GPU access.
-# nvidia-smi
-# docker run --rm --gpus all ubuntu:22.04 nvidia-smi
-docker compose up -d --build
-docker compose ps
-docker compose logs prepare api
-curl --fail http://localhost:8080/healthz
-curl --fail http://localhost:8080/readyz
-```
-
-Use your configured API port if it differs from 8080. Startup prepares and
-validates real weights; missing artifacts or incompatible runtimes block it.
-Health/readiness checks verify startup, not capacity. Run representative images
-and videos at the intended concurrency, confirm GPU execution in accelerated
-modes, and monitor CPU, RAM, VRAM, inference latency and disk growth before
-settling on server sizing. The [verification scenarios](tests/scenarios/README.md)
-provide examples for exercising the running application.
-
-## Start the complete project
-
-Run from the Git repository root, which contains this README and `compose.yaml`.
-With Docker Compose 2.20.3 or newer, the easiest start is:
-
-```bash
-./run.sh
-./run.sh status
-```
-
-The launcher creates `.env` only when missing, checks Docker and port conflicts,
-repairs a detached API container, builds images and waits for API readiness.
-First startup can take longer while downloading images and model weights.
-Use `./run.sh --no-build` to reuse images, and `./run.sh --help` for all options.
-The equivalent manual startup, without the launcher's checks, is:
-
-```bash
-./run.sh configure              # read YAML + .env; generate Docker inputs
-docker compose up -d --build --wait --wait-timeout 600
-```
-
-Open **[InferOps](http://localhost:8080/ui/)**. It provides pipeline execution,
-live previews, activity, configuration and links to the original service UIs:
-
-| Interface | Default address | Development login |
-| --- | --- | --- |
-| InferOps project workspace | [localhost:8080/ui/](http://localhost:8080/ui/) | None |
-| MinIO original Console (optional `storage`) | [localhost:9001](http://localhost:9001/) | `minio` / `minio12345` |
-| Grafana, InferOps Overview (optional `monitoring`) | [localhost:3000](http://localhost:3000/d/inferops-overview/inferops-overview) | Viewer access; `admin` / `admin` to edit |
-| Prometheus (optional `monitoring`) | [localhost:9090](http://localhost:9090/graph) | None |
-| Interactive API docs | [localhost:8080/docs](http://localhost:8080/docs) | None |
-| All pages, ports and routes | [localhost:8080/ui/guide](http://localhost:8080/ui/guide) | None |
-
-MinIO uses the optional `storage` profile; Grafana and Prometheus use `monitoring`.
-Persistent disk is the default evidence store. The workspace opens the enabled services’ own
-interfaces in new tabs. `/frontend/` remains a compatibility address for
-`/ui/`; the separate frontend directory and hand-built MinIO evidence page
-have been removed. HTML and assets are served by FastAPI and included in
-installed Python packages. No frontend server, npm setup or UI build is required.
-
-When enabled, the full MinIO admin console requires an older official image: newer upstream
-releases removed that console. The version choice, optional storage setup,
-remote access and troubleshooting are covered in the
-[interfaces and ports guide](docs/interfaces.md). This is a development stack;
-its example credentials and public MinIO metrics are configured for local use.
-
-## Select the project and runtime
-
-Edit `configs/inferops.yaml`:
-
-```yaml
-runtime:
-  project: driver_behaviour
-  mode: cpu
-  api_port: 8080
-```
-
-Project roots, Docker images/ports, source defaults and evidence settings also
-live in that file. See [central configuration](docs/configuration.md).
-
-`cpu`, `cuda` and `triton` select the matching Compose overlay;
-`auto` is a CPU alias. GPU modes require configured NVIDIA drivers and
-container runtime. `make setup-container-runtime` installs the container
-runtime on Ubuntu/Debian with sudo authentication.
-
-Docker validates the selected project, prepares required real weights, and
-waits for storage before starting the API. Missing or invalid weights stop
-startup. An empty project opens the workspace without inference. Runtime
-variants count as one logical model in the UI.
-
-```bash
-docker compose logs prepare api
-docker compose ps
-```
-
-After changing engine code or UI assets, use `docker compose up -d --build`.
-For artifact source or tensor changes, prepare and recreate:
-
-```bash
-docker compose run --rm --no-deps prepare inferops project prepare --force
-docker compose up -d --build --force-recreate api
-```
-
-In Triton modes, recreate `triton api` together. Named volumes
-retain databases, objects, broker state and cache across `docker compose down`.
-Project weights remain in `projects/<name>/model_repository/`.
-
-## Project layout
-
-```text
-README.md, pyproject.toml       Project documentation and Python package metadata
-configs/inferops.yaml          Central workspace configuration
-.env.example, .env             Secrets and essential host overrides
-Makefile, compose.yaml          Development commands and Compose entry point
-.dockerignore                  Build context exclusions
-inferops/                      Importable Python engine
-  __init__.py, public.py        Stable Engine, Model and InferenceSession API
-  domain/                      Models, frames, tracking, fusion and incident/evidence policies
-  application/                 Execution, sessions, model pool, incidents, evidence, jobs and revisions
-  ports/                       Inference, media, persistence, delivery and extension contracts
-  adapters/inbound/            HTTP/WebSocket + packaged UI, CLI, source and broker workers
-  adapters/outbound/           Inference/plugins, stages, media, projects, storage and observability
-  bootstrap.py                 Explicit resource construction
-  sdk/                         Remote HTTP client
-  testing/                     Test configurations and tiny model generator
-projects/                      Self-contained projects, adapters, rules and weights
-configs/                       Shared platform defaults
-deploy/                        Dockerfiles, runtime overlays, Grafana and Prometheus
-scripts/                       Setup, runtime launch and cache cleanup
-tests/                         Engine tests and browser/video scenarios
-docs/                          Interfaces, API reference, project contracts and validation
-research/                      Training notebooks and sample media
-```
-
-This directory is also the Git repository root: `.git/`, `.gitignore`, this
-README, `pyproject.toml` and launch configuration all belong here. The child
-`inferops/` directory is the importable Python package. `.venv/` stores installed
-dependencies; `.run/` stores runtime reports and verification output. Pytest and
-Ruff caches live under `.run/cache/`. Test-only models use process-owned system
-temporary directories and do not create a root `model_repository/`. Real project
-weights remain under `projects/<project>/model_repository/`.
-
-`inferops.egg-info/` is generated installation metadata from the editable Python
-install; it contains package information and entry points, not another source
-implementation. Build output and tool caches are generated too and can be
-recreated.
-
-### Generated files and cleanup
-
-`inferops/` is the engine's source package. Python packaging creates a temporary
-copy at `build/lib/inferops/` when building or installing a wheel; edit the source
-package, since the build copy can become stale. `dist/` contains built archives
-and `*.egg-info/` contains generated packaging metadata. These can be recreated
-from `pyproject.toml` and are ignored by Git and the Docker build context.
-
-From this project directory:
-
-```bash
-make clean CLEAN_ARGS=--dry-run   # list generated directories to remove
-make clean                      # remove caches and packaging output
-```
-
-Cleanup covers caches throughout this repository and packaging output in
-project adapters. It preserves `.venv/`, `.env`, project weights, runtime data,
-backups and verification reports in `.run/`. Tests, research sample clips and
-registered pipeline stages/plugins support development and project extensions.
-
-## Development and new projects
-
-```bash
-make setup PROJECT=driver_behaviour
-make run PROJECT=driver_behaviour MODE=cpu
-make new-project NAME=ppe_site
-make new-model PROJECT=ppe_site NAME=helmet_detector FORMAT=yolo LABELS=person,helmet
-make test-all
-```
-
-Native `make run` starts storage, Grafana and Prometheus in Docker, then serves
-the Python API in the foreground. Prometheus targets that host API. Stop the
-native API with Ctrl+C or `make stop` before switching to containers:
-
-```bash
-make run-container PROJECT=driver_behaviour MODE=cuda RUN_ARGS=--build
-```
-
-The launcher handles its own native API occupying the requested port. It does
-not stop unrelated processes. `API_PORT=<port>` chooses another native/API
-host port. Custom native storage ports also require matching service endpoints.
-
-All workspace settings live in [`configs/inferops.yaml`](configs/inferops.yaml).
-The dashboard's **Workspace settings**, model, pipeline, rule and alert editors
-save into that same file. Optional project packages retain their baseline
-contracts; workspace overrides belong under `projects.<key>.configuration`.
-Secrets and essential host overrides belong in `.env`.
-
-Live changes can restart managed streams with the saved revision. Artifact,
-tensor and startup settings may require preparation/restart. Registered sources
-retain their saved per-stream values; YAML supplies defaults for new streams.
-See [central configuration](docs/configuration.md) for precedence and migration.
-
-See [interfaces and ports](docs/interfaces.md), [API reference](docs/api.md),
-[project configuration](docs/project-blocks.md), [project examples](projects/README.md)
-and [verification scenarios](tests/scenarios/README.md).
-
-## PostgreSQL-backed tests
-
-Use a dedicated test instance; test helpers create and remove their own databases:
-
-```bash
-docker compose -f deploy/testing/compose.postgres.yaml up -d --wait
-export INFEROPS_TEST_PG_URL=postgresql://postgres:inferops-test@127.0.0.1:55432/inferops_test
-make test
-# Discard only the disposable test service:
-docker compose -f deploy/testing/compose.postgres.yaml down
-```
-
-Previous benchmark reports describe their recorded configuration. They do not
-qualify the new PostgreSQL/persistent-disk/MediaMTX defaults. The workspace reset discards
-retired local runtime data. Startup uses fresh PostgreSQL and evidence-disk storage and has
-no SQLite import or migration step.
+Results stay in memory with evidence capture off. The [Python guide](docs/python-library.md) shows durable storage and sessions, and [adapter authoring](docs/adapters.md) covers your own project packages. To work on the code (`make setup`, tests, new projects), see [development](docs/development.md).
+
+---
+
+## Documentation
+
+| I want to… | Read |
+| --- | --- |
+| Deploy on RunPod | [RunPod guide](docs/runpod.md) |
+| Operate a server, size it, secure it | [Deployment guide](deploy/README.md) · [Hosting reference](docs/hosting.md) |
+| Change settings | [Central configuration](docs/configuration.md) |
+| Use the dashboard | [Unified dashboard](docs/unified-dashboard.md) · [Source control and capacity](docs/source-control.md) |
+| Serve models with Triton | [Triton serving](docs/triton-serving.md) |
+| Route, record and play cameras | [MediaMTX routing](docs/media-router.md) · [Interfaces and ports](docs/interfaces.md) |
+| Call the API | [API reference](docs/api.md), or `/docs` on a running server |
+| Build a project or adapter | [Project configuration](docs/project-blocks.md) · [Adapter authoring](docs/adapters.md) · [Examples](projects/README.md) |
+| Develop and test | [Development](docs/development.md) |
+| Convert RF-DETR checkpoints | [Checkpoint conversion](docs/checkpoint-conversion.md) |
+| Run fixed camera shards | [Static workers](docs/static-workers.md) |
+| Understand the design | [Architecture](docs/architecture.md) · [Lifecycle](docs/lifecycle.md) · [Messaging](docs/messaging.md) · [Structure](docs/structure.md) |
+| Ship releases | [CI/CD and Docker Hub](deploy/README.md#cicd-and-docker-hub) · [Upgrade and rollback](docs/lifecycle.md#upgrade-and-rollback) |
+
+Everything else is in the [documentation index](docs/README.md).

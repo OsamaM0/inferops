@@ -59,4 +59,4 @@ the completed-evidence disk adapter when shared object storage is needed. Native
 recordings have a separate, default 24-hour retention policy.
 
 See [deployment](../deploy/README.md), [MediaMTX](media-router.md), and the
-[PostgreSQL test setup](../README.md#postgresql-backed-tests).
+[PostgreSQL test setup](development.md#postgresql-backed-tests).

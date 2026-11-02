@@ -90,7 +90,7 @@ docs/                          Explanations, contracts and architecture drawings
 
 The repository root and importable `inferops/` package are distinct. Generated
 `.venv/`, `.run/`, wheel metadata and project weights have their own roles; see
-[generated files](../README.md#generated-files-and-cleanup). The
+[generated files](development.md#generated-files-and-cleanup). The
 [package guide](structure.md) maps individual modules to their responsibilities.
 
 | Use case | Application implementation | Collaborator |
@@ -211,7 +211,7 @@ does not require another application runner or global active project.
 
 [CI](../.github/workflows/ci.yaml) runs boundaries, lint and main tests on Python
 3.10 and 3.12. Infrastructure checks need their explicit service environment;
-see the [PostgreSQL test setup](../README.md#postgresql-backed-tests).
+see the [PostgreSQL test setup](development.md#postgresql-backed-tests).
 
 Live capacity still needs capture-enabled benchmarks measuring reply p50/p95/p99,
 drops, evidence completion, memory, spool growth and outbox lag on fixed
