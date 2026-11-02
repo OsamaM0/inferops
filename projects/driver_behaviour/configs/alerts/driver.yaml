@@ -1,6 +1,7 @@
 name: driver_alerts
 # Recovery/normal state notifications remain events, not incidents or clips.
-event_types: [phone_use, no_seatbelt, smoking, eating, distraction, drowsiness, hands_off_wheel, STATE_CRITICAL]
+event_types: [phone_use, no_seatbelt, smoking, eating, distraction, looking_left, looking_right,
+              looking_up, looking_down, eyes_closed, drowsiness, hands_off_wheel, STATE_CRITICAL]
 severity:
   levels:
     - { name: low,      rank: 1, color: "#9cf" }
@@ -14,6 +15,11 @@ severity:
     smoking: medium
     eating: low
     distraction: low
+    looking_left: low
+    looking_right: low
+    looking_up: low
+    looking_down: medium
+    eyes_closed: high
     drowsiness: high
     hands_off_wheel: medium
     STATE_CRITICAL: critical

@@ -5,7 +5,6 @@ postprocess would produce, and asserts that the driver_fusion + driver_alerts
 configs emit the expected events and alerts.
 """
 import asyncio
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -104,6 +103,38 @@ async def test_driver_fusion_face_and_hand_signals():
     assert {"drowsiness", "distraction", "hands_off_wheel"} <= types
 
 
+async def _fuse(frames, period_ms=66):
+    eng = FusionEngine(FusionSpec(**load_yaml(DB / "fusion" / "driver.yaml")))
+    eng.spec.outputs.events_topic = None
+    events = []
+    for i, payload in enumerate(frames):
+        it = _item("cab", 5_000_000 + i * period_ms, {})
+        it.payload.update(payload)
+        events.extend(await eng.ingest_item(it))
+    return [e.type for e in events]
+
+
+@pytest.mark.parametrize("direction", ["left", "right", "up", "down"])
+async def test_each_head_direction_raises_its_own_alert_once(direction):
+    looking = {f"look_{direction}_score": 1.0, "distracted_score": 1.0}
+    types = await _fuse([{}] * 15 + [looking] * 75)  # 1 s front, 5 s away from the road
+    assert types.count(f"looking_{direction}") == 1
+    assert "distraction" not in types  # no duplicate generic alert
+
+
+async def test_phone_glance_pattern_alerts_although_no_look_lasts_3s():
+    down = {"look_down_score": 1.0, "distracted_score": 1.0}
+    cycle = [down] * 23 + [{}] * 3  # ~1.5 s at the phone, 0.2 s road glance
+    assert "looking_down" in await _fuse(cycle * 6)
+    assert "looking_down" not in await _fuse(([down] * 8 + [{}] * 22) * 6)  # brief checks only
+
+
+async def test_closed_eyes_alert_and_face_out_of_view_is_distraction():
+    assert "eyes_closed" in await _fuse([{"eyes_closed_score": 1.0}] * 60)
+    assert "eyes_closed" not in await _fuse(([{"eyes_closed_score": 1.0}] * 4 + [{}] * 26) * 4)  # blinks
+    assert "distraction" in await _fuse([{"distracted_score": 1.0}] * 60)  # head_direction "away"
+
+
 async def test_recovery_and_intermediate_states_do_not_create_alerts_or_clips():
     from inferops.domain.incident_spec import AlertCandidate
 
@@ -112,43 +143,55 @@ async def test_recovery_and_intermediate_states_do_not_create_alerts_or_clips():
         assert await alerts.submit(AlertCandidate(type=kind, entity_id="driver", ts_ms=0)) is None
 
 
-async def test_strict_face_mode_never_scans_haar_or_promotes_its_false_faces():
-    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")(allow_haar_fallback=False)
+class _Registry:
+    """Model registry fake: ``outputs[name]`` is returned for every call."""
 
-    def forbidden(*args):
-        raise AssertionError("Strict mode must not run CPU Haar scanning")
+    def __init__(self, **outputs):
+        self.outputs = outputs
 
-    stage._detect_face_with_haar = forbidden
+    def get_spec(self, name):
+        return ModelSpec(name=name, inputs=[{"name": "input", "shape": [1, 3, 256, 256]}])
+
+    async def get_backend(self, name):
+        outputs = self.outputs[name]
+        if isinstance(outputs, Exception):
+            raise outputs
+        return SimpleNamespace(infer=lambda feeds: asyncio.sleep(0, outputs))
+
+
+_BACKGROUND_MESH = {"Identity": np.zeros((1, 1, 1, 1434), np.float32),
+                    "Identity_1": np.array([[[[-8.0]]]], np.float32),
+                    "Identity_2": np.array([[.999]], np.float32)}
+
+
+async def test_haar_flag_is_accepted_but_never_scans_or_promotes_false_faces():
+    # Haar cascades were replaced by YuNet; old configs that set the flag still load.
+    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")(allow_haar_fallback=True)
+    assert stage.allow_haar_fallback is False and not hasattr(stage, "_detect_face_with_haar")
+    stage.ctx = SimpleNamespace(registry=_Registry())
     item = StageItem(payload={"image_np": np.zeros((80, 80, 3), np.uint8)})
     output = await stage.process(item)
     assert "face_box" not in output.payload and "overlay_boxes" not in output.payload
 
 
 def test_face_presence_uses_the_declared_logit_not_other_scalar_heads():
-    parse = load_object(".models.face_mesh.adapter:_parse_face_mesh_output")
-    raw = {"Identity": np.zeros((1, 1, 1, 1434), np.float32),
-           "Identity_1": np.array([[[[-8.0]]]], np.float32),
-           "Identity_2": np.array([[.999]], np.float32)}
-    _, confidence = parse(raw, (0, 0, 80, 80), 80, 80, 256)
-    assert confidence < .001
+    parse = load_object(".models.face_mesh.adapter:parse_face_mesh")
+    raw = {key: value.copy() for key, value in _BACKGROUND_MESH.items()}
+    landmarks, confidence = parse(raw)
+    assert confidence < .001 and landmarks.shape == (478, 3)
     raw["Identity_1"][:] = .9  # A 0.9 logit is about 71%, not 90% or 100%.
-    _, confidence = parse(raw, (0, 0, 80, 80), 80, 80, 256)
+    _, confidence = parse(raw)
     assert .70 < confidence < .72
     raw["Identity_1"][:] = np.nan
-    _, confidence = parse(raw, (0, 0, 80, 80), 80, 80, 256)
+    _, confidence = parse(raw)
     assert confidence == 0
 
 
-async def test_background_crop_with_high_auxiliary_score_never_draws_a_driver_face(monkeypatch):
-    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")(
-        allow_haar_fallback=False, face_confidence_threshold=.8)
-
-    async def background(*args):
-        return {"Identity": np.zeros((1, 1, 1, 1434), np.float32),
-                "Identity_1": np.array([[[[-8.0]]]], np.float32),
-                "Identity_2": np.array([[.999]], np.float32)}, "face_mesh", 256
-
-    monkeypatch.setitem(stage._process.__globals__, "_infer_face_mesh", background)
+async def test_background_crop_with_high_auxiliary_score_never_draws_a_driver_face():
+    # Legacy path (no face detector): the RF-DETR DriverBehaviour box is the crop hint.
+    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")(model="face_mesh",
+                                                                   face_confidence_threshold=.8)
+    stage.ctx = SimpleNamespace(registry=_Registry(face_mesh=_BACKGROUND_MESH))
     item = _item("bus-camera", 0, {"DriverBehaviour": [{"score": .95, "box": [.2, .2, .6, .7]}]})
     item.payload["image_np"] = np.zeros((80, 80, 3), np.uint8)
     output = await stage.process(item)
@@ -203,45 +246,19 @@ async def test_rfdetr_uses_labels_from_the_model_spec():
 
 
 @pytest.mark.asyncio
-async def test_face_mesh_propagates_model_failures_without_fallback():
+@pytest.mark.parametrize("failing", ["face_detector", "face_mesh"])
+async def test_face_models_propagate_failures_without_fallback(failing):
     FaceMeshStage = load_object(".models.face_mesh.adapter:FaceMeshStage")
-    infer_face_mesh = load_object(".models.face_mesh.adapter:_infer_face_mesh")
-
-    class Registry:
-        def get_spec(self, name):
-            return ModelSpec(name=name, inputs=[{"name": "input", "shape": [1, 3, 256, 256]}])
-
-        async def get_backend(self, name):
-            raise RuntimeError("required weights unavailable")
-
-    stage = FaceMeshStage()
+    stage = FaceMeshStage(model="face_mesh", fallback_model="other", detector_model="face_detector")
     assert stage.fallback_model is None
-    stage.ctx = SimpleNamespace(registry=Registry())
+    detector = load_object(".models.face_detector.yunet:decode").__globals__
+    faces = {f"{kind}_{stride}": np.zeros((1, (640 // stride) ** 2, width), np.float32)
+             for kind, width in (("cls", 1), ("obj", 1), ("bbox", 4), ("kps", 10)) for stride in detector["STRIDES"]}
+    faces["cls_32"][0, 210] = faces["obj_32"][0, 210] = .9
+    outputs = {"face_detector": faces, "face_mesh": _BACKGROUND_MESH}
+    outputs[failing] = RuntimeError("required weights unavailable")
+    stage.ctx = SimpleNamespace(registry=_Registry(**outputs))
     with pytest.raises(RuntimeError, match="required weights unavailable"):
-        await infer_face_mesh(stage, np.zeros((64, 64, 3), dtype=np.uint8))
-
-
-@pytest.mark.asyncio
-async def test_face_search_keeps_control_loop_responsive_and_drains_on_cancel():
-    stage = load_object(".models.face_mesh.adapter:FaceMeshStage")()
-    entered, release = threading.Event(), threading.Event()
-    def slow_search(image):
-        entered.set()
-        release.wait(timeout=2)
-        return None
-    stage._detect_face_with_haar=slow_search
-    item=StageItem(payload={"image_np":np.zeros((64,64,3),np.uint8)})
-    task=asyncio.create_task(stage.process(item))
-    try:
-        assert await asyncio.wait_for(asyncio.to_thread(entered.wait,1),1.5)
-        # This coroutine can run while native face search is still active.
-        assert not task.done()
-        task.cancel()
-        await asyncio.sleep(.01)
-        assert not task.done(), "native face search must drain before cleanup"
-    finally:
-        release.set()
-        results=await asyncio.gather(task,return_exceptions=True)
-    assert isinstance(results[0],asyncio.CancelledError)
+        await stage.process(StageItem(payload={"image_np": np.zeros((64, 64, 3), dtype=np.uint8)}))
 
 

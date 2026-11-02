@@ -23,14 +23,30 @@ stages:
     stage: .models.face_mesh.adapter:FaceMeshStage
     params:
       model: face_mesh
-      crop_padding: 0.25
-      # Only accept FaceMesh output with >=80% model confidence.
+      # YuNet finds the face only to (re)acquire it; later frames track from landmarks.
+      detector_model: face_detector
+      # eyeBlink / eyeLookDown scores for eye state (vs. looking down at a phone).
+      blendshape_model: face_blendshapes
+      # FaceMesh face-presence probability needed to accept landmarks. 0.5 only
+      # adds readings on ~30-40 px faces; alerts were identical on the samples.
       face_confidence_threshold: 0.80
-      # Haar cascade fallback emits heuristic confidence, not model probabilities.
-      allow_haar_fallback: false
-      # In live mode (15 fps camera) only re-infer face mesh every 200 ms;
-      # intermediate frames reuse the cached landmarks → halves CPU load.
-      min_infer_interval_ms: 200
+      detector_score_threshold: 0.6
+      redetect_interval_ms: 2000
+      # Every frame: tracking costs one FaceMesh + one blendshape call. Raise
+      # (e.g. 100) only on CPU-bound hosts; skipped frames replay the last result.
+      min_infer_interval_ms: 0
+      # largest | left | right: which face is the driver when several are seen.
+      driver_selection: largest
+      # Set true for a mirrored (selfie-style) camera image.
+      mirror: false
+      # "front" = the driver's road-facing pose. auto learns it per stream from
+      # attentive frames (cameras are rarely on-axis); fixed uses yaw/pitch.
+      neutral: { mode: auto, yaw: 0.0, pitch: 0.0, warmup_ms: 4000 }
+      # Degrees away from neutral (enter / exit hysteresis).
+      thresholds: { yaw_enter: 25, yaw_exit: 18, down_enter: 18, down_exit: 12, up_enter: 20, up_exit: 14 }
+      eyes: { close_threshold: 0.55, open_threshold: 0.40, gaze_down_pitch_deg: 6.0 }
+      # A tracked face that disappears (head turned beyond profile) is "away".
+      away_after_ms: 600
 
   - name: fuse
     stage: fuse

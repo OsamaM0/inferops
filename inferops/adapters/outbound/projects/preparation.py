@@ -42,9 +42,9 @@ def selected_surface(stack: ConfigStack, mode: str):
     for name in os.environ.get("INFEROPS_PREWARM_PIPELINES", "").split(","):
         if name.strip() and name.strip() not in enabled:
             raise ConfigError(f"prewarm pipeline {name.strip()!r} is not enabled")
-    names = {stage.params["model"] for spec in pipelines
-             for stage in ([spec.source] if spec.source else []) + spec.stages + spec.sinks
-             if stage.params.get("model")}
+    declarations = [stage for spec in pipelines for stage in ([spec.source] if spec.source else []) + spec.stages + spec.sinks]
+    names = {stage.params["model"] for stage in declarations if stage.params.get("model")}
+    names.update(stage.params[key] for stage in declarations for key in stage.auxiliary_model_keys())
     manifest = stack.manifest()
     explicit = (os.environ["INFEROPS_PREWARM_MODELS"].split(",") if "INFEROPS_PREWARM_MODELS" in os.environ
                 else manifest.prewarm_models if manifest else [])

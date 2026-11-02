@@ -66,6 +66,8 @@ def validate_config_stack(stack: ConfigStack, *, overrides: dict[Path, dict] | N
                 name = stage.params.get(key)
                 if name is not None:
                     check(section, name, location)
+            for key in stage.auxiliary_model_keys():
+                check("models", stage.params[key], location)
             choices = stage.params.get("model_modes", {})
             if not isinstance(choices, dict) or any(not isinstance(name, str) for name in choices.values()):
                 errors.append(f"{location}: model_modes must map execution modes to model names")

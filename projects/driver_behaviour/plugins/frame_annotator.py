@@ -40,6 +40,11 @@ _ALERT_LABELS: dict[str, str] = {
     "smoking": "SMOKING",
     "eating": "EATING / DRINKING",
     "distraction": "DRIVER DISTRACTED",
+    "looking_left": "LOOKING LEFT",
+    "looking_right": "LOOKING RIGHT",
+    "looking_up": "LOOKING UP",
+    "looking_down": "LOOKING DOWN",
+    "eyes_closed": "EYES CLOSED",
     "drowsiness": "DROWSINESS",
     "hands_off_wheel": "HANDS OFF WHEEL",
 }
@@ -101,10 +106,12 @@ def _active_alert_lines(item: StageItem) -> list[str]:
             lines.append(text)
 
     face_label = str(item.payload.get("face_status_label") or "")
+    if "Eyes Closed" in face_label:
+        _add("EYES CLOSED")
     if "Drowsy" in face_label:
         _add("DROWSINESS DETECTED")
     if "Looking" in face_label:
-        _add(face_label.upper())
+        _add(next(part for part in face_label.split(" | ") if part.startswith("Looking")).upper())
     if "Eating" in face_label:
         _add("EATING / DRINKING")
     if "Smoking" in face_label:
@@ -121,7 +128,7 @@ def _active_alert_lines(item: StageItem) -> list[str]:
 
 
 def _face_color(label: str) -> tuple[int, int, int]:
-    if "Drowsy" in label:
+    if "Drowsy" in label or "Eyes Closed" in label:
         return (0, 0, 220)  # red
     if "Looking" in label:
         return (0, 180, 255)  # amber
@@ -202,7 +209,7 @@ class DriverAnnotator(FrameAnnotator):
         face_label_active = str(item.payload.get("face_status_label") or "")
         is_alerting = (
             bool(danger)
-            or any(kw in face_label_active for kw in ("Drowsy", "Looking", "Eating", "Smoking"))
+            or any(kw in face_label_active for kw in ("Drowsy", "Eyes Closed", "Looking", "Eating", "Smoking"))
             or bool(alert_lines)
         )
 

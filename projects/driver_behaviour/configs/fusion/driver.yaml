@@ -1,6 +1,7 @@
 name: driver_fusion
 entity_key: stream_id
-signals: [phone_score, seatbelt_score, smoking_score, eating_score, drowsy_ear, drowsy_eye, distracted_score, hand_on_wheel]
+signals: [phone_score, seatbelt_score, smoking_score, eating_score, drowsy_ear, drowsy_eye, distracted_score,
+          look_left_score, look_right_score, look_up_score, look_down_score, eyes_closed_score, hand_on_wheel]
 extract:
   phone_score:    "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('phone',     []))), default=0.0)"
   seatbelt_score: "max((d['score'] for r in results if r.raw for d in (r.raw.get('by_class', {}).get('seatbelt',  []))), default=1.0)"
@@ -19,7 +20,17 @@ extract:
   drowsy_eye:     "payload.get('drowsy_eye', 0.0) or 0.0"
 
   # Head-pose distraction from face mesh (overrides legacy distracted signal).
+  # 1.0 for any non-front head direction, including "away" (face turned out of view).
   distracted_score: "payload.get('distracted_score', payload.get('distracted', 0.0)) or 0.0"
+
+  # Head direction relative to the calibrated road-facing pose (1.0 while in that state).
+  look_left_score:  "payload.get('look_left_score', 0.0) or 0.0"
+  look_right_score: "payload.get('look_right_score', 0.0) or 0.0"
+  look_up_score:    "payload.get('look_up_score', 0.0) or 0.0"
+  look_down_score:  "payload.get('look_down_score', 0.0) or 0.0"
+
+  # Both eyes closed (blendshape + calibrated EAR; lowered gaze is excluded).
+  eyes_closed_score: "payload.get('eyes_closed_score', 0.0) or 0.0"
 
   # Requires an external hand_on_wheel input; the supplied video models do not produce it.
   hand_on_wheel:  "payload.get('hand_on_wheel', 1.0)"
@@ -30,6 +41,14 @@ derived:
   eating: "eating_score.latest() or 0.0"
   drowsy_score: "max(drowsy_ear.latest() or 0.0, drowsy_eye.latest() or 0.0)"
   distracted: "distracted_score.latest() or 0.0"
+  # Head direction now (1.0) or, for repeated short glances (phone use: ~1.5 s
+  # down, 0.2 s road glance, repeat), the share of the last 5 s spent there.
+  looking_left: "max(look_left_score.latest() or 0.0, (look_left_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_right: "max(look_right_score.latest() or 0.0, (look_right_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_up: "max(look_up_score.latest() or 0.0, (look_up_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_down: "max(look_down_score.latest() or 0.0, (look_down_score.fraction_above(0.5) >= 0.7) * 1.0)"
+  looking_any: "max(look_left_score.latest() or 0.0, look_right_score.latest() or 0.0, look_up_score.latest() or 0.0, look_down_score.latest() or 0.0)"
+  eyes_closed: "eyes_closed_score.latest() or 0.0"
   hand_off_wheel: "1.0 - hand_on_wheel.latest()"
 windows:
   phone_score:    { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
@@ -39,6 +58,11 @@ windows:
   drowsy_ear:     { kind: rolling_time, duration_ms: 5000, reducers: [latest, mean] }
   drowsy_eye:     { kind: rolling_time, duration_ms: 5000, reducers: [latest, mean] }
   distracted_score: { kind: rolling_time, duration_ms: 5000, reducers: [latest, mean] }
+  look_left_score:  { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  look_right_score: { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  look_up_score:    { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  look_down_score:  { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
+  eyes_closed_score: { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
   hand_on_wheel:  { kind: rolling_time, duration_ms: 5000, reducers: [latest, fraction_above] }
 rules:
   - name: phone_use
@@ -73,14 +97,58 @@ rules:
     max_gap_ms: 1500
     cooldown_ms: 30000
     emit: { type: eating }
+  # Generic distraction: head turned out of view ("away") or a legacy producer
+  # that only reports distracted_score. Directional cases have their own rules.
   - name: distraction
-    when: "distracted >= 0.5"
+    when: "distracted >= 0.5 and looking_any < 0.5"
     severity: low
     confirm_ms: 3000
     min_samples: 3
     max_gap_ms: 1500
     cooldown_ms: 30000
     emit: { type: distraction }
+  - name: looking_left
+    when: "looking_left >= 0.5"
+    severity: low
+    confirm_ms: 3000
+    min_samples: 3
+    max_gap_ms: 1500
+    cooldown_ms: 30000
+    emit: { type: looking_left }
+  - name: looking_right
+    when: "looking_right >= 0.5"
+    severity: low
+    confirm_ms: 3000
+    min_samples: 3
+    max_gap_ms: 1500
+    cooldown_ms: 30000
+    emit: { type: looking_right }
+  - name: looking_up
+    when: "looking_up >= 0.5"
+    severity: low
+    confirm_ms: 3000
+    min_samples: 3
+    max_gap_ms: 1500
+    cooldown_ms: 30000
+    emit: { type: looking_up }
+  # Down is the phone-in-lap / dashboard case, hence a higher severity.
+  - name: looking_down
+    when: "looking_down >= 0.5"
+    severity: medium
+    confirm_ms: 3000
+    min_samples: 3
+    max_gap_ms: 1500
+    cooldown_ms: 30000
+    emit: { type: looking_down }
+  # Eyes shut (microsleep). Drowsiness below adds PERCLOS / very long closures.
+  - name: eyes_closed
+    when: "eyes_closed >= 0.5"
+    severity: high
+    confirm_ms: 3000
+    min_samples: 3
+    max_gap_ms: 1500
+    cooldown_ms: 30000
+    emit: { type: eyes_closed }
   - name: drowsiness
     when: "drowsy_score >= 0.5"
     severity: high
@@ -102,17 +170,17 @@ state_machine:
   states: [NORMAL, DISTRACTED, DROWSY, UNSAFE, CRITICAL, RECOVERED]
   transitions:
     - { from_state: UNSAFE,     to_state: CRITICAL,   when: "phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6", min_dwell_ms: 8000, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
-    - { from_state: NORMAL,     to_state: DROWSY,     when: "drowsy_score >= 0.5", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
+    - { from_state: NORMAL,     to_state: DROWSY,     when: "drowsy_score >= 0.5 or eyes_closed >= 0.5", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
     - { from_state: NORMAL,     to_state: UNSAFE,     when: "phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
     - { from_state: NORMAL,     to_state: DISTRACTED, when: "distracted >= 0.5 or eating >= 0.5", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
-    - { from_state: DISTRACTED, to_state: DROWSY,     when: "drowsy_score >= 0.5", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
+    - { from_state: DISTRACTED, to_state: DROWSY,     when: "drowsy_score >= 0.5 or eyes_closed >= 0.5", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
     - { from_state: DISTRACTED, to_state: UNSAFE,     when: "phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
     - { from_state: DROWSY,     to_state: UNSAFE,     when: "drowsy_score < 0.25 and (phone >= 0.4 or smoking >= 0.2 or seatbelt < 0.4 or hand_off_wheel >= 0.6)", min_dwell_ms: 0, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
     - { from_state: UNSAFE,     to_state: DROWSY,     when: "drowsy_score >= 0.5 and phone < 0.2 and smoking < 0.2 and seatbelt >= 0.4 and hand_off_wheel < 0.3", min_dwell_ms: 1500, confirm_ms: 3000, min_samples: 3, max_gap_ms: 1500 }
-    - { from_state: DISTRACTED, to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
-    - { from_state: DROWSY,     to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
-    - { from_state: UNSAFE,     to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
-    - { from_state: CRITICAL,   to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
-    - { from_state: RECOVERED,  to_state: NORMAL,     when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 4000 }
+    - { from_state: DISTRACTED, to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and eyes_closed < 0.5 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: DROWSY,     to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and eyes_closed < 0.5 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: UNSAFE,     to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and eyes_closed < 0.5 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: CRITICAL,   to_state: RECOVERED,  when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and eyes_closed < 0.5 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 1500 }
+    - { from_state: RECOVERED,  to_state: NORMAL,     when: "phone < 0.2 and smoking < 0.2 and eating < 0.25 and drowsy_score < 0.25 and eyes_closed < 0.5 and distracted < 0.25 and hand_off_wheel < 0.3 and seatbelt >= 0.4", min_dwell_ms: 4000 }
 outputs:
   events_topic: inferops.events.driver

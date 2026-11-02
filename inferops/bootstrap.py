@@ -157,6 +157,8 @@ def build_server_engine(*, settings=None, hub=None):
              if stage.params.get("model")}
     names.update(model for pipeline in definition.pipelines.values() for stage in pipeline.stages
                  for model in stage.params.get("models", []))
+    names.update(stage.params[key] for pipeline in definition.pipelines.values() for stage in pipeline.stages
+                 for key in stage.auxiliary_model_keys())
     if definition.manifest:
         names.update(definition.manifest.prewarm_models)
     if "INFEROPS_PREWARM_MODELS" in os.environ:

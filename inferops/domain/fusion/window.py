@@ -15,6 +15,17 @@ class Window:
         self._buf: deque[tuple[int, float]] = deque()
         self._ewma: float | None = None
 
+    def __deepcopy__(self, memo) -> Window:
+        # Fusion checkpoints every frame. Entries are immutable (ts, value)
+        # tuples and the spec is read-only configuration, so only the buffer
+        # needs its own container; a generic deepcopy dominated frame time.
+        clone = Window.__new__(Window)
+        clone.spec = self.spec
+        clone._buf = deque(self._buf)
+        clone._ewma = self._ewma
+        memo[id(self)] = clone
+        return clone
+
     def add(self, ts_ms: int, value: float) -> None:
         if self.spec.kind == "ewma":
             a = float(self.spec.alpha or 0.3)

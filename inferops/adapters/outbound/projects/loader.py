@@ -375,6 +375,8 @@ class ProjectLoader:
                                      ("fusion", "fusion"), ("alerts", "alerts")):
                     if params.get(key) is not None:
                         reference(section, params[key], location)
+                for key in declaration.auxiliary_model_keys():
+                    reference("models", params[key], location)
                 modes = params.get("model_modes", {})
                 if not isinstance(modes, dict):
                     errors.append(f"{location}: model_modes must be a mapping")

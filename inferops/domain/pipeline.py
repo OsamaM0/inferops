@@ -14,6 +14,15 @@ class StageDecl(BaseModel):
     stage: str                                 # builtin alias OR "module:Class"
     params: dict[str, Any] = Field(default_factory=dict)
 
+    def auxiliary_model_keys(self) -> list[str]:
+        """Secondary model references a stage declares as ``<role>_model`` params.
+
+        They resolve, validate, prepare and prewarm exactly like ``model``, so a
+        stage can run several models (e.g. detector + landmarks) in every mode.
+        """
+        return [key for key, value in self.params.items()
+                if key.endswith("_model") and key != "fallback_model" and isinstance(value, str) and value]
+
 
 class LimitsSpec(BaseModel):
     max_concurrency: int = 4
@@ -75,6 +84,9 @@ class PipelineSpec(BaseModel):
                 if resolver is not None:
                     stage.params["model"] = resolver.resolve(stage.params["model"], mode)
                 stage.params["fallback_model"] = None
+            if resolver is not None:
+                for key in stage.auxiliary_model_keys():
+                    stage.params[key] = resolver.resolve(stage.params[key], mode)
         if resolved.tracking and resolver is not None:
             resolved.tracking.model_filter = [resolver.resolve(name, mode) for name in resolved.tracking.model_filter]
         return resolved

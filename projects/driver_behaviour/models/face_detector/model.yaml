@@ -1,0 +1,54 @@
+# Shared contract. Dictionaries merge; variant lists replace defaults.
+# YuNet (OpenCV Zoo, MIT): tiny anchor-free face detector with 5 keypoints. It
+# finds small and turned driver faces that the RF-DETR body box and Haar miss.
+# Decoding lives in yunet.py; it only runs to (re)acquire a face.
+name: face_detector
+defaults:
+  version: 1
+  task: detection
+  device:
+    preferred: gpu
+    gpu_id: 0
+  inputs:
+  - name: input
+    shape: [1, 3, 640, 640]
+    dtype: float32
+    layout: NCHW
+    color: BGR
+  outputs:
+  - {name: cls_8, shape: [1, 6400, 1], dtype: float32, layout: ND, color: NONE}
+  - {name: cls_16, shape: [1, 1600, 1], dtype: float32, layout: ND, color: NONE}
+  - {name: cls_32, shape: [1, 400, 1], dtype: float32, layout: ND, color: NONE}
+  - {name: obj_8, shape: [1, 6400, 1], dtype: float32, layout: ND, color: NONE}
+  - {name: obj_16, shape: [1, 1600, 1], dtype: float32, layout: ND, color: NONE}
+  - {name: obj_32, shape: [1, 400, 1], dtype: float32, layout: ND, color: NONE}
+  - {name: bbox_8, shape: [1, 6400, 4], dtype: float32, layout: ND, color: NONE}
+  - {name: bbox_16, shape: [1, 1600, 4], dtype: float32, layout: ND, color: NONE}
+  - {name: bbox_32, shape: [1, 400, 4], dtype: float32, layout: ND, color: NONE}
+  - {name: kps_8, shape: [1, 6400, 10], dtype: float32, layout: ND, color: NONE}
+  - {name: kps_16, shape: [1, 1600, 10], dtype: float32, layout: ND, color: NONE}
+  - {name: kps_32, shape: [1, 400, 10], dtype: float32, layout: ND, color: NONE}
+  batching:
+    enabled: false
+    max_batch_size: 1
+  artifact:
+    path: model_repository/face_detector_onnx/1/model.onnx
+    sha256: 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+    source:
+      kind: huggingface
+      repo_id: opencv/face_detection_yunet
+      filename: face_detection_yunet_2023mar.onnx
+      revision: 3cc26e7f1014a5ee5d74a42acee58bafc9d0a310
+variants:
+  onnx:
+    warmup:
+      iterations: 1
+    backend: onnxruntime
+  tensorrt:
+    backend: tensorrt
+    warmup:
+      iterations: 1
+  triton:
+    backend: triton
+    artifact:
+      triton_model_name: face_detector_onnx
