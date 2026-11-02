@@ -1,0 +1,34 @@
+# RF-DETR driver-behaviour detector. Runs as a plain `infer` stage.
+name: rfdetr_driver
+task: detection
+device: {preferred: gpu}
+inputs:
+  - {name: input, shape: [1, 3, 576, 576]}
+outputs:
+  - {name: dets, shape: [1, 300, 4]}
+  - {name: labels, shape: [1, 300, 7]}
+labels: [DriverBehaviour, cigarette, foodItem, phone, seatbelt, wheel]
+preprocess:
+  plugin: inferops.adapters.outbound.inference.plugins.resize_normalize:ResizeNormalize
+  params: {normalize: true}
+postprocess:
+  plugin: .models.rfdetr_driver.adapter:RFDetrPostprocess
+  params: {conf_threshold: "${settings.detection_confidence}"}
+artifact:
+  path: model_repository/rfdetr_driver_behaviour_onnx/1/model.onnx
+  source: {kind: google_drive, file_id: 1NmZdondieMuqWeKOkWYPSvxBWdnUI56C}
+variants: [onnx, tensorrt, triton]
+settings:
+  detection_confidence:
+    default: 0.80
+    label: Detection confidence
+    description: Minimum RF-DETR score for phone, cigarette, food, seatbelt and wheel detections.
+    minimum: 0.0
+    maximum: 1.0
+# Fusion signals this model produces. The face_mesh stage, when selected,
+# confirms smoking/eating by overlap with the mouth; otherwise raw detections count.
+signals:
+  phone_score: "detected('phone')"
+  seatbelt_score: "detected('seatbelt', default=1.0)"
+  smoking_score: "signal('smoking_face_score') or detected('cigarette')"
+  eating_score: "signal('eating_face_score') or detected('foodItem')"

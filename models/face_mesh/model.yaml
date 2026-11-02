@@ -1,0 +1,45 @@
+# FaceMeshV2 landmarks -> head direction, eye state and mouth activity.
+name: face_mesh
+task: landmarks
+device: {preferred: gpu}
+inputs:
+  - {name: input_12, shape: [1, 3, 256, 256]}
+outputs:
+  - {name: Identity, shape: [1, 1, 1, 1434]}
+  - {name: Identity_1, shape: [1, 1, 1, 1]}
+  - {name: Identity_2, shape: [1, 1]}
+artifact:
+  path: model_repository/face_mesh_onnx/1/model.onnx
+  source:
+    kind: url
+    url: https://s3.ap-northeast-2.wasabisys.com/pinto-model-zoo/410_FaceMeshV2/resources.tar.gz
+    archive_member: face_landmarks_detector_1x3x256x256.onnx
+warmup: {iterations: 1}
+variants: [onnx, tensorrt, triton]
+settings:
+  face_confidence:
+    default: 0.80
+    label: Face confidence
+    description: FaceMesh face-presence probability needed to accept landmarks.
+    minimum: 0.0
+    maximum: 1.0
+stage:
+  plugin: .models.face_mesh.adapter:FaceMeshStage
+  # Optional helpers, passed only when the project also selects them. Without
+  # face_detector the RF-DETR DriverBehaviour box locates the face.
+  uses: {detector_model: face_detector, blendshape_model: face_blendshapes}
+  # Runs after the detector so cigarette/food boxes can be matched to the mouth.
+  after: [rfdetr_driver]
+  params:
+    face_confidence_threshold: "${settings.face_confidence}"
+    # Raise min_infer_interval_ms (e.g. 100) only on CPU-bound hosts; skipped
+    # frames replay the last result. Set mirror: true for a selfie-style image.
+    # "front" = the driver's road-facing pose. auto learns it per stream from
+    # attentive frames (cameras are rarely on-axis); fixed uses yaw/pitch.
+    neutral: {mode: auto, yaw: 0.0, pitch: 0.0, warmup_ms: 4000}
+    # Degrees away from neutral (enter / exit hysteresis).
+    thresholds: {yaw_enter: 25, yaw_exit: 18, down_enter: 18, down_exit: 12, up_enter: 20, up_exit: 14}
+    eyes: {close_threshold: 0.55, open_threshold: 0.40, gaze_down_pitch_deg: 6.0}
+# Fusion signals read from the item payload under these names.
+signals: [drowsy_ear, drowsy_eye, distracted_score, look_left_score, look_right_score,
+          look_up_score, look_down_score, eyes_closed_score]

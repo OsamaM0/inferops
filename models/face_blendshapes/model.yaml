@@ -1,0 +1,15 @@
+# Helper for face_mesh: eye-blink/look-down scores.
+# MediaPipe face blendshapes (Apache-2.0): 146 FaceMesh landmarks in pixel
+# coordinates -> 52 ARKit-style scores. The face_mesh stage uses eyeBlink* and
+# eyeLookDown* for eye state; see models/face_mesh/eyes.py.
+name: face_blendshapes
+device: {preferred: gpu}
+inputs:
+  - {name: points, shape: [1, 146, 2], layout: ND, color: NONE}
+outputs:
+  - {name: blendshapes, shape: [1, 52]}
+artifact:
+  path: model_repository/face_blendshapes_onnx/1/model.onnx
+  source: {kind: installer, installer: install.py}
+warmup: {iterations: 1}
+variants: [onnx, tensorrt, triton]
