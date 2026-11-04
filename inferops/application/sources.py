@@ -44,7 +44,7 @@ class SourceManager:
                 try:
                     await self.run(spec.camera_id)
                 except Exception as error:
-                    if self.relay and spec.kind == "rtsp":
+                    if self.relay and spec.kind in {"rtsp", "hls"}:
                         self._autostart_pending.add(spec.camera_id)
                     pending = spec.camera_id in self._autostart_pending
                     self.states[spec.camera_id] = {
@@ -62,7 +62,7 @@ class SourceManager:
                 for camera_id in list(self.specs):
                     async with self._lock:
                         spec = self.specs.get(camera_id)
-                        if spec and spec.kind == "rtsp":
+                        if spec and spec.kind in {"rtsp", "hls"}:
                             await self.relay.prepare(spec)
                 self.relay_error = None
             except Exception:
@@ -91,7 +91,7 @@ class SourceManager:
             if self.relay:
                 await self.relay.prepare(spec)
                 previous = self.specs.get(spec.camera_id)
-                if previous and previous.kind == "rtsp" and spec.kind != "rtsp":
+                if previous and previous.kind in {"rtsp", "hls"} and spec.kind not in {"rtsp", "hls"}:
                     await self.relay.remove(spec.camera_id)
             task = self.tasks.get(spec.camera_id)
             if task:
@@ -136,7 +136,7 @@ class SourceManager:
             **public,
             "configured": True,
             "active": camera_id in self.tasks,
-            "live_video_available": self.relay is not None and spec.kind == "rtsp",
+            "live_video_available": self.relay is not None and spec.kind in {"rtsp", "hls"},
         }
 
     async def run(self, camera_id, *, retry_autostart=False):
@@ -374,7 +374,7 @@ class SourceManager:
         async with self._lock:
             if camera_id in self.tasks:
                 raise ValueError("source restarted while removing it; stop it first")
-            if self.relay and self.specs[camera_id].kind == "rtsp":
+            if self.relay and self.specs[camera_id].kind in {"rtsp", "hls"}:
                 await self.relay.remove(camera_id)
             await self.store.delete_source(camera_id)
             self.specs.pop(camera_id)

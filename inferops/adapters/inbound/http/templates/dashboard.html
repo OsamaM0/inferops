@@ -514,10 +514,10 @@
     <div class="form-grid">
       <label>Source ID<input name="camera_id" required pattern="[a-zA-Z0-9][a-zA-Z0-9_\-]{0,63}" placeholder="entrance-01"><small>Permanent identity for sessions, results and evidence.</small></label>
       <label>Display name<input name="name" required maxlength="120" placeholder="Main entrance"></label>
-      <label>Input type<select name="kind" id="sourceKind"><option value="rtsp">RTSP camera</option><option value="video">Video file</option><option value="image">Image</option></select></label>
+      <label>Input type<select name="kind" id="sourceKind"><option value="rtsp">RTSP camera</option><option value="hls">HLS (HTTP/HTTPS .m3u8)</option><option value="video">Video file</option><option value="image">Image</option></select></label>
       <label>Pipeline<select name="pipeline" id="pipelineSelect" required></select></label>
       <label id="workerLabel" hidden>Processing owner<select id="sourceWorker"><option value="">API / local</option></select><small>Assignment stays fixed when the source is edited.</small></label>
-      <label class="wide" id="uriLabel">RTSP URL / server file path<input name="uri" id="sourceUri" placeholder="rtsp://camera/stream"><small id="uriHelp">Credentials are stored on the server and omitted from API responses.</small></label>
+      <label class="wide" id="uriLabel">RTSP / HLS URL / server file path<input name="uri" id="sourceUri" placeholder="rtsp://camera/stream"><small id="uriHelp">Credentials are stored on the server and omitted from API responses.</small></label>
       <label class="wide hidden" id="fileLabel">Or upload a file<input type="file" id="sourceFile" accept="image/*,video/*"><small>Uploaded files are retained on this server; removing a source preserves its history.</small></label>
       <label>Group<input name="group" maxlength="120" placeholder="Fleet, team or category"></label>
       <label>Location<input name="location" maxlength="240" placeholder="Vehicle, site or area"></label>

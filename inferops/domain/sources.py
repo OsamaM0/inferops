@@ -37,7 +37,7 @@ class SourceSpec(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     group: str = Field(default="", max_length=120)
     location: str = Field(default="", max_length=240)
-    kind: Literal["rtsp", "video", "image"]
+    kind: Literal["rtsp", "hls", "video", "image"]
     uri: str = Field(min_length=1, max_length=4096)
     pipeline: str = Field(min_length=1, max_length=120)
     inference_fps: float = Field(default=5, gt=0, le=120)
@@ -61,6 +61,10 @@ class SourceSpec(BaseModel):
             parsed = urlsplit(self.uri)
             if parsed.scheme not in {"rtsp", "rtsps"} or not parsed.hostname:
                 raise ValueError("RTSP sources require an rtsp:// or rtsps:// URL")
+        elif self.kind == "hls":
+            parsed = urlsplit(self.uri)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or not parsed.path.lower().endswith(".m3u8"):
+                raise ValueError("HLS requires an HTTP(S) .m3u8 playlist URL")
         elif "://" in self.uri:
             raise ValueError("image/video sources must use uploaded files or server-local paths")
         if self.kind == "image" and self.loop:

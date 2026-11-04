@@ -88,7 +88,7 @@ docker compose up -d --force-recreate mediamtx
 
 ## Dashboard and API
 
-Register an RTSP source through Sources. **Live video** opens MediaMTX's native
+Register an RTSP or HTTP(S) HLS (.m3u8) source through Sources. **Live video** opens MediaMTX's native
 player through the API's same-origin proxy and defaults to HLS. Player HTML,
 JavaScript, playlists and segments use the application URL, including HTTPS
 hosted proxies where ports 8888/8889 are not publicly exposed. WebRTC signaling
@@ -106,7 +106,7 @@ otherwise these derive from the Control API host and ports 8888/8889.
 `GET /v1/cameras/{camera_id}/recordings?start=<RFC3339>&end=<RFC3339>&limit=100`
 returns timespans and browser-facing MP4 URLs. API/worker responses rebuild public
 URLs at the API boundary and omit private upstream addresses and credentials.
-Direct mode and local files return 409 for these RTSP-only features.
+Direct mode and local files return 409 for these router-only features.
 
 Live/playback readers use the bundled anonymous-read policy restricted to managed
 paths; Control API access uses credentials. Configure MediaMTX authentication
