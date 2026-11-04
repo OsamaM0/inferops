@@ -52,6 +52,7 @@ class SourceSpec(BaseModel):
     loop: bool = False
     autostart: bool = False
     rtsp_transport: Literal["tcp", "udp"] = "tcp"
+    hls_mode: Literal["direct", "relay"] = "direct"
     timeout_s: float = Field(default=5, ge=1, le=30)
     decoder_threads: int = Field(default=1, ge=1, le=16)
 

@@ -15,6 +15,7 @@
     $("fileLabel").classList.toggle("hidden", (kind === "rtsp" || kind === "hls"));
     $("sourceFile").accept = kind === "image" ? "image/*" : "video/*";
     $("sourceUri").placeholder = state.editing ? "Leave blank to keep the current source" : kind === "rtsp" ? "rtsp://camera/stream" : kind === "hls" ? "https://camera.example/live/index.m3u8?token=..." : "Upload below, or enter a server file path";
+    $("hlsModeLabel").classList.toggle("hidden", kind !== "hls");
     $("sourceForm").elements.rtsp_transport.disabled = kind !== "rtsp";
     $("sourceForm").elements.loop.disabled = kind !== "video";
     if (kind !== "video") $("sourceForm").elements.loop.checked = false;
@@ -73,7 +74,7 @@
         preview_enabled:form.elements.preview_enabled.checked,
         evidence_fps:form.elements.evidence_fps.value ? Number(form.elements.evidence_fps.value) : null,
         max_frame_age_ms:Number(form.elements.max_frame_age_ms.value),
-        rtsp_transport:form.elements.rtsp_transport.value,timeout_s:Number(form.elements.timeout_s.value),
+        rtsp_transport:form.elements.rtsp_transport.value,hls_mode:form.elements.hls_mode.value,timeout_s:Number(form.elements.timeout_s.value),
         jpeg_quality:Number(form.elements.jpeg_quality.value),max_width,max_height,
         loop:form.elements.loop.checked,autostart:form.elements.autostart.checked};
       const owner = $("sourceWorker").value;
@@ -149,7 +150,7 @@
       el.querySelector(".preview-placeholder div").textContent = source.preview_enabled === false ? "Annotated preview disabled · analysis continues when started":"Waiting for a processed frame";
       const age = source.last_result_at ? Math.max(0,Math.floor(Date.now()/1000-source.last_result_at)) : null;
       el.querySelector(".frame-time").textContent = age == null ? "No results":age <= 2 && source.active ? "Latest processed frame":`${age}s since last result`;
-      el.querySelector(".state-note").textContent = source.error || (source.session_id ? `Session ${source.session_id.slice(0,10)} · ${source.processed || 0} processed · ${source.dropped || 0} skipped`:"Registered · ready to start");
+      el.querySelector(".state-note").textContent = source.error || source.source_error || (source.session_id ? `Session ${source.session_id.slice(0,10)} · ${source.processed || 0} processed · ${source.dropped || 0} skipped`:"Registered · ready to start");
       const diagnostics = [];
       if (source.below_target && source.active) diagnostics.push(`Below target. Slowest step: ${source.slowest_stage || "processing"} (${number(source.stage_timings_ms?.[source.slowest_stage],0)} ms).`);
       for (const model of source.model_runtime || []) diagnostics.push(`${model.model}: ${model.device} (${model.concurrency || 1} concurrent slots)${model.downgraded ? " (CPU fallback)" : ""}`);

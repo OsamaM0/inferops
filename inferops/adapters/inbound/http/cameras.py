@@ -227,7 +227,7 @@ async def _live_path(request, camera_id, *, prepare=False):
         spec = selected.specs.get(camera_id)
         if spec is None:
             raise HTTPException(404, "source not found")
-        if spec.kind not in {"rtsp", "hls"} or selected.relay is None:
+        if selected.relay is None or not selected._uses_relay(spec):
             raise HTTPException(409, "Live video requires an RTSP or HLS source and MediaMTX routing")
         if prepare:
             await selected.relay.prepare(spec)
@@ -328,7 +328,7 @@ async def camera_recordings(request: Request, camera_id: str, start: datetime | 
     spec = selected.specs.get(camera_id)
     if spec is None:
         raise HTTPException(404, "unknown camera")
-    if spec.kind not in {"rtsp", "hls"} or selected.relay is None:
+    if selected.relay is None or not selected._uses_relay(spec):
         raise HTTPException(409, "Recordings require an RTSP or HLS source and MediaMTX routing")
     rows = await selected.relay.recordings(camera_id, start=start.isoformat() if start else None,
                                           end=end.isoformat() if end else None)
