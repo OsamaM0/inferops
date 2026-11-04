@@ -12,9 +12,10 @@
   });
   function inputKind() {
     const kind = $("sourceKind").value;
-    $("fileLabel").classList.toggle("hidden", kind === "rtsp");
+    $("fileLabel").classList.toggle("hidden", (kind === "rtsp" || kind === "hls"));
     $("sourceFile").accept = kind === "image" ? "image/*" : "video/*";
-    $("sourceUri").placeholder = state.editing ? "Leave blank to keep the current source" : kind === "rtsp" ? "rtsp://camera/stream" : "Upload below, or enter a server file path";
+    $("sourceUri").placeholder = state.editing ? "Leave blank to keep the current source" : kind === "rtsp" ? "rtsp://camera/stream" : kind === "hls" ? "https://camera.example/live/index.m3u8?token=..." : "Upload below, or enter a server file path";
+    $("sourceForm").elements.rtsp_transport.disabled = kind !== "rtsp";
     $("sourceForm").elements.loop.disabled = kind !== "video";
     if (kind !== "video") $("sourceForm").elements.loop.checked = false;
   }
@@ -57,7 +58,7 @@
     try {
       let uri = form.elements.uri.value.trim();
       const file = $("sourceFile").files[0];
-      if (file && form.elements.kind.value !== "rtsp") {
+      if (file && !["rtsp", "hls"].includes(form.elements.kind.value)) {
         const body = new FormData(); body.append("file", file);
         const upload = await api("/cameras/media", {method:"POST", body});
         if (upload.kind !== form.elements.kind.value) throw new Error("The uploaded file does not match the selected input type.");

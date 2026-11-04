@@ -11,7 +11,7 @@ from inferops.adapters.outbound.media.camera import _resize, capture_frames
 
 
 async def registered_frames(spec, stats):
-    if spec.kind == "rtsp":
+    if spec.kind in {"rtsp", "hls"}:
         frames = capture_frames(spec, stats)
         try:
             async for frame in frames:

@@ -26,7 +26,7 @@ Ships with a driver-behaviour project. Runs on CPU, CUDA or NVIDIA Triton.
 ## What you get
 
 - **Model pipelines.** Detection, face mesh, blendshapes and custom stages run as one ordered pipeline per source.
-- **Cameras, videos and images.** Register RTSP cameras, server videos or uploads, with annotated live previews and history.
+- **Cameras, videos and images.** Register RTSP or HTTP(S) HLS (.m3u8) cameras, server videos or uploads, with annotated live previews and history.
 - **Incidents with evidence.** Unsafe behaviour is confirmed over time, then saved with video from before and after.
 - **One dashboard** at `/ui/` for sources, pipelines, models, settings and GPU capacity. No frontend build.
 - **Three runtimes**, chosen by one setting: ONNX Runtime on CPU or CUDA, or a separate Triton server.

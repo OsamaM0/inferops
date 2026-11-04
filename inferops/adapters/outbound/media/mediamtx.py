@@ -49,12 +49,14 @@ class MediaMTX:
         return response
 
     async def prepare(self, spec):
-        if spec.kind != "rtsp":
+        if spec.kind not in {"rtsp", "hls"}:
             return spec
         name = self.path(spec.camera_id)
-        config = {"source": spec.uri, "sourceOnDemand": True, "rtspTransport": spec.rtsp_transport,
+        config = {"source": spec.uri, "sourceOnDemand": True,
                   "sourceOnDemandStartTimeout": f"{max(10, spec.timeout_s):g}s",
                   "sourceOnDemandCloseAfter": "5s", "record": self.record, "alwaysAvailable": False}
+        if spec.kind == "rtsp":
+            config["rtspTransport"] = spec.rtsp_transport
         current = await self._request("GET", f"/v3/config/paths/get/{name}")
         if current.status_code == 404:
             await self._request("POST", f"/v3/config/paths/add/{name}", json=config)
@@ -67,7 +69,7 @@ class MediaMTX:
             if changed:
                 await self._request("PATCH", f"/v3/config/paths/patch/{name}", json=config)
         # One shared compressed upstream. PyAV still decodes and samples locally.
-        return spec.model_copy(update={"uri": f"{self.rtsp_url}/{name}", "rtsp_transport": "tcp"})
+        return spec.model_copy(update={"kind": "rtsp", "uri": f"{self.rtsp_url}/{name}", "rtsp_transport": "tcp"})
 
     async def remove(self, camera_id):
         await self._request("DELETE", f"/v3/config/paths/delete/{self.path(camera_id)}")

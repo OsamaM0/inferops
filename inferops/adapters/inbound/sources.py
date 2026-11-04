@@ -96,6 +96,10 @@ async def camera_frames(url, *, fps=5, kind="rtsp", transport="tcp", timeout_s=5
     from types import SimpleNamespace
 
     from inferops.adapters.outbound.media.camera import capture_frames
+    from urllib.parse import urlsplit
+    parsed = urlsplit(str(url))
+    if kind == "rtsp" and parsed.scheme in {"http", "https"} and parsed.path.lower().endswith(".m3u8"):
+        kind = "hls"
     spec = SimpleNamespace(uri=url, camera_id=stream_id, kind=kind, inference_fps=fps or 120,
                            evidence_fps=None, rtsp_transport=transport, timeout_s=timeout_s,
                            max_width=max_width, max_height=max_height, reconnect_initial_s=reconnect_s)
