@@ -1,0 +1,23 @@
+# Signals come from face_tracker (see models/face_tracker/model.yaml): counters
+# per camera session. line_* exist while a counting line is on; zone_* only for
+# cameras with a zone.
+#
+# New-person alerts are raised by the face_tracker stage itself, one per counted
+# person (each with its own evidence clip), so they need no rule here. Set their
+# severity, or turn them off, with the "New person alert" project setting.
+defaults:
+  # Every signal keeps its last 5 s; `.latest()` is the value of the newest frame.
+  window: {kind: rolling_time, duration_ms: 5000}
+derived:
+  in_view: "faces_in_frame.latest() or 0"
+  unique: "unique_faces.latest() or 0"
+rules: []
+  # Optional occupancy alert, for example:
+  # - {name: crowded, when: "in_view >= 10", severity: medium, confirm_ms: 3000, cooldown_ms: 60000}
+outputs:
+  events_topic: inferops.events.face_counting
+alerts:
+  rated_only: true
+  sinks:
+    - {name: ws, kind: ws, params: {channel: "alerts.{entity_id}"}}
+    - {name: stdout, kind: stdout}

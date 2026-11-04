@@ -1,0 +1,108 @@
+# Face tracking and counting. The artifact is the AuraFace-v1 face embedder
+# (fal/AuraFace-v1 glintr100.onnx: IResNet-100, ArcFace loss, 512-d, Apache-2.0,
+# trained on commercially usable data). Only this file of that repository is
+# used: its other files are non-commercial InsightFace models.
+# The stage runs the selected face detector itself, embeds new faces, tracks them
+# (core IoU + Kalman tracker in appearance mode) and publishes the counters.
+name: face_tracker
+task: embedding
+device: {preferred: gpu}
+inputs:
+  - {name: data, shape: [1, 3, 112, 112], color: RGB}
+outputs:
+  - {name: "1333", shape: [1, 512]}
+artifact:
+  path: model_repository/face_tracker_onnx/1/model.onnx
+  sha256: a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60
+  source:
+    kind: huggingface
+    repo_id: fal/AuraFace-v1
+    filename: glintr100.onnx
+    revision: af6d057c9b0ec4071d4c49c80e3539258798b609
+warmup: {iterations: 1}
+variants: [onnx, tensorrt, triton]
+settings:
+  face_detection_confidence:
+    default: 0.6
+    label: Face detection confidence
+    description: Minimum detector score for a face to start (and be counted as) a new track.
+    minimum: 0.0
+    maximum: 1.0
+  min_face_px:
+    default: 20
+    label: Minimum face size (px)
+    description: Faces smaller than this (shorter side, source pixels) are ignored.
+    minimum: 0
+  min_hits:
+    default: 3
+    label: Frames before counting
+    description: A face is counted once its track has been detected this many times (filters false detections).
+    minimum: 1
+  reid_threshold:
+    default: 0.45
+    label: Re-identification similarity
+    description: Cosine similarity (0-1) at which a reappearing face takes back its lost track ID. Lower merges more, higher splits more.
+    minimum: 0.0
+    maximum: 1.0
+  hold_ms:
+    default: 5000
+    label: Hold lost face (ms)
+    description: How long a face lost inside the view (head turn, occlusion) keeps its ID and is not counted again.
+    minimum: 0
+  count_line:
+    default: horizontal
+    label: Counting line
+    description: Line drawn on every camera's preview and counted as IN/OUT. A camera's own line under counting.cameras replaces it.
+    choices: [horizontal, vertical, "off"]
+  count_line_position:
+    default: 0.5
+    label: Counting line position
+    description: Where the line sits, 0-1 of the frame (y for a horizontal line, x for a vertical one).
+    minimum: 0.0
+    maximum: 1.0
+  count_line_in:
+    default: down
+    label: IN direction
+    description: Movement across the line that counts as IN (down/up for a horizontal line, left/right for a vertical one).
+    choices: [down, up, left, right]
+  new_person_alert:
+    default: low
+    label: New person alert
+    description: Severity of the alert (with an evidence clip) raised for every newly counted person; "off" disables it.
+    choices: ["off", low, medium, high, critical]
+  exit_ms:
+    default: 500
+    label: Exit timeout (ms)
+    description: How long a face lost at the frame border is kept; after that the person has left and counts again on return.
+    minimum: 0
+stage:
+  plugin: .models.face_tracker.adapter:FaceCountingStage
+  # Exactly one detector is needed; RetinaFace wins when both are selected.
+  uses: {detector_model: face_retinaface, light_detector_model: face_detector}
+  params:
+    face_confidence: "${settings.face_detection_confidence}"
+    low_confidence: 0.3          # weaker boxes only keep existing tracks alive (BYTETrack)
+    min_face_px: "${settings.min_face_px}"
+    min_hits: "${settings.min_hits}"
+    reid: true
+    reid_threshold: "${settings.reid_threshold}"
+    appearance_gate: 0.2         # below this similarity two faces never share an ID
+    min_reid_face_px: 40         # smaller faces give unreliable vectors: tracked by position only
+    embed_refresh_ms: 1000
+    embed_batch_size: 1          # raise with a batching Triton configuration
+    hold_ms: "${settings.hold_ms}"
+    exit_ms: "${settings.exit_ms}"
+    exit_margin: 0.02
+    # Default line for every camera (Project settings), and how long a newly
+    # counted person is marked NEW on the preview and in evidence.
+    line: "${settings.count_line}"
+    line_position: "${settings.count_line_position}"
+    line_in: "${settings.count_line_in}"
+    new_highlight_ms: 3000
+    new_person_alert: "${settings.new_person_alert}"
+    # Counting line / zone per camera id, normalised 0..1 (see counting.py):
+    #   cameras: {cam-1: {line: {points: [[0.0, 0.55], [1.0, 0.55]]}, zone: {points: [[0.1, 0.2], [0.9, 0.2], [0.9, 0.9], [0.1, 0.9]]}}}
+    counting: {default: {}, cameras: {}}
+# Fusion signals read from the item payload. line_* exist while a line is on
+# (the default line or a camera's own), zone_* only for cameras with a zone.
+signals: [faces_in_frame, unique_faces, new_faces, line_in, line_out, zone_entries, zone_occupancy]

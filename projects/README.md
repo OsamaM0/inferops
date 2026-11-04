@@ -1,5 +1,10 @@
 # Projects
 
+| Project | What it does |
+| --- | --- |
+| [driver_behaviour](driver_behaviour/) | In-cab driver monitoring: phone, seatbelt, smoking, head direction, drowsiness |
+| [face_counting](face_counting/) | Counts and tracks faces per camera: unique people, faces in view, line / zone in-out |
+
 Each folder is a runnable project. Open **Configuration** in the UI to edit
 project settings, models, pipelines, rules and alerts through forms. The editor
 discovers each project's schema and logical model variants automatically.

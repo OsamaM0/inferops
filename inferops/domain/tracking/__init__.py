@@ -13,6 +13,6 @@ va, vp]). The Kalman implementation is pure NumPy — no external deps.
 from __future__ import annotations
 
 from inferops.domain.tracking.factory import TrackingSpec, build_tracker
-from inferops.domain.tracking.tracker import IoUKalmanTracker, Tracker
+from inferops.domain.tracking.tracker import IoUKalmanTracker, Tracker, TrackView
 
-__all__ = ["IoUKalmanTracker", "Tracker", "TrackingSpec", "build_tracker"]
+__all__ = ["IoUKalmanTracker", "TrackView", "Tracker", "TrackingSpec", "build_tracker"]

@@ -2,7 +2,7 @@
 # Guide: docs/configuration.md. Secrets stay in .env. Restart ./run.sh for
 # runtime/service changes.
 runtime:
-  project: driver_behaviour
+  project: face_counting  # or driver_behaviour
   mode: cuda  # cpu | cuda | triton
   api_port: 8082
   max_active_sources: 8
@@ -21,4 +21,8 @@ projects:
   driver_behaviour:
     root: projects/driver_behaviour
     # Tunables declared in project.yaml, e.g. detection_confidence: 0.85
+    settings: {}
+  face_counting:
+    root: projects/face_counting
+    # Tunables declared by its models, e.g. reid_threshold: 0.45, hold_ms: 5000
     settings: {}

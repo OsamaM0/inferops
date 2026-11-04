@@ -1,0 +1,45 @@
+# RetinaFace ResNet-34 face detector (yakhyo/retinaface-pytorch, MIT).
+# WIDER FACE val Easy/Medium/Hard: 95.1/93.5/84.4 at original scale, 94.2/93.1/88.9
+# multi-scale. Five landmarks per face (eyes, nose, mouth corners) for alignment.
+# The ONNX graph has dynamic height/width: raise the input to [1, 3, 960, 960]
+# (or 1280) for small, far-away faces; cost grows with the pixel count.
+# Faster, almost as accurate option: retinaface_mv2.onnx (MobileNetV2, Hard 83.6),
+# sha256 3ca44c045651cabeed1193a1fae8946ad1f3a55da8fa74b341feab5a8319f757.
+# Selected alone it is a plain detector; with face_tracker it runs inside that stage.
+name: face_retinaface
+task: detection
+device: {preferred: gpu}
+inputs:
+  - {name: input, shape: [1, 3, 640, 640], color: BGR}
+outputs:
+  - {name: loc, shape: [1, 16800, 4]}
+  - {name: conf, shape: [1, 16800, 2]}
+  - {name: landmarks, shape: [1, 16800, 10]}
+labels: [face]
+preprocess:
+  plugin: .models.face_retinaface.adapter:RetinaFacePreprocess
+postprocess:
+  plugin: .models.face_retinaface.adapter:RetinaFacePostprocess
+  params:
+    conf_threshold: "${settings.face_detection_confidence}"
+    min_face_px: "${settings.min_face_px}"
+artifact:
+  path: model_repository/face_retinaface_onnx/1/model.onnx
+  sha256: bd0263dc2a465d32859555cb1741f2d98991eb0053696e8ee33fec583d30e630
+  source:
+    kind: url
+    url: https://github.com/yakhyo/retinaface-pytorch/releases/download/v0.0.1/retinaface_r34.onnx
+warmup: {iterations: 1}
+variants: [onnx, tensorrt, triton]
+settings:
+  face_detection_confidence:
+    default: 0.6
+    label: Face detection confidence
+    description: Minimum detector score for a face.
+    minimum: 0.0
+    maximum: 1.0
+  min_face_px:
+    default: 20
+    label: Minimum face size (px)
+    description: Faces smaller than this (shorter side, source pixels) are ignored.
+    minimum: 0

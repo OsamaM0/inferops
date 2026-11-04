@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inferops-face-counting"
+version = "0.1.0"
+description = "Face counting and tracking adapter for InferOps"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["inferops>=0.1.0,<0.2"]
+
+[project.entry-points."inferops.projects"]
+face_counting = "face_counting"
+
+[tool.setuptools]
+# Models come from the shared library (models/ beside configs/, or INFEROPS_MODELS_DIR);
+# `inferops adapters init` copies the selected ones into the new workspace.
+packages = ["face_counting", "face_counting.plugins"]
+package-dir = {face_counting = "."}
+include-package-data = false
+
+[tool.setuptools.package-data]
+face_counting = ["project.yaml", "rules.yaml"]

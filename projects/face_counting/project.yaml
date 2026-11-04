@@ -1,0 +1,16 @@
+# Project entry point. The pipeline is generated from the selected models:
+# decode -> face_tracker (detect, re-identify, track, count) -> fuse -> alert -> sinks.
+name: face_counting
+label: Face Counting
+description: 'Counts people by face on each camera: unique faces, faces in view,
+  and line / zone entries and exits. RetinaFace detection with AuraFace
+  re-identification keeps one ID per person while they stay in view, so a face
+  that drops out for a few frames is not counted twice.'
+python_extras: [triton]
+prewarm_pipelines: [face_counting]
+# face_tracker runs the detector itself and owns tracking, so there is no
+# `tracking:` block (it would track the faces twice). Light profile:
+# [face_detector, face_tracker] uses YuNet instead of RetinaFace.
+models: [face_retinaface, face_tracker]
+sinks:
+  - {name: evidence, stage: evidence, params: {annotator: .plugins.frame_annotator:FaceCountAnnotator}}
