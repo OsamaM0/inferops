@@ -88,7 +88,8 @@
     if (kind === "edit") { openForm(source); return; }
     if (kind === "history") { await showHistory(source); return; }
     if (kind === "recordings") { await showRecordings(source); return; }
-    if (kind === "live") { button.disabled = true; try { await showLive(source); } finally { button.disabled = false; } return; }
+    if (kind === "live") { showAnnotated(source); return; }
+    if (kind === "original") { button.disabled = true; try { await showLive(source); } finally { button.disabled = false; } return; }
     if (kind === "remove" && !confirm(`Remove ${source.name}? Active processing will stop. Historical results and evidence are preserved.`)) return;
     button.disabled = true;
     try {
@@ -100,24 +101,26 @@
   }
   function createCard(source) {
     const article = document.createElement("article"); article.className = "source-card";
-    article.innerHTML = `<div class="card-preview"><div class="preview-placeholder"><span>▣</span><div>Waiting for a processed frame</div></div><img alt="" hidden><div class="card-tags"><span class="tag state-tag"></span><span class="tag kind-tag"></span></div><span class="frame-time"></span><button class="icon-button expand-stream" aria-label="Expand stream" title="Full view">⛶</button><iframe class="stream-preview" title="Original live stream" allow="autoplay; fullscreen; picture-in-picture" hidden></iframe></div><div class="card-body"><div class="card-title"><h2></h2></div><p class="card-id"></p><div class="card-stats"></div><div class="card-controls"><button class="button toggle"></button><button class="button live" hidden>Live video</button><button class="button recordings" hidden>Recordings</button><button class="button history">History</button><button class="button edit">Edit</button><button class="button remove" aria-label="Remove source">✕</button></div><p class="state-note"></p></div>`;
+    article.innerHTML = `<div class="card-preview"><div class="preview-placeholder"><span>▣</span><div>Waiting for a processed frame</div></div><img alt="" hidden><div class="card-tags"><span class="tag state-tag"></span><span class="tag kind-tag"></span></div><span class="frame-time"></span><button class="icon-button expand-stream" aria-label="Expand stream" title="Full view">⛶</button></div><div class="card-body"><div class="card-title"><h2></h2></div><p class="card-id"></p><div class="card-stats"></div><div class="card-controls"><button class="button toggle"></button><button class="button live" hidden>Live annotations</button><button class="button original" hidden>Original feed</button><button class="button recordings" hidden>Recordings</button><button class="button history">History</button><button class="button edit">Edit</button><button class="button remove" aria-label="Remove source">✕</button></div><p class="state-note"></p></div>`;
     const card = {element:article,version:null, visible:true, pending:false, nextFrame:0, liveLoading:false};
     article.querySelector(".expand-stream").addEventListener("click", () => {
       const current = state.sources.find(s => s.camera_id === source.camera_id);
-      if (current.live_video_available) showLive(current).catch(e => notice(e.message,true));
-      else {
-        $("previewTitle").textContent = `${current.name} · annotated preview`;
-        $("previewDialog").dataset.cameraId = current.camera_id;
-        $("previewDialog").showModal();
-      }
+      if (current.preview_enabled !== false) showAnnotated(current);
+      else if (current.live_video_available) showLive(current).catch(e => notice(e.message,true));
     });
-    for (const kind of ["toggle","live","recordings","history","edit","remove"]) article.querySelector(`.${kind}`).addEventListener("click", event => {
+    for (const kind of ["toggle","live","original","recordings","history","edit","remove"]) article.querySelector(`.${kind}`).addEventListener("click", event => {
       const current = state.sources.find(s => s.camera_id === source.camera_id);
       action(current, kind === "toggle" ? current.active ? "stop":"start":kind,event.currentTarget).catch(e => notice(e.message,true));
     });
     const image = article.querySelector("img");
     image.addEventListener("load", () => { card.pending = false; image.hidden = false; article.querySelector(".preview-placeholder").hidden = true; });
-    image.addEventListener("error", () => {card.pending = false; card.nextFrame = Date.now() + 2000;image.hidden = true;article.querySelector(".preview-placeholder").hidden = false;});
+    image.addEventListener("error", () => {
+      card.pending = false; card.nextFrame = Date.now() + 2000;
+      image.hidden = true; article.querySelector(".preview-placeholder").hidden = false;
+      if (image.dataset.stream === "live") {
+        image.removeAttribute("src"); delete image.dataset.stream; card.liveRetry = Date.now() + 5000;
+      }
+    });
     observer.observe(article);
     return card;
   }
@@ -145,7 +148,8 @@
       el.querySelector(".card-stats").innerHTML = `<span>${source.kind === "image" ? "Single image":`<b>${number(source.fps || 0)}</b> analysis / ${number(source.inference_fps,1)} target FPS`}</span><span>${esc(w)} × ${esc(h)}</span><span>${number(source.latency_ms,0)} ms</span>`;
       const toggle = el.querySelector(".toggle");toggle.textContent = source.active ? "Ⅱ Stop":"▷ Start";toggle.classList.toggle("primary",!source.active);
       el.querySelector(".edit").disabled = false;
-      el.querySelector("button.live").hidden = !source.live_video_available;
+      el.querySelector("button.live").hidden = source.preview_enabled === false || source.kind === "image";
+      el.querySelector("button.original").hidden = !source.live_video_available;
       el.querySelector("button.recordings").hidden = !source.live_video_available;
       el.querySelector(".preview-placeholder div").textContent = source.preview_enabled === false ? "Annotated preview disabled · analysis continues when started":"Waiting for a processed frame";
       const age = source.last_result_at ? Math.max(0,Math.floor(Date.now()/1000-source.last_result_at)) : null;
@@ -172,40 +176,68 @@
     for (const source of state.sources) {
       const card = state.cards.get(source.camera_id);
       if (!card) continue;
-      const frame = card.element.querySelector(".stream-preview");
-      if (!source.live_video_available) card.element.querySelector(".frame-time").textContent = source.active ? "Annotated preview" : "Latest processed frame";
-      else card.element.querySelector(".frame-time").textContent = source.active ? "Original live video" : "Latest processed frame";
-      const visible = viewing && card.visible && !card.element.hidden && !$("liveDialog").open && !$("previewDialog").open;
-      if (visible && source.live_video_available && source.active) {
-        if (!frame.hasAttribute("src") && !card.liveLoading && Date.now() >= (card.liveRetry || 0)) {
-          card.liveLoading = true;
-          api(`/cameras/${encodeURIComponent(source.camera_id)}/live`).then(live => {
-            if (state.cards.get(source.camera_id) === card && !document.hidden && card.visible && !card.element.hidden && ["sources", "overview"].includes(window.InferOps.view) && !$("liveDialog").open && !$("previewDialog").open) {
-              frame.src = live.hls_proxy_url || live.hls_url;
-              frame.hidden = false;
-            }
-          }).catch(() => { card.liveRetry = Date.now() + 5000; }).finally(() => { card.liveLoading = false; });
+      const img = card.element.querySelector("img");
+      const visible = viewing && card.visible && !card.element.hidden
+        && !$("liveDialog").open && !$("previewDialog").open;
+      card.element.querySelector(".frame-time").textContent = source.active
+        ? "Live AI annotations" : "Latest processed frame";
+      // The HTML5 HLS iframe shows unannotated video and recording controls.
+      // A multipart MJPEG image streams the *processed* annotated result instead.
+      const localLive = visible && source.active && source.preview_enabled !== false && !source.worker_id;
+      if (localLive && Date.now() >= (card.liveRetry || 0)) {
+        if (img.dataset.stream !== "live") {
+          img.dataset.stream = "live";
+          img.src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/annotated.mjpg`;
         }
-      } else { frame.removeAttribute("src"); frame.hidden = true; }
+        continue;
+      }
+      if (img.dataset.stream === "live") {
+        img.removeAttribute("src"); delete img.dataset.stream;
+        img.hidden = true; card.element.querySelector(".preview-placeholder").hidden = false;
+      }
       if (source.preview_enabled === false || !source.preview_version) {
         card.element.querySelector("img").hidden = true;
         card.element.querySelector(".preview-placeholder").hidden = false;
       }
-      if (!visible || !frame.hidden || card.pending || Date.now() < card.nextFrame || source.preview_enabled === false || !source.preview_version) continue;
+      if (!visible || card.pending || Date.now() < card.nextFrame || source.preview_enabled === false || !source.preview_version) continue;
       card.pending = true;
       card.nextFrame = Date.now() + 1000 / Math.max(1, Math.min(15, source.preview_fps || 2));
       card.element.querySelector("img").src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/preview.jpg?t=${Date.now()}`;
     }
     const dialog = $("previewDialog"), image = $("fullPreview");
     const source = state.sources.find(s => s.camera_id === dialog.dataset.cameraId);
-    if (dialog.open && !document.hidden && source && !image.dataset.pending && Date.now() >= Number(image.dataset.next || 0)) {
-      image.dataset.pending = "true";
-      image.dataset.next = Date.now() + 1000 / Math.max(1, Math.min(15, source.preview_fps || 2));
-      image.src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/preview.jpg?t=${Date.now()}`;
+    if (dialog.open && !document.hidden && source && source.active && !source.worker_id
+        && source.preview_enabled !== false) {
+      if (image.dataset.stream !== "live" && Date.now() >= Number(image.dataset.next || 0)) {
+        image.dataset.stream = "live";
+        image.src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/annotated.mjpg`;
+      }
+    } else {
+      if (image.dataset.stream === "live") {
+        image.removeAttribute("src"); delete image.dataset.stream;
+      }
+      if (dialog.open && !document.hidden && source && source.preview_enabled !== false
+          && !image.dataset.pending && Date.now() >= Number(image.dataset.next || 0)) {
+        image.dataset.pending = "true";
+        image.dataset.next = Date.now() + 1000 / Math.max(1, Math.min(15, source.preview_fps || 2));
+        image.src = `/v1/cameras/${encodeURIComponent(source.camera_id)}/preview.jpg?t=${Date.now()}`;
+      }
     }
   }
-  for (const event of ["load", "error"]) $("fullPreview").addEventListener(event, () => { delete $("fullPreview").dataset.pending; });
-  $("previewDialog").addEventListener("close", () => { $("fullPreview").removeAttribute("src"); delete $("fullPreview").dataset.pending; });
+  $("fullPreview").addEventListener("load", () => { delete $("fullPreview").dataset.pending; });
+  $("fullPreview").addEventListener("error", () => {
+    const image = $("fullPreview");
+    delete image.dataset.pending;
+    if (image.dataset.stream === "live") {
+      image.removeAttribute("src"); delete image.dataset.stream;
+      image.dataset.next = String(Date.now() + 3000);
+    }
+  });
+  $("previewDialog").addEventListener("close", () => {
+    const image = $("fullPreview");
+    image.removeAttribute("src"); delete image.dataset.pending; delete image.dataset.stream;
+    delete $("previewDialog").dataset.cameraId;
+  });
   setInterval(updatePreviews, 67);
   document.addEventListener("visibilitychange", updatePreviews);
   document.addEventListener("inferops:navigate", updatePreviews);
@@ -282,15 +314,21 @@
       if (requestId === state.liveRequest) { status.className = "form-error"; status.textContent = `${error.message} Check the camera and MediaMTX connection, or try the other playback mode.`; }
     }
   }
+  function showAnnotated(source) {
+    $("previewTitle").textContent = `${source.name} · LIVE AI annotations`;
+    $("previewDialog").dataset.cameraId = source.camera_id;
+    $("previewDialog").showModal();
+    updatePreviews();
+  }
   async function showLive(source) {
     state.live = await api(`/cameras/${encodeURIComponent(source.camera_id)}/live`);
-    $("liveTitle").textContent = `${source.name} · live video`;
+    $("liveTitle").textContent = `${source.name} · original feed (no AI overlays)`;
     $("liveDialog").showModal(); await playLive();
   }
   $("liveProtocol").addEventListener("change", playLive);
   $("liveDialog").addEventListener("close", () => { state.live = null; playLive(); });
   document.addEventListener("visibilitychange", playLive);
-  window.addEventListener("pagehide", () => { $("liveFrame").removeAttribute("src"); for (const card of state.cards.values()) card.element.querySelector(".stream-preview").removeAttribute("src"); });
+  window.addEventListener("pagehide", () => { $("liveFrame").removeAttribute("src"); $("fullPreview").removeAttribute("src"); for (const card of state.cards.values()) card.element.querySelector("img").removeAttribute("src"); });
   async function refresh() {
     if (state.refreshing) return; state.refreshing=true;
     try {
