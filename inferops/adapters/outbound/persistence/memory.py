@@ -62,6 +62,9 @@ class MemoryRepository:
     async def list_incidents(self, limit=100):
         return deepcopy(list(self.incidents.values())[-limit:])
 
+    async def delete_incidents(self, incident_ids):
+        return sum(self.incidents.pop(incident_id, None) is not None for incident_id in dict.fromkeys(incident_ids))
+
     async def list_evidence(self, session_id=None, limit=100):
         return deepcopy([v for v in self.evidence.values() if session_id is None or v["session_id"] == session_id][-limit:])
 

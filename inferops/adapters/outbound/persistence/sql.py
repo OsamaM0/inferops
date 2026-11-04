@@ -19,6 +19,7 @@ from sqlalchemy import (
     String,
     Table,
     and_,
+    delete,
     func,
     or_,
     select,
@@ -338,6 +339,13 @@ class SqlRepository:
         stmt = select(self.incidents).order_by(self.incidents.c.ts_ms.desc()).limit(max(0, limit))
         async with self.engine.connect() as conn:
             return [dict(row) for row in (await conn.execute(stmt)).mappings()]
+
+    async def delete_incidents(self, incident_ids: list[str]) -> int:
+        if not incident_ids:
+            return 0
+        async with self.engine.begin() as conn:
+            result = await conn.execute(delete(self.incidents).where(self.incidents.c.id.in_(list(incident_ids))))
+            return int(result.rowcount or 0)
 
     async def get_evidence(self, evidence_id: str) -> dict[str, Any] | None:
         async with self.engine.connect() as conn:

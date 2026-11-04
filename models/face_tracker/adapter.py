@@ -138,7 +138,7 @@ class FaceCountingStage(Stage):
         exit_ms: int = 500,
         exit_margin: float = 0.02,
         recovery_distance: float = 1.0,
-        recovery_ms: int = 1000,
+        recovery_ms: int = 300,
         counting: dict[str, Any] | None = None,
         line: str = "off",
         line_position: float = 0.5,

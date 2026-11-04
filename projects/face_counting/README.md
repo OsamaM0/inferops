@@ -31,7 +31,7 @@ counter panel, with each newly counted person marked **NEW #n**.
   rate. A second box on a face that is already counted is not counted.
 - Small faces (under 40 px, `min_reid_face_px`) are followed by position only,
   because face vectors from such small crops are unreliable. A face that
-  reappears within one face-size of where it was lost, under 1 s ago, keeps its
+  reappears within one face-size of where it was lost, under 0.3 s ago, keeps its
   ID even if it no longer overlaps its old box.
 
 Use **`line_in` as the entries count** when people walk past a door or gate. A

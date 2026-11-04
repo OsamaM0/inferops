@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark light"><title>InferOps · Operations console</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239ce8c4'/%3E%3Cpath d='M9 8h5v16H9zm9 0h5v16h-5z' fill='%23121c1a'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/ui/static/dashboard.css?v=20261020-2">
+  <link rel="stylesheet" href="/ui/static/dashboard.css?v=20261104-1">
   <script src="/ui/static/console.js?v=20261020-1"></script>
 </head>
 <body>
@@ -338,6 +338,12 @@
         <div class="split-grid">
           <section class="stack-card">
             <h4>Alerts</h4>
+            <div class="bulk-bar" id="alertsBulk">
+              <label class="bulk-check"><input type="checkbox" id="alertsSelectAll"> Select all</label>
+              <span class="bulk-count" id="alertsSelectedCount">0 selected</span>
+              <button type="button" class="ghost-btn" id="alertsDeleteSelected" disabled>Delete selected</button>
+              <button type="button" class="ghost-btn bulk-danger" id="alertsDeleteAll">Delete all</button>
+            </div>
             <div class="activity-list" id="alertsList">
               <div class="empty-state">No alerts loaded yet.</div>
             </div>
@@ -352,7 +358,7 @@
         </div>
       </article>
 
-<article class="panel"><div class="panel-head"><div><p class="eyebrow">DURABLE RECORDS</p><h2>Incident evidence</h2></div><button id="refreshEvidence" class="btn">Refresh evidence</button></div><label>Filter by session ID <input id="evidenceSession" placeholder="All sessions"></label><div id="evidenceRecords"></div></article>
+<article class="panel"><div class="panel-head"><div><p class="eyebrow">DURABLE RECORDS</p><h2>Incident evidence</h2></div><button id="refreshEvidence" class="btn">Refresh evidence</button></div><label>Filter by session ID <input id="evidenceSession" placeholder="All sessions"></label><div class="bulk-bar" id="evidenceBulk"><label class="bulk-check"><input type="checkbox" id="evidenceSelectAll"> Select all</label><span class="bulk-count" id="evidenceSelectedCount">0 selected</span><button type="button" class="ghost-btn" id="evidenceDeleteSelected" disabled>Delete selected</button><button type="button" class="ghost-btn bulk-danger" id="evidenceDeleteAll">Delete all</button></div><div id="evidenceRecords"></div></article>
 <details class="panel"><summary>Review evidence retention</summary><p>Review completed evidence before deleting artifacts. Active captures and pending delivery are excluded. Records remain available after deletion.</p><form id="retentionForm" class="field-grid"><label>Completed before<input id="retentionBefore" type="datetime-local" required></label><label>Processing owner<select id="retentionWorker"><option value="">API / local</option></select></label><button class="btn" type="submit">Preview cleanup</button></form><div id="retentionPlan" role="status"></div></details></section>
 <section data-pane="settings" class="project-workspace" hidden>      <article class="panel" id="configuration">
         <div class="panel-head">
@@ -561,5 +567,5 @@
 </dialog>
 <dialog id="evidencePlayer"><div class="dialog-heading"><h2>Incident clip</h2><button class="icon-button" data-close="evidencePlayer" aria-label="Close">×</button></div><video id="evidenceVideo" controls playsinline style="width:100%;max-height:65vh"></video></dialog>
 <dialog id="configNewDialog" aria-labelledby="configNewTitle"><form id="configNewForm"><div class="dialog-heading"><h2 id="configNewTitle">Add configuration</h2><button type="button" class="icon-button" data-close="configNewDialog" aria-label="Close">×</button></div><div class="form-grid"><label>Section<select id="configNewSection"><option value="models">Model with runtime variants</option><option value="pipelines">Pipeline</option><option value="fusion">Signals &amp; rules</option><option value="alerts">Alerts &amp; actions</option></select></label><label>Name<input id="configNewName" required pattern="[A-Za-z_][A-Za-z0-9_]*" placeholder="inspection"></label></div><p class="footnote">Configure the draft in the editor, validate it, then save to add it to this project.</p><button class="button primary" type="submit">Create draft</button></form></dialog>
-<script src="/ui/static/configuration.js?v=3" defer></script><script src="/ui/static/cameras.js?v=20261024-1" defer></script><script src="/ui/static/dashboard.js?v=20261102-1" defer></script><script src="/ui/static/workspace.js?v=20261020-2" defer></script><script src="/ui/static/console-views.js?v=20261020-2" defer></script>
+<script src="/ui/static/configuration.js?v=3" defer></script><script src="/ui/static/cameras.js?v=20261024-1" defer></script><script src="/ui/static/dashboard.js?v=20261104-1" defer></script><script src="/ui/static/workspace.js?v=20261104-1" defer></script><script src="/ui/static/console-views.js?v=20261020-2" defer></script>
 </body></html>

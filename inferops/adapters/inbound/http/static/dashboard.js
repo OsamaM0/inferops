@@ -13,6 +13,7 @@
       models: [],
       streams: [],
       alerts: [],
+      selectedAlerts: new Set(),
       streamCapabilities: {},
       events: [],
       system: null,
@@ -739,11 +740,62 @@
       }).join("");
     }
 
+    // ── Alert selection and bulk delete ─────────────────────────────────────
+    function syncAlertSelection(visible) {
+      const ids = new Set(visible.map((row) => row.id));
+      for (const id of [...state.selectedAlerts]) if (!ids.has(id)) state.selectedAlerts.delete(id);
+      const count = state.selectedAlerts.size;
+      $("alertsSelectedCount").textContent = `${count} selected`;
+      $("alertsDeleteSelected").disabled = count === 0;
+      $("alertsDeleteAll").disabled = visible.length === 0;
+      const all = $("alertsSelectAll");
+      all.checked = visible.length > 0 && count === visible.length;
+      all.indeterminate = count > 0 && count < visible.length;
+    }
+
+    async function deleteAlerts(body, question) {
+      if (!window.confirm(question)) return;
+      try {
+        const result = await request("/v1/alerts/delete", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({...body, with_evidence: true}), timeoutMs: 120000,
+        });
+        state.selectedAlerts.clear();
+        const skipped = result.skipped || [];
+        const note = `Deleted ${result.deleted_count} alert(s) and ${(result.evidence_deleted || []).length} evidence record(s).`;
+        setNotice(skipped.length ? `${note} Kept ${skipped.length}: ${skipped.slice(0, 3).map((s) => s.reason).join("; ")}` : note,
+                  skipped.length ? "status-warn" : "status-ok");
+      } catch (error) {
+        setNotice(`Delete failed: ${error.message}`, "status-err");
+      }
+      await refreshActivityOnly();
+    }
+
+    function bindAlertSelection() {
+      $("alertsList").addEventListener("change", (event) => {
+        const box = event.target.closest("[data-alert-id]");
+        if (!box) return;
+        if (box.checked) state.selectedAlerts.add(box.dataset.alertId); else state.selectedAlerts.delete(box.dataset.alertId);
+        box.closest(".activity-item")?.classList.toggle("is-selected", box.checked);
+        syncAlertSelection(state.alerts.slice(0, 50));
+      });
+      $("alertsSelectAll").addEventListener("change", (event) => {
+        state.selectedAlerts = new Set(event.target.checked ? state.alerts.slice(0, 50).map((row) => row.id) : []);
+        renderAlertsAndEvents();
+      });
+      $("alertsDeleteSelected").addEventListener("click", () => {
+        const ids = [...state.selectedAlerts];
+        if (ids.length) deleteAlerts({ids}, `Delete ${ids.length} selected alert(s) and their evidence? This cannot be undone.`);
+      });
+      $("alertsDeleteAll").addEventListener("click", () =>
+        deleteAlerts({all: true}, "Delete ALL alerts and their evidence? This cannot be undone."));
+    }
+
     function renderAlertsAndEvents() {
       const alertsList = $("alertsList");
       const eventsList = $("eventsList");
 
-      const alerts = (Array.isArray(state.alerts) ? state.alerts : []).slice(0, 12);
+      const alerts = (Array.isArray(state.alerts) ? state.alerts : []).slice(0, 50);
       const domain = selectedDomain();
       const events = (Array.isArray(state.events) ? state.events : [])
         .filter((row) => !domain || !row.pipeline || row.pipeline === domain.pipeline)
@@ -753,8 +805,9 @@
         alertsList.innerHTML = '<div class="empty-state">No recent alerts in storage yet.</div>';
       } else {
         alertsList.innerHTML = alerts.map((row) => `
-          <article class="activity-item">
-            <div class="activity-title">${escapeHtml(prettyName(row.type || "alert"))}</div>
+          <article class="activity-item${state.selectedAlerts.has(row.id) ? " is-selected" : ""}" data-alert-row="${escapeHtml(row.id || "")}">
+            <label class="item-select"><input type="checkbox" data-alert-id="${escapeHtml(row.id || "")}"${state.selectedAlerts.has(row.id) ? " checked" : ""}> Select</label>
+            <div class="activity-title">${escapeHtml(prettyName(row.type || "alert"))}${row.payload && row.payload.message ? ` · ${escapeHtml(row.payload.message)}` : ""}</div>
             <div class="activity-meta">Severity ${escapeHtml(row.severity || "-")} | Entity ${escapeHtml(row.entity_id || "-")}</div>
             <div class="activity-meta">${escapeHtml(formatTime(row.ts_ms))}</div>
             <div class="activity-meta">Evidence ${escapeHtml(row.payload && row.payload.evidence_state || "Legacy")} ${row.payload && row.payload.evidence_id ? `<a href="${escapeHtml(apiUrl(`/v1/evidence/records/${row.payload.evidence_id}`))}" target="_blank" rel="noreferrer">Details / failure reason</a>` : ""}</div>
@@ -765,6 +818,8 @@
           </article>
         `).join("");
       }
+
+      syncAlertSelection(alerts);
 
       if (!events.length) {
         eventsList.innerHTML = '<div class="empty-state">No recent events in storage for the active domain.</div>';
@@ -888,7 +943,7 @@
           request("/v1/configs"),
           request("/v1/models?view=logical"),
           request("/v1/streams"),
-          request("/v1/alerts?limit=12"),
+          request("/v1/alerts?limit=50"),
           request("/v1/events?limit=12"),
           request("/v1/interfaces"),
         ]);
@@ -963,7 +1018,7 @@
       }
       try {
         const [alerts, events, streams, system] = await Promise.all([
-          request("/v1/alerts?limit=12"),
+          request("/v1/alerts?limit=50"),
           request("/v1/events?limit=12"),
           request("/v1/streams"),
           request("/v1/system/status"),
@@ -1691,6 +1746,7 @@
       $("connectBtn").addEventListener("click", connectDashboard);
       $("refreshBtn").addEventListener("click", () => refreshSnapshot());
       $("activityRefreshBtn").addEventListener("click", refreshActivityOnly);
+      bindAlertSelection();
       $("reloadLiveConfigsBtn").addEventListener("click", reloadAllLiveConfigs);
       $("configSaveReloadBtn").addEventListener("click", saveCurrentConfig);
       $("configReloadSectionBtn").addEventListener("click", reloadSelectedSection);

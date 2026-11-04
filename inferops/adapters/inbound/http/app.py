@@ -26,6 +26,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel, Field, model_validator
 
 from inferops import __version__
 from inferops.domain.errors import BackendError, ConfigError, PipelineError, RegistryError
@@ -34,6 +35,19 @@ from inferops.domain.processing import MediaFrame
 log = logging.getLogger(__name__)
 OptionalImageFile = File(None)
 RequiredVideoFile = File(...)
+
+
+class BulkDelete(BaseModel):
+    """Body of the bulk delete endpoints: the selected ids, or ``all: true``."""
+    ids: list[str] = Field(default_factory=list, max_length=100_000)
+    all: bool = False
+    with_evidence: bool = True       # alerts only: also delete each alert's evidence
+
+    @model_validator(mode="after")
+    def _one_target(self):
+        if self.all == bool(self.ids):
+            raise ValueError("give either a non-empty ids list or all=true")
+        return self
 
 
 def _byte_range(value: str, size: int) -> tuple[int, int]:
@@ -373,6 +387,22 @@ def create_application(engine=None, *, hub=None, source_store=None, source_root=
     @app.get("/v1/alerts")
     async def alerts(request: Request, limit: int = 100):
         return await active(request).application.repository.list_incidents(limit)
+
+    @app.post("/v1/alerts/delete")
+    async def alerts_delete(request: Request, body: BulkDelete):
+        """Delete the selected alerts (or all), each with its evidence by default."""
+        from inferops.application.activity import delete_alerts
+        return await delete_alerts(active(request).application, body.ids, everything=body.all,
+                                   with_evidence=body.with_evidence)
+
+    @app.post("/v1/evidence/records/delete")
+    async def evidence_bulk_delete(request: Request, body: BulkDelete):
+        """Delete the selected evidence records (or all); tombstones stay for audit."""
+        from inferops.application.activity import delete_evidence
+        try:
+            return await delete_evidence(active(request).application, body.ids, everything=body.all)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     @app.get("/v1/evidence/records")
     async def evidence_records(request: Request, session_id: str | None = None, limit: int = 100):

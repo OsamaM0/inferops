@@ -76,22 +76,72 @@
     } catch(e) {$("checkpointNotice").textContent=e.message;}
     finally {$("checkpointSubmit").disabled=false;}
   });
+  // Selected evidence ids survive the periodic refresh; deleted records (kept
+  // as audit tombstones by the API) are not shown.
+  const evidenceSelected = new Set();
+  let evidenceRows = [];
+  function syncEvidenceSelection() {
+    const ids = new Set(evidenceRows.map(r => r.id));
+    for (const id of [...evidenceSelected]) if (!ids.has(id)) evidenceSelected.delete(id);
+    const count = evidenceSelected.size;
+    $("evidenceSelectedCount").textContent = `${count} selected`;
+    $("evidenceDeleteSelected").disabled = count === 0;
+    $("evidenceDeleteAll").disabled = evidenceRows.length === 0;
+    $("evidenceSelectAll").checked = evidenceRows.length > 0 && count === evidenceRows.length;
+    $("evidenceSelectAll").indeterminate = count > 0 && count < evidenceRows.length;
+  }
+  async function deleteEvidence(body, question) {
+    if (!window.confirm(question)) return;
+    try {
+      const result = await window.InferOps.request("/v1/evidence/records/delete", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), timeoutMs: 120000});
+      evidenceSelected.clear();
+      const skipped = result.skipped || [];
+      window.InferOps.notify(`Deleted ${result.deleted.length} evidence record(s).${skipped.length ? ` Kept ${skipped.length}: ${skipped.slice(0, 3).map(s => s.reason).join("; ")}` : ""}`, skipped.length > 0);
+    } catch(e) {window.InferOps.notify(`Delete failed: ${e.message}`, true);}
+    await evidence();
+  }
   async function evidence() {
     if (evidenceBusy) return;
     evidenceBusy = true;
     try {
       const id = $("evidenceSession").value.trim();
-      const rows = await api(`evidence/records?limit=100${id ? `&session_id=${encodeURIComponent(id)}`:""}`);
+      const rows = (await api(`evidence/records?limit=100${id ? `&session_id=${encodeURIComponent(id)}`:""}`)).filter(r => !r.deleted);
+      evidenceRows = rows;
       $("evidenceRecords").innerHTML = rows.length ? `<div class="evidence-grid">${rows.map(r => {
         const base = `/v1/evidence/records/${encodeURIComponent(r.id)}`;
         const snapshot = !r.deleted && r.artifacts?.snapshot;
         const clip = !r.deleted && r.artifacts?.clip;
-        return `<article class="evidence-card">${snapshot ? `<a href="${base}/assets/snapshot" target="_blank" rel="noreferrer"><img loading="lazy" src="${base}/assets/snapshot" alt="Saved incident snapshot"></a>`:""}<div><strong>${esc(r.state)}${r.deleted ? " · Deleted":""}</strong><p>Source: ${esc(r.camera_id || r.stream_name || "Legacy / unregistered input")}</p><code>${esc(r.session_id)}</code><p>${esc((r.errors || []).join(" · ") || "No capture errors reported")}</p><div class="stack-row">${clip ? `<button class="ghost-btn" data-play="${base}/assets/clip">Play clip</button>`:""}<a class="ghost-btn" href="#api" data-api-path="${base}">Inspect record →</a>${r.retry_available && !r.deleted ? `<button class="btn" data-retry="${esc(r.id)}">Retry save</button>`:""}</div></div></article>`;
+        const picked = evidenceSelected.has(r.id);
+        return `<article class="evidence-card${picked ? " is-selected" : ""}">${snapshot ? `<a href="${base}/assets/snapshot" target="_blank" rel="noreferrer"><img loading="lazy" src="${base}/assets/snapshot" alt="Saved incident snapshot"></a>`:""}<div><label class="item-select"><input type="checkbox" data-evidence-id="${esc(r.id)}"${picked ? " checked" : ""}> Select</label><br><strong>${esc(r.state)}${r.deleted ? " · Deleted":""}</strong><p>Source: ${esc(r.camera_id || r.stream_name || "Legacy / unregistered input")}</p><code>${esc(r.session_id)}</code><p>${esc((r.errors || []).join(" · ") || "No capture errors reported")}</p><div class="stack-row">${clip ? `<button class="ghost-btn" data-play="${base}/assets/clip">Play clip</button>`:""}<a class="ghost-btn" href="#api" data-api-path="${base}">Inspect record →</a>${r.retry_available && !r.deleted ? `<button class="btn" data-retry="${esc(r.id)}">Retry save</button>`:""}</div></div></article>`;
       }).join("")}</div>` : '<p class="empty-state">No evidence records for this selection. Accepted incidents create captures; incomplete saves show their reason here.</p>';
+      syncEvidenceSelection();
     } catch(e) {$("evidenceRecords").textContent=e.message;}
     finally {evidenceBusy=false;}
   }
   $("refreshEvidence").addEventListener("click",evidence);
+  $("evidenceRecords").addEventListener("change", event => {
+    const box = event.target.closest("[data-evidence-id]");
+    if (!box) return;
+    if (box.checked) evidenceSelected.add(box.dataset.evidenceId); else evidenceSelected.delete(box.dataset.evidenceId);
+    box.closest(".evidence-card")?.classList.toggle("is-selected", box.checked);
+    syncEvidenceSelection();
+  });
+  $("evidenceSelectAll").addEventListener("change", event => {
+    evidenceSelected.clear();
+    if (event.target.checked) for (const r of evidenceRows) evidenceSelected.add(r.id);
+    for (const box of $("evidenceRecords").querySelectorAll("[data-evidence-id]")) {
+      box.checked = event.target.checked;
+      box.closest(".evidence-card")?.classList.toggle("is-selected", event.target.checked);
+    }
+    syncEvidenceSelection();
+  });
+  $("evidenceDeleteSelected").addEventListener("click", () => {
+    const ids = [...evidenceSelected];
+    if (ids.length) deleteEvidence({ids}, `Delete ${ids.length} selected evidence record(s)? Clips and snapshots are removed; this cannot be undone.`);
+  });
+  $("evidenceDeleteAll").addEventListener("click", () =>
+    deleteEvidence({all: true}, "Delete ALL evidence? Every clip and snapshot is removed; this cannot be undone."));
   $("evidenceSession").addEventListener("change",evidence);
   document.addEventListener("click", event => {
     const link = event.target.closest("[data-evidence-session]");
