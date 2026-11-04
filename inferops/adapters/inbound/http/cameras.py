@@ -179,6 +179,43 @@ async def preview(request: Request, camera_id: str):
     return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+
+async def annotated_mjpeg_frames(selected, camera_id):
+    """Stream cached inference overlays without reopening or re-encoding the camera."""
+    current_session = selected.states.get(camera_id, {}).get("session_id")
+    last_version = None
+    while camera_id in selected.tasks:
+        state = selected.states.get(camera_id, {})
+        if state.get("session_id") != current_session:
+            break  # A restarted source must use a fresh stream.
+        version = state.get("preview_version", 0)
+        jpeg = selected.previews.get(camera_id)
+        if version and jpeg and version != last_version:
+            last_version = version
+            yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                   + str(len(jpeg)).encode("ascii") + b"\r\n\r\n" + jpeg + b"\r\n")
+        # Bounded polling of one already-encoded JPEG. No capture or GPU work per viewer.
+        await asyncio.sleep(0.1)
+
+
+@router.get("/cameras/{camera_id}/annotated.mjpg")
+async def annotated_stream(request: Request, camera_id: str):
+    selected = manager(request)
+    spec = selected.specs.get(camera_id)
+    if spec is None:
+        raise HTTPException(404, "source not found")
+    if not spec.preview_enabled:
+        raise HTTPException(409, "enable annotated preview for this source")
+    if camera_id not in selected.tasks:
+        raise HTTPException(409, "start the source to view live annotations")
+    return StreamingResponse(
+        annotated_mjpeg_frames(selected, camera_id),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate",
+                 "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/cameras/{camera_id}/runs")
 async def camera_runs(request: Request, camera_id: str, limit: int = Query(50, ge=1, le=500)):
     forwarded = await forward_owned(request, "camera", camera_id)
@@ -227,7 +264,7 @@ async def _live_path(request, camera_id, *, prepare=False):
         spec = selected.specs.get(camera_id)
         if spec is None:
             raise HTTPException(404, "source not found")
-        if spec.kind not in {"rtsp", "hls"} or selected.relay is None:
+        if selected.relay is None or not selected._uses_relay(spec):
             raise HTTPException(409, "Live video requires an RTSP or HLS source and MediaMTX routing")
         if prepare:
             await selected.relay.prepare(spec)
@@ -328,7 +365,7 @@ async def camera_recordings(request: Request, camera_id: str, start: datetime | 
     spec = selected.specs.get(camera_id)
     if spec is None:
         raise HTTPException(404, "unknown camera")
-    if spec.kind not in {"rtsp", "hls"} or selected.relay is None:
+    if selected.relay is None or not selected._uses_relay(spec):
         raise HTTPException(409, "Recordings require an RTSP or HLS source and MediaMTX routing")
     rows = await selected.relay.recordings(camera_id, start=start.isoformat() if start else None,
                                           end=end.isoformat() if end else None)

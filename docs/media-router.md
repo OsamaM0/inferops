@@ -140,3 +140,40 @@ browser scenario requires a dedicated PostgreSQL database:
 
 Past reports under `docs/benchmarks` retain their original configuration. New
 PostgreSQL/evidence-disk/recording deployments need matching capacity measurements.
+
+## HLS reliability: direct ingestion (default)
+
+With `kind: "hls"`, InferOps now defaults to `hls_mode: "direct"`:
+PyAV/FFmpeg opens the signed HTTP(S) `.m3u8` URL in the camera worker
+**without** MediaMTX HLS-source pull or an intermediate RTSP conversion.
+This prevents a MediaMTX HLS manifest HTTP 500 from blocking AI inference.
+The normal reconnecting latest-frame decoder applies with a longer HLS
+probe and retries for transient HTTP/network errors. In this mode, the
+source card shows the annotated JPEG preview once frames are processed;
+MediaMTX original-video player and recordings are **not available**.
+
+If the cloud playlist works through MediaMTX and original-video
+recordings/playback are needed, explicitly choose `hls_mode: "relay"`.
+That uses the previous HLS-to-internal-RTSP route, which is unchanged
+for RTSP sources. Switching between these modes updates only the
+source's owned MediaMTX path, not the global service configuration.
+Changing an expired signed URL is still necessary: reconnecting cannot
+renew a revoked or expired token. The signed URL and any credentials
+must not be committed to Git or shown in responses.
+
+## Live AI annotations (no playback timeline)
+
+The Sources camera card and **Live annotations** fullscreen view display a
+multipart MJPEG stream of *processed, annotated* frames from
+`GET /v1/cameras/{camera_id}/annotated.mjpg`. The server reuses each already
+rendered preview JPEG: no extra decoder, inference job, recording or GPU work
+is created for each viewer. Both the card and expanded view are live
+streams with **no pause button or seek bar**. The "Original feed" button
+still opens MediaMTX's unannotated HLS/WebRTC player if needed.
+
+Annotated update rate is limited to the lower of actual inference throughput
+and configured `preview_fps`. A pipeline delivering 1 FPS cannot make 30
+unique annotated frames each second. Increase achievable throughput separately
+and choose `preview_fps` appropriately. Streaming only works while a camera
+is running with `preview_enabled: true`; the old snapshot endpoint remains
+available (and is used when an owner is a remote worker).

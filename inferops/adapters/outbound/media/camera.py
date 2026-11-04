@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import threading
 import time
 
@@ -25,6 +26,33 @@ def _resize(image, spec):
     return cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale)))) if scale < 1 else image
 
 
+def _input_options(spec):
+    """Per-camera demuxer options: retain the existing RTSP behavior."""
+    options = {"analyzeduration": "1000000", "probesize": "32768"}
+    if spec.kind == "rtsp":
+        options["rtsp_transport"] = spec.rtsp_transport
+    elif spec.kind == "hls":
+        # Segmented HTTP sources need a longer probe than low-latency RTSP.
+        # Retry temporary HTTP/network failures, but not expired 401/403 tokens.
+        options.update(
+            analyzeduration="5000000", probesize="1048576",
+            reconnect="1", reconnect_streamed="1",
+            reconnect_on_network_error="1",
+            reconnect_on_http_error="429,500,502,503,504",
+            reconnect_delay_max="2",
+        )
+    return options
+
+
+def _capture_status(error):
+    """Never return a signed URL (including its query string) to clients."""
+    message = str(error)
+    status = re.search(r"(?:HTTP|Server returned)\\s*(?:error\\s*)?(401|403|404|410|429|5\\d\\d)\\b", message, re.I)
+    if status:
+        return f"Upstream HTTP {status.group(1)}; check URL validity or camera access"
+    return "Cannot decode HLS stream; check playlist, network, and codec"
+
+
 async def capture_frames(spec, stats):
     import av
 
@@ -38,17 +66,18 @@ async def capture_frames(spec, stats):
         while not stop.is_set():
             try:
                 # Options are per context, never process-global environment.
-                options = {"analyzeduration": "1000000", "probesize": "32768"}
-                if spec.kind == "rtsp":
-                    options["rtsp_transport"] = spec.rtsp_transport
+                options = _input_options(spec)
                 with av.open(
                     spec.uri,
                     options=options,
                     timeout=(spec.timeout_s, spec.timeout_s),
                 ) as container:
+                    if not container.streams.video:
+                        raise ValueError("stream has no video track")
                     container.streams.video[0].thread_count = getattr(spec, "decoder_threads", 1)
                     generation += 1
                     origin = time.monotonic_ns()
+                    stats.pop("source_error", None)
                     # A reconnect starts a new media clock/timeline, causing
                     # the session to reset temporal state and finish old capture.
                     for frame in container.decode(video=0):
@@ -83,7 +112,9 @@ async def capture_frames(spec, stats):
                             slot[0] = envelope
                 if not stop.is_set():
                     raise OSError("source ended")
-            except Exception:
+            except Exception as error:
+                if spec.kind == "hls":
+                    stats["source_error"] = _capture_status(error)
                 stats["decode_errors"] = stats.get("decode_errors", 0) + 1
                 if stop.is_set():
                     return
@@ -94,7 +125,7 @@ async def capture_frames(spec, stats):
                 stop.wait(delay * random.uniform(0.8, 1.2))
                 delay = min(8, delay * 2)
 
-    thread = threading.Thread(target=read, name=f"rtsp-{spec.camera_id}", daemon=True)
+    thread = threading.Thread(target=read, name=f"{spec.kind}-{spec.camera_id}", daemon=True)
     thread.start()
     last = -1
     try:
@@ -110,4 +141,4 @@ async def capture_frames(spec, stats):
         stop.set()
         await asyncio.to_thread(thread.join, spec.timeout_s * 2 + 1)
         if thread.is_alive():
-            raise RuntimeError("RTSP reader did not stop within its I/O deadline")
+            raise RuntimeError("Camera reader did not stop within its I/O deadline")

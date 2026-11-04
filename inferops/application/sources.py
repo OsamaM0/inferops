@@ -27,6 +27,12 @@ class SourceManager:
         self.relay, self.relay_error, self._relay_task = relay, None, None
         self._autostart_pending = set()
 
+    @staticmethod
+    def _uses_relay(spec):
+        # HLS is decoded directly by default: no dependence on MediaMTX
+        # pulling a signed cloud playlist successfully.
+        return spec.kind == "rtsp" or (spec.kind == "hls" and spec.hls_mode == "relay")
+
     async def start(self):
         await self.store.start()
         for spec in await self.store.list_sources():
@@ -44,7 +50,7 @@ class SourceManager:
                 try:
                     await self.run(spec.camera_id)
                 except Exception as error:
-                    if self.relay and spec.kind in {"rtsp", "hls"}:
+                    if self.relay and self._uses_relay(spec):
                         self._autostart_pending.add(spec.camera_id)
                     pending = spec.camera_id in self._autostart_pending
                     self.states[spec.camera_id] = {
@@ -62,7 +68,7 @@ class SourceManager:
                 for camera_id in list(self.specs):
                     async with self._lock:
                         spec = self.specs.get(camera_id)
-                        if spec and spec.kind in {"rtsp", "hls"}:
+                        if spec and self._uses_relay(spec):
                             await self.relay.prepare(spec)
                 self.relay_error = None
             except Exception:
@@ -89,9 +95,11 @@ class SourceManager:
             if hasattr(getattr(self.application, "repository", None), "claim_camera"):
                 await self.application.repository.claim_camera(spec.camera_id)
             if self.relay:
-                await self.relay.prepare(spec)
                 previous = self.specs.get(spec.camera_id)
-                if previous and previous.kind in {"rtsp", "hls"} and spec.kind not in {"rtsp", "hls"}:
+                if self._uses_relay(spec):
+                    await self.relay.prepare(spec)
+                elif previous and self._uses_relay(previous):
+                    # Only remove our managed path, never other projects' paths.
                     await self.relay.remove(spec.camera_id)
             task = self.tasks.get(spec.camera_id)
             if task:
@@ -136,7 +144,7 @@ class SourceManager:
             **public,
             "configured": True,
             "active": camera_id in self.tasks,
-            "live_video_available": self.relay is not None and spec.kind in {"rtsp", "hls"},
+            "live_video_available": self.relay is not None and self._uses_relay(spec),
         }
 
     async def run(self, camera_id, *, retry_autostart=False):
@@ -152,7 +160,7 @@ class SourceManager:
                 raise ValueError(
                     f"active source limit ({self.max_active}) reached; stop a source or change configuration"
                 )
-            capture_spec = await self.relay.prepare(spec) if self.relay else spec
+            capture_spec = await self.relay.prepare(spec) if self.relay and self._uses_relay(spec) else spec
             session = await self.application.open_session(
                 spec.pipeline, stream_name=camera_id, owner_kind="camera"
             )
@@ -374,7 +382,7 @@ class SourceManager:
         async with self._lock:
             if camera_id in self.tasks:
                 raise ValueError("source restarted while removing it; stop it first")
-            if self.relay and self.specs[camera_id].kind in {"rtsp", "hls"}:
+            if self.relay and self._uses_relay(self.specs[camera_id]):
                 await self.relay.remove(camera_id)
             await self.store.delete_source(camera_id)
             self.specs.pop(camera_id)

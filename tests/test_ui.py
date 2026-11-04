@@ -70,3 +70,15 @@ async def test_proxy_urls_preserve_service_paths_and_reject_credentials(monkeypa
         response = await client.get("/v1/interfaces")
         assert response.status_code == 503
         assert "secret" not in response.text
+
+@pytest.mark.asyncio
+async def test_source_card_uses_live_annotations_instead_of_original_hls_player():
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://test") as client:
+        shell = (await client.get("/ui/")).text
+        script = (await client.get("/ui/static/cameras.js")).text
+        assert "Live annotations" in script
+        assert "Original feed" in script
+        assert "annotated.mjpg" in script
+        assert "frame.src = live.hls_proxy_url" not in script
+        assert "stream-preview" not in script
+        assert "LIVE AI annotations" in shell
